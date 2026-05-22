@@ -4,7 +4,7 @@ import path from 'node:path';
 
 export default defineConfig({
   build: {
-    outDir: path.resolve(__dirname, '../../dist'),
+    outDir: 'dist',
     emptyOutDir: true,
   },
   resolve: {

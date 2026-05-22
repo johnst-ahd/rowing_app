@@ -9,7 +9,8 @@
   ],
   "scripts": {
     "dev": "npm run dev -w recorder-pwa",
-    "build": "npm run build -w recorder-pwa",
+    "build": "node scripts/vercel-build.mjs",
+    "build:app": "npm run build -w recorder-pwa",
     "preview": "npm run preview -w recorder-pwa",
     "doc:summary": "python scripts/create_summary_doc.py"
   },
