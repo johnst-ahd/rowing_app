@@ -49,6 +49,12 @@ body {
   font-weight: 600;
 }
 
+.header-btns {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .main {
   padding: 1rem 1.25rem 2rem;
   display: flex;

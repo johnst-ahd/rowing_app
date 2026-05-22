@@ -5,9 +5,8 @@
   "buildCommand": "node scripts/vercel-build.mjs",
   "outputDirectory": "dist",
   "functions": {
-    "api/ingest.js": {
-      "maxDuration": 30
-    }
+    "api/ingest.js": { "maxDuration": 30 },
+    "api/devices.js": { "maxDuration": 15 }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

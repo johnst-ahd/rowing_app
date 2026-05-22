@@ -43,7 +43,10 @@ export function mountApp(root: HTMLElement): void {
     return `
       <header class="header">
         <h1>RNZ Row Recorder</h1>
-        <button type="button" class="btn btn-ghost" data-nav="settings">Settings</button>
+        <div class="header-btns">
+          <a class="btn btn-ghost" href="/dashboard.html">Monitor</a>
+          <button type="button" class="btn btn-ghost" data-nav="settings">Settings</button>
+        </div>
       </header>
       <main class="main">
         <section class="card status-card">

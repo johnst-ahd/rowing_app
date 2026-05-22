@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c4a6e" />
+    <title>RNZ Device Monitor</title>
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="stylesheet" href="/dashboard.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>RNZ Device Monitor</h1>
+      <div class="header-actions">
+        <label>
+          Ingest token
+          <input type="password" id="token" placeholder="Bearer token (if set on server)" autocomplete="off" />
+        </label>
+        <label>
+          Stats window
+          <select id="windowSec">
+            <option value="30">30 s</option>
+            <option value="60" selected>60 s</option>
+            <option value="120">120 s</option>
+          </select>
+        </label>
+        <label>
+          Refresh
+          <select id="pollMs">
+            <option value="1000">1 s</option>
+            <option value="2000" selected>2 s</option>
+            <option value="5000">5 s</option>
+            <option value="10000">10 s</option>
+          </select>
+        </label>
+        <button type="button" class="btn btn-primary" id="applyBtn">Apply</button>
+        <button type="button" class="btn btn-ghost" id="refreshBtn">Refresh now</button>
+        <a class="btn btn-ghost" href="/">Recorder</a>
+      </div>
+    </header>
+
+    <section class="summary">
+      <div class="stat-card">
+        <div class="val" id="activeCount">0</div>
+        <div class="lbl">Online now</div>
+      </div>
+      <div class="stat-card">
+        <div class="val" id="deviceCount">0</div>
+        <div class="lbl">Devices seen</div>
+      </div>
+      <div class="stat-card">
+        <div class="val" id="windowLabel">60</div>
+        <div class="lbl">Rate window (sec)</div>
+      </div>
+    </section>
+
+    <p class="poll-status" id="pollStatus">Connecting…</p>
+
+    <main class="main">
+      <div class="devices-grid" id="devicesGrid"></div>
+    </main>
+
+    <script src="/dashboard.js"></script>
+  </body>
+</html>

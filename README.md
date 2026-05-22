@@ -36,6 +36,16 @@ Open http://localhost:5173 — configure **Settings** (Device ID, Traccar URL, i
 
 Set `INGEST_TOKEN` in Vercel env. In the app **Settings**, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`.
 
+## Device monitor dashboard
+
+Open **`/dashboard.html`** (or `/dashboard`) on your deployment. It polls `/api/devices` every 1–10 s and shows per device:
+
+- Online / offline (last seen within 30 s)
+- GPS refresh rate (Hz) and last coordinates
+- Heart rate present + rate + last BPM
+- Accelerometer present + sample rate
+- Overall ingest throughput (Hz)
+
 **Alternative:** Root Directory = empty (repo root) uses root `vercel.json` and `scripts/vercel-build.mjs` → output `dist/` at repo root.
 
 ## Traccar setup
