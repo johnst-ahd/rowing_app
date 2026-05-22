@@ -1,7 +1,4 @@
 /**
- * Repo-root copy for Vercel when Root Directory is empty.
- * Canonical copy when Root Directory is apps/recorder-pwa: apps/recorder-pwa/api/ingest.js
- *
  * POST /api/ingest — telemetry batches (HR, motion, combined samples).
  * Set INGEST_TOKEN in Vercel env; clients send Authorization: Bearer <token>.
  *
@@ -108,4 +105,4 @@ module.exports = async function handler(req, res) {
     sessionId: key,
     total: existing.samples.length,
   });
-}
+};

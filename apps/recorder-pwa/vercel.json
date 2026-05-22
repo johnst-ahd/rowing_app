@@ -1,8 +1,8 @@
 {
   "version": 2,
   "framework": null,
-  "installCommand": "npm install",
-  "buildCommand": "node scripts/vercel-build.mjs",
+  "installCommand": "cd ../.. && npm install",
+  "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/ingest.js": {

@@ -25,15 +25,18 @@ Open http://localhost:5173 — configure **Settings** (Device ID, Traccar URL, i
 
 ## Deploy (Vercel)
 
-1. Push to [JohnSt-AHD/rowing_app](https://github.com/JohnSt-AHD/rowing_app)
-2. Import project on Vercel — **Root Directory** = repo root (not `apps/recorder-pwa`)
-3. **Framework Preset** = Other
-4. **Root Directory** must be empty (repository root) — not `apps/recorder-pwa`
-5. **Output Directory** = `dist` or leave blank (filled by `scripts/vercel-build.mjs`)
-6. Set `INGEST_TOKEN` in environment variables
-7. In the PWA Settings, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`
+**Recommended** (matches typical Vercel + Vite monorepo detection):
 
-If deploy still fails, open the build log and search for `[vercel-build]` — it prints whether `dist/index.html` was created.
+| Setting | Value |
+|---------|--------|
+| **Root Directory** | `apps/recorder-pwa` |
+| **Framework Preset** | Other (or leave auto) |
+| **Build / Output** | Leave blank — uses `apps/recorder-pwa/vercel.json` |
+| **Install** | Runs `cd ../.. && npm install` for workspace deps |
+
+Set `INGEST_TOKEN` in Vercel env. In the app **Settings**, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`.
+
+**Alternative:** Root Directory = empty (repo root) uses root `vercel.json` and `scripts/vercel-build.mjs` → output `dist/` at repo root.
 
 ## Traccar setup
 
