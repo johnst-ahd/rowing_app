@@ -1,0 +1,19 @@
+{
+  "name": "rowing-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RNZ rowing sensor recorder PWA — HR, GPS, accelerometer",
+  "workspaces": [
+    "apps/recorder-pwa",
+    "packages/telemetry-types"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/recorder-pwa",
+    "build": "npm run build -w apps/recorder-pwa",
+    "preview": "npm run preview -w apps/recorder-pwa",
+    "doc:summary": "python scripts/create_summary_doc.py"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

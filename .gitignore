@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.env
+.env.local
+*.local
+.DS_Store
+.vercel
+apps/recorder-pwa/dev-dist/
+~$*
+*.tmp
