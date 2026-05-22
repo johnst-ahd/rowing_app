@@ -8,12 +8,12 @@
     "packages/telemetry-types"
   ],
   "scripts": {
-    "dev": "npm run dev -w apps/recorder-pwa",
-    "build": "npm run build -w apps/recorder-pwa",
-    "preview": "npm run preview -w apps/recorder-pwa",
+    "dev": "npm run dev -w recorder-pwa",
+    "build": "npm run build -w recorder-pwa",
+    "preview": "npm run preview -w recorder-pwa",
     "doc:summary": "python scripts/create_summary_doc.py"
   },
   "engines": {
-    "node": ">=18"
+    "node": "20.x"
   }
 }

@@ -3,6 +3,10 @@ import { VitePWA } from 'vite-plugin-pwa';
 import path from 'node:path';
 
 export default defineConfig({
+  build: {
+    outDir: path.resolve(__dirname, '../../dist'),
+    emptyOutDir: true,
+  },
   resolve: {
     alias: {
       '@rowing/telemetry-types': path.resolve(

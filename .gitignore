@@ -1,5 +1,6 @@
 node_modules/
 dist/
+apps/recorder-pwa/dist/
 .env
 .env.local
 *.local

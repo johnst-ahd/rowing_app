@@ -26,9 +26,12 @@ Open http://localhost:5173 — configure **Settings** (Device ID, Traccar URL, i
 ## Deploy (Vercel)
 
 1. Push to [JohnSt-AHD/rowing_app](https://github.com/JohnSt-AHD/rowing_app)
-2. Import project on Vercel — root directory = repo root
-3. Set `INGEST_TOKEN` in environment variables
-4. In the PWA Settings, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`
+2. Import project on Vercel — **Root Directory** = repo root (not `apps/recorder-pwa`)
+3. **Framework Preset** = Other (uses `vercel.json` — build outputs to `dist/`)
+4. Set `INGEST_TOKEN` in environment variables
+5. In the PWA Settings, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`
+
+If a deploy fails with “Output Directory not found”, confirm **Output Directory** in Vercel project settings is `dist` (or leave blank so `vercel.json` applies).
 
 ## Traccar setup
 
