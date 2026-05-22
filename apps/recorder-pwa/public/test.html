@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>RNZ Connection Test</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 520px;
+        margin: 1rem auto;
+        padding: 0 1rem;
+        background: #0f172a;
+        color: #f1f5f9;
+      }
+      button {
+        margin: 0.25rem 0.25rem 0.25rem 0;
+        padding: 0.5rem 0.75rem;
+        border-radius: 8px;
+        border: none;
+        background: #0284c7;
+        color: #fff;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      pre {
+        background: #1e293b;
+        padding: 0.75rem;
+        border-radius: 8px;
+        font-size: 0.75rem;
+        overflow: auto;
+        white-space: pre-wrap;
+      }
+      input {
+        width: 100%;
+        padding: 0.5rem;
+        margin: 0.25rem 0 0.75rem;
+        border-radius: 6px;
+        border: 1px solid #334155;
+        background: #0f172a;
+        color: #f1f5f9;
+      }
+      label {
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Connection test</h1>
+    <p>Run these on the same phone/browser you use for recording.</p>
+
+    <label>Ingest token (if set in Vercel)</label>
+    <input type="password" id="token" />
+
+    <label>Device ID</label>
+    <input id="deviceId" value="TEST-PHONE-01" />
+
+    <div>
+      <button type="button" id="btnPing">1. Ping API</button>
+      <button type="button" id="btnIngest">2. Test ingest</button>
+      <button type="button" id="btnDevices">3. List devices</button>
+      <button type="button" id="btnTraccar">4. Test Traccar proxy</button>
+    </div>
+
+    <p><a href="/" style="color:#7dd3fc">Recorder</a> · <a href="/dashboard.html" style="color:#7dd3fc">Dashboard</a></p>
+    <pre id="out">Tap a test button…</pre>
+
+    <script>
+      const out = document.getElementById('out');
+      const log = (msg) => {
+        out.textContent = msg;
+      };
+
+      function headers() {
+        const h = { 'Content-Type': 'application/json', Accept: 'application/json' };
+        const t = document.getElementById('token').value.trim();
+        if (t) h.Authorization = 'Bearer ' + t;
+        return h;
+      }
+
+      document.getElementById('btnPing').onclick = async () => {
+        try {
+          const r = await fetch('/api/ping');
+          log(await r.text());
+        } catch (e) {
+          log('Ping failed: ' + e.message);
+        }
+      };
+
+      document.getElementById('btnIngest').onclick = async () => {
+        const deviceId = document.getElementById('deviceId').value.trim();
+        const body = {
+          sessionId: 'test-' + Date.now(),
+          deviceId,
+          samples: [
+            {
+              t: Date.now(),
+              gps: { lat: -36.8485, lon: 174.7633, acc: 10 },
+              hr: { bpm: 80 },
+              motion: { ax: 0, ay: 0, az: 9.8 },
+            },
+          ],
+        };
+        try {
+          const r = await fetch('/api/ingest', {
+            method: 'POST',
+            headers: headers(),
+            body: JSON.stringify(body),
+          });
+          log('Ingest ' + r.status + '\n' + (await r.text()));
+        } catch (e) {
+          log('Ingest failed: ' + e.message);
+        }
+      };
+
+      document.getElementById('btnDevices').onclick = async () => {
+        try {
+          const r = await fetch('/api/devices', { headers: headers() });
+          log('Devices ' + r.status + '\n' + (await r.text()));
+        } catch (e) {
+          log('Devices failed: ' + e.message);
+        }
+      };
+
+      document.getElementById('btnTraccar').onclick = async () => {
+        const deviceId = document.getElementById('deviceId').value.trim();
+        const u = new URL('https://xmvjx05iw.traccar.com');
+        u.port = '5055';
+        u.searchParams.set('id', deviceId);
+        u.searchParams.set('lat', '-36.8485');
+        u.searchParams.set('lon', '174.7633');
+        u.searchParams.set('timestamp', String(Date.now()));
+        try {
+          const r = await fetch(
+            '/api/traccar-forward?url=' + encodeURIComponent(u.toString()),
+          );
+          log('Traccar proxy ' + r.status + '\n' + (await r.text()));
+        } catch (e) {
+          log('Traccar failed: ' + e.message);
+        }
+      };
+    </script>
+  </body>
+</html>

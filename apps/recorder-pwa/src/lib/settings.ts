@@ -5,13 +5,23 @@ import {
 
 const LS_KEY = 'rnz_recorder_settings_v1';
 
+function withOriginDefaults(s: RecorderSettings): RecorderSettings {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    const origin = window.location.origin;
+    if (!s.ingestUrl || s.ingestUrl === '/api/ingest') {
+      s.ingestUrl = `${origin}/api/ingest`;
+    }
+  }
+  return s;
+}
+
 export function loadSettings(): RecorderSettings {
   try {
     const raw = localStorage.getItem(LS_KEY);
-    if (!raw) return { ...DEFAULT_SETTINGS };
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    if (!raw) return withOriginDefaults({ ...DEFAULT_SETTINGS });
+    return withOriginDefaults({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return withOriginDefaults({ ...DEFAULT_SETTINGS });
   }
 }
 

@@ -30,11 +30,24 @@ export function buildOsmAndUrl(
   return u.toString();
 }
 
-export async function sendOsmAndPosition(url: string): Promise<boolean> {
+/** Send via same-origin proxy (avoids Traccar CORS block in the browser). */
+export async function sendOsmAndPosition(
+  osmandUrl: string,
+): Promise<{ ok: boolean; error?: string }> {
   try {
-    const res = await fetch(url, { method: 'GET', mode: 'cors', keepalive: true });
-    return res.ok;
-  } catch {
-    return false;
+    const proxy = `/api/traccar-forward?url=${encodeURIComponent(osmandUrl)}`;
+    const res = await fetch(proxy, { method: 'GET', keepalive: true });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      detail?: string;
+    };
+    if (!res.ok || !data.ok) {
+      const msg = data.error || data.detail || `HTTP ${res.status}`;
+      return { ok: false, error: msg };
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }
 }

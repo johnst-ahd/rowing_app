@@ -110,11 +110,12 @@ export async function startRecorder(
             r.t,
             { hr: latestHr, motion: latestMotion },
           );
-          const ok = await sendOsmAndPosition(url);
-          if (!ok) {
+          const result = await sendOsmAndPosition(url);
+          if (!result.ok) {
             await enqueueTraccar(sessionId, url);
             stats.pendingOutbox += 1;
             onPendingChange(stats.pendingOutbox);
+            onLog(`Traccar queued: ${result.error || 'failed'}`);
           }
         }
         emit();

@@ -9,18 +9,21 @@ import { sendOsmAndPosition } from './traccar';
 export async function flushOutbox(settings: RecorderSettings): Promise<{
   sent: number;
   failed: number;
+  errors: string[];
 }> {
   const rows = await listPendingOutbox(40);
   let sent = 0;
   let failed = 0;
+  const errors: string[] = [];
 
   for (const row of rows) {
     if (!row.id) continue;
     try {
       if (row.kind === 'traccar') {
-        const ok = await sendOsmAndPosition(row.payload);
-        if (!ok) {
+        const result = await sendOsmAndPosition(row.payload);
+        if (!result.ok) {
           failed++;
+          errors.push(`Traccar: ${result.error || 'failed'}`);
           continue;
         }
       } else {
@@ -37,10 +40,11 @@ export async function flushOutbox(settings: RecorderSettings): Promise<{
       }
       await markOutboxSent(row.id);
       sent++;
-    } catch {
+    } catch (e) {
       failed++;
+      errors.push(e instanceof Error ? e.message : String(e));
     }
   }
 
-  return { sent, failed };
+  return { sent, failed, errors };
 }

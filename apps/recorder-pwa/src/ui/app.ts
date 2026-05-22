@@ -28,8 +28,9 @@ export function mountApp(root: HTMLElement): void {
 
   async function runSync() {
     const s = loadSettings();
-    const { sent, failed } = await flushOutbox(s);
+    const { sent, failed, errors } = await flushOutbox(s);
     if (sent || failed) pushLog(`Upload: ${sent} sent, ${failed} failed`);
+    if (errors.length) pushLog(errors[0]);
     await updatePending();
   }
 
