@@ -110,33 +110,28 @@ async function upsertSession(sessionId, deviceRef, uniqueId, athleteId) {
  */
 async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   const sql = await getSql();
-  const CHUNK = 80;
-  for (let i = 0; i < samples.length; i += CHUNK) {
-    const chunk = samples.slice(i, i + CHUNK);
-    const values = chunk.map((s) => [
-      sessionId,
-      deviceRef,
-      uniqueId,
-      s.t,
-      s.gps?.lat ?? null,
-      s.gps?.lon ?? null,
-      s.gps?.acc ?? null,
-      s.gps?.spd ?? null,
-      s.gps?.hdg ?? null,
-      s.gps?.alt ?? null,
-      s.hr?.bpm ?? null,
-      s.motion?.ax ?? null,
-      s.motion?.ay ?? null,
-      s.motion?.az ?? null,
-    ]);
-
+  for (const s of samples) {
     await sql`
       INSERT INTO rnz_samples (
         session_id, device_ref, unique_id, t_ms,
         latitude, longitude, accuracy, speed, course, altitude,
         hr, ax, ay, az
+      ) VALUES (
+        ${sessionId},
+        ${deviceRef},
+        ${uniqueId},
+        ${s.t},
+        ${s.gps?.lat ?? null},
+        ${s.gps?.lon ?? null},
+        ${s.gps?.acc ?? null},
+        ${s.gps?.spd ?? null},
+        ${s.gps?.hdg ?? null},
+        ${s.gps?.alt ?? null},
+        ${s.hr?.bpm ?? null},
+        ${s.motion?.ax ?? null},
+        ${s.motion?.ay ?? null},
+        ${s.motion?.az ?? null}
       )
-      VALUES ${sql(values)}
     `;
   }
 }

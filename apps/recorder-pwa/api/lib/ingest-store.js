@@ -127,15 +127,22 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   trimSessions();
 
   let persisted = false;
+  let persistError = null;
   try {
     if (db.hasDb()) {
       persisted = await db.persistBatch(sessionId, deviceId, athleteId, samples);
     }
   } catch (err) {
+    persistError = err instanceof Error ? err.message : String(err);
     console.error('[ingest-store] DB persist failed:', err);
   }
 
-  return { received: samples.length, total: row.samples.length, persisted };
+  return {
+    received: samples.length,
+    total: row.samples.length,
+    persisted,
+    persistError,
+  };
 }
 
 /**
