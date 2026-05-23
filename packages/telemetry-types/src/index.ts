@@ -47,10 +47,14 @@ export type RecorderSettings = {
   enableHr: boolean;
 };
 
+/** Production ingest API (Vercel). Used as default on phones and new installs. */
+export const DEFAULT_INGEST_URL =
+  'https://rowing-app-recorder-pwa.vercel.app/api/ingest';
+
 export const DEFAULT_SETTINGS: RecorderSettings = {
   deviceId: '',
   athleteId: '',
-  ingestUrl: '/api/ingest',
+  ingestUrl: DEFAULT_INGEST_URL,
   ingestToken: '',
   gpsIntervalMs: 1000,
   motionIntervalMs: 50,

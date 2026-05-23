@@ -155,7 +155,7 @@ export function mountApp(root: HTMLElement): void {
             <h2 class="hub-section-title">Device &amp; upload</h2>
             <label>Device ID<input name="deviceId" value="${esc(s.deviceId)}" required placeholder="CREW-01" /></label>
             <label>Athlete ID<input name="athleteId" value="${esc(s.athleteId)}" placeholder="optional" /></label>
-            <label>Ingest API URL<input name="ingestUrl" value="${esc(s.ingestUrl)}" /></label>
+            <label>Ingest API URL<input name="ingestUrl" value="${esc(s.ingestUrl)}" placeholder="https://rowing-app-recorder-pwa.vercel.app/api/ingest" /></label>
             <label>Ingest token<input name="ingestToken" type="password" value="${esc(s.ingestToken)}" autocomplete="off" /></label>
             <fieldset class="fieldset">
               <legend>Sample rates (ms)</legend>

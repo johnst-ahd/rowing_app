@@ -1,15 +1,36 @@
 import {
+  DEFAULT_INGEST_URL,
   DEFAULT_SETTINGS,
   type RecorderSettings,
 } from '@rowing/telemetry-types';
 
 const LS_KEY = 'rnz_recorder_settings_v1';
 
+function isLocalDevOrigin(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === 'localhost' || host === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+function needsIngestUrlDefault(url: string): boolean {
+  const u = url.trim();
+  if (!u) return true;
+  if (u === '/api/ingest') return true;
+  return false;
+}
+
 function withOriginDefaults(s: RecorderSettings): RecorderSettings {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    const origin = window.location.origin;
-    if (!s.ingestUrl || s.ingestUrl === '/api/ingest') {
-      s.ingestUrl = `${origin}/api/ingest`;
+  if (needsIngestUrlDefault(s.ingestUrl)) {
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      const origin = window.location.origin;
+      s.ingestUrl = isLocalDevOrigin(origin)
+        ? `${origin}/api/ingest`
+        : DEFAULT_INGEST_URL;
+    } else {
+      s.ingestUrl = DEFAULT_INGEST_URL;
     }
   }
   return s;
@@ -37,10 +58,10 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     const v = Number(fd.get(name));
     return Number.isFinite(v) && v > 0 ? v : fallback;
   };
-  return {
+  return withOriginDefaults({
     deviceId: String(fd.get('deviceId') ?? '').trim(),
     athleteId: String(fd.get('athleteId') ?? '').trim(),
-    ingestUrl: String(fd.get('ingestUrl') ?? '/api/ingest').trim(),
+    ingestUrl: String(fd.get('ingestUrl') ?? DEFAULT_INGEST_URL).trim(),
     ingestToken: String(fd.get('ingestToken') ?? '').trim(),
     gpsIntervalMs: num('gpsIntervalMs', DEFAULT_SETTINGS.gpsIntervalMs),
     motionIntervalMs: num('motionIntervalMs', DEFAULT_SETTINGS.motionIntervalMs),
@@ -48,5 +69,5 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     enableGps: fd.get('enableGps') === 'on',
     enableMotion: fd.get('enableMotion') === 'on',
     enableHr: fd.get('enableHr') === 'on',
-  };
+  });
 }
