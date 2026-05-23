@@ -59,7 +59,7 @@ module.exports = async function handler(req, res) {
     samples,
   );
 
-  const body = {
+  const response = {
     ok: true,
     sessionId: String(sessionId),
     received: result.received,
@@ -67,7 +67,7 @@ module.exports = async function handler(req, res) {
     persisted: Boolean(result.persisted),
   };
   if (result.persistError) {
-    body.persistError = String(result.persistError).slice(0, 300);
+    response.persistError = String(result.persistError).slice(0, 300);
   }
-  return res.status(200).json(body);
+  return res.status(200).json(response);
 };
