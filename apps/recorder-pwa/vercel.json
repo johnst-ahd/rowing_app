@@ -8,6 +8,8 @@
     "api/ingest.js": { "maxDuration": 30 },
     "api/devices.js": { "maxDuration": 15 },
     "api/positions.js": { "maxDuration": 15 },
+    "api/snapshot.js": { "maxDuration": 20 },
+    "api/history.js": { "maxDuration": 30 },
     "api/ping.js": { "maxDuration": 10 }
   },
   "rewrites": [

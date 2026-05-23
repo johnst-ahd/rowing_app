@@ -1,3 +1,5 @@
+const db = require('./db');
+
 const MAX_SAMPLES_PER_REQUEST = 500;
 const MAX_SESSIONS = 200;
 const MAX_SAMPLES_PER_SESSION = 50000;
@@ -100,7 +102,7 @@ function sensorStats(samples, windowMs) {
  * @param {string} [athleteId]
  * @param {Sample[]} samples
  */
-function recordBatch(sessionId, deviceId, athleteId, samples) {
+async function recordBatch(sessionId, deviceId, athleteId, samples) {
   if (!samples.length) return { received: 0 };
 
   const key = String(sessionId);
@@ -124,14 +126,32 @@ function recordBatch(sessionId, deviceId, athleteId, samples) {
   trimSampleRing(row);
   trimSessions();
 
+  try {
+    if (db.hasDb()) {
+      await db.persistBatch(sessionId, deviceId, athleteId, samples);
+    }
+  } catch (err) {
+    console.error('[ingest-store] DB persist failed:', err);
+  }
+
   return { received: samples.length, total: row.samples.length };
 }
 
 /**
  * @param {string} sessionId
  */
-function getSession(sessionId) {
-  return sessions.get(String(sessionId));
+async function getSession(sessionId) {
+  if (db.hasDb()) {
+    try {
+      const fromDb = await db.getSessionFromDb(sessionId);
+      if (fromDb) return fromDb;
+    } catch (err) {
+      console.error('[ingest-store] DB getSession failed:', err);
+    }
+  }
+  const row = sessions.get(String(sessionId));
+  if (!row) return undefined;
+  return { sessionId, ...row };
 }
 
 /**
@@ -157,6 +177,7 @@ function listDevices(opts = {}) {
       lastSeenAgoSec: Math.round((now - row.updatedAt) / 1000),
       firstSeenMs: row.firstSeenAt,
       totalSamples: row.samples.length,
+      persisted: db.hasDb(),
       ...stats,
     };
 
@@ -180,19 +201,6 @@ function listDevices(opts = {}) {
   };
 }
 
-function checkAuth(req) {
-  const expected = process.env.INGEST_TOKEN || '';
-  if (!expected) return true;
-  const header = req.headers.authorization || '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-  const q = req.query?.token;
-  return token === expected || q === expected;
-}
-
-/**
- * Latest GPS fix per device (for maps / traccar-overlay integration later).
- * @param {number} [onlineMs]
- */
 function getPositionsSnapshot(onlineMs = 30000) {
   const now = Date.now();
   /** @type {Map<string, object>} */
@@ -252,6 +260,67 @@ function getPositionsSnapshot(onlineMs = 30000) {
   };
 }
 
+async function getTraccarSnapshot(onlineMs = 120000) {
+  if (db.hasDb()) {
+    try {
+      return await db.getTraccarSnapshot(onlineMs);
+    } catch (err) {
+      console.error('[ingest-store] DB snapshot failed:', err);
+    }
+  }
+  const mem = getPositionsSnapshot(onlineMs);
+  const devices = mem.positions.map((p, i) => ({
+    id: i + 1,
+    name: p.uniqueId,
+    uniqueId: p.uniqueId,
+    status: p.online ? 'online' : 'offline',
+  }));
+  const positions = mem.positions.map((p, i) => ({
+    id: i + 1,
+    deviceId: i + 1,
+    latitude: p.latitude,
+    longitude: p.longitude,
+    altitude: p.altitude || 0,
+    speed: p.speed || 0,
+    course: p.course || 0,
+    accuracy: p.accuracy || 0,
+    fixTime: p.fixTime,
+    deviceTime: p.deviceTime,
+    serverTime: p.fixTime,
+    attributes: p.attributes || {},
+    deviceName: p.uniqueId,
+  }));
+  return { devices, positions, geofences: [], groups: [] };
+}
+
+async function getRouteHistory(deviceIdParam, uniqueIdParam, fromIso, toIso) {
+  if (db.hasDb()) {
+    const dev = await db.resolveDevice(deviceIdParam, uniqueIdParam);
+    if (!dev) return [];
+    return db.getRoutePositions(dev.id, fromIso, toIso);
+  }
+  return [];
+}
+
+async function listSessionsHistory(uniqueId) {
+  if (!db.hasDb()) return [];
+  try {
+    return await db.listSessions(uniqueId, 80);
+  } catch (err) {
+    console.error('[ingest-store] listSessions failed:', err);
+    return [];
+  }
+}
+
+function checkAuth(req) {
+  const expected = process.env.INGEST_TOKEN || '';
+  if (!expected) return true;
+  const header = req.headers.authorization || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const q = req.query?.token;
+  return token === expected || q === expected;
+}
+
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -264,6 +333,10 @@ module.exports = {
   getSession,
   listDevices,
   getPositionsSnapshot,
+  getTraccarSnapshot,
+  getRouteHistory,
+  listSessionsHistory,
   checkAuth,
   cors,
+  hasDb: db.hasDb,
 };

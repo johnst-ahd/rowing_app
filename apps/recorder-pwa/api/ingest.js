@@ -16,9 +16,9 @@ module.exports = async function handler(req, res) {
     if (!sessionId) {
       return res.status(400).json({ ok: false, error: 'sessionId required' });
     }
-    const row = store.getSession(sessionId);
+    const row = await store.getSession(sessionId);
     if (!row) return res.status(404).json({ ok: false, error: 'Not found' });
-    return res.status(200).json({ ok: true, sessionId, ...row });
+    return res.status(200).json({ ok: true, ...row });
   }
 
   if (req.method !== 'POST') {
@@ -52,7 +52,7 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const result = store.recordBatch(
+  const result = await store.recordBatch(
     sessionId,
     deviceId,
     body.athleteId,
@@ -64,5 +64,6 @@ module.exports = async function handler(req, res) {
     sessionId: String(sessionId),
     received: result.received,
     total: result.total,
+    persisted: store.hasDb(),
   });
 };

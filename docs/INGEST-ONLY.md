@@ -8,10 +8,12 @@ Phones talk only to **rowing-app-recorder-pwa.vercel.app**.
 Phone PWA
     │  POST /api/ingest  (GPS + HR + accelerometer batches)
     ▼
-Vercel API (ingest-store, in-memory per deployment)
+Vercel API (ingest-store + Postgres when POSTGRES_URL is set)
     │
     ├── GET /api/devices   → dashboard (rates, sensors)
-    └── GET /api/positions → live map (latest lat/lon per device)
+    ├── GET /api/positions → live map (latest lat/lon per device)
+    ├── GET /api/snapshot  → traccar-overlay live map (Traccar-shaped)
+    └── GET /api/history   → route replay + session list (overlay history)
 ```
 
 ## Phone settings (only 3 required)
