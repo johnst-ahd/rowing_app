@@ -9,7 +9,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@rowing/telemetry-types": "*"
+    "@rowing/telemetry-types": "*",
+    "@vercel/postgres": "^0.10.0"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
