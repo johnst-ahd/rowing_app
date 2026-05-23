@@ -60,7 +60,7 @@
       <button type="button" id="btnPing">1. Ping API</button>
       <button type="button" id="btnIngest">2. Test ingest</button>
       <button type="button" id="btnDevices">3. List devices</button>
-      <button type="button" id="btnTraccar">4. Test Traccar proxy</button>
+      <button type="button" id="btnPositions">4. GPS positions</button>
     </div>
 
     <p><a href="/" style="color:#7dd3fc">Recorder</a> · <a href="/dashboard.html" style="color:#7dd3fc">Dashboard</a></p>
@@ -123,21 +123,12 @@
         }
       };
 
-      document.getElementById('btnTraccar').onclick = async () => {
-        const deviceId = document.getElementById('deviceId').value.trim();
-        const u = new URL('https://xmvjx05iw.traccar.com');
-        u.port = '5055';
-        u.searchParams.set('id', deviceId);
-        u.searchParams.set('lat', '-36.8485');
-        u.searchParams.set('lon', '174.7633');
-        u.searchParams.set('timestamp', String(Date.now()));
+      document.getElementById('btnPositions').onclick = async () => {
         try {
-          const r = await fetch(
-            '/api/traccar-forward?url=' + encodeURIComponent(u.toString()),
-          );
-          log('Traccar proxy ' + r.status + '\n' + (await r.text()));
+          const r = await fetch('/api/positions', { headers: headers() });
+          log('Positions ' + r.status + '\n' + (await r.text()));
         } catch (e) {
-          log('Traccar failed: ' + e.message);
+          log('Positions failed: ' + e.message);
         }
       };
     </script>

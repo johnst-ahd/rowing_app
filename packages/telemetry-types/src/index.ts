@@ -37,7 +37,6 @@ export type TelemetryBatch = {
 export type RecorderSettings = {
   deviceId: string;
   athleteId: string;
-  traccarUrl: string;
   ingestUrl: string;
   ingestToken: string;
   gpsIntervalMs: number;
@@ -51,7 +50,6 @@ export type RecorderSettings = {
 export const DEFAULT_SETTINGS: RecorderSettings = {
   deviceId: '',
   athleteId: '',
-  traccarUrl: '',
   ingestUrl: '/api/ingest',
   ingestToken: '',
   gpsIntervalMs: 1000,

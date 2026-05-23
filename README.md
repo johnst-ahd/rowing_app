@@ -1,6 +1,6 @@
 # RNZ Rowing Recorder (PWA)
 
-Phone Progressive Web App to record **GPS**, **accelerometer**, and **heart rate (BLE)** during rowing sessions, and send data to **Traccar** (for `traccar-overlay` maps) plus a telemetry ingest API.
+Phone Progressive Web App to record **GPS**, **accelerometer**, and **heart rate (BLE)** during rowing sessions. All data uploads to the **RNZ ingest API** on your Vercel deployment (no Traccar on the phone). See [docs/INGEST-ONLY.md](docs/INGEST-ONLY.md).
 
 ## Quick start
 
@@ -15,7 +15,7 @@ Open http://localhost:5173 — configure **Settings** (Device ID, Traccar URL, i
 
 | Sensor | Default rate | Upload path |
 |--------|--------------|-------------|
-| GPS | 1000 ms | Traccar OsmAnd HTTP + telemetry batch |
+| GPS | 1000 ms | Ingest API (with HR/motion in same batch) |
 | Accelerometer | 50 ms | Telemetry ingest API |
 | Heart rate | BLE notifications | Telemetry ingest + Traccar attributes on GPS tick |
 
@@ -48,10 +48,13 @@ Open **`/dashboard.html`** (or `/dashboard`) on your deployment. It polls `/api/
 
 **Alternative:** Root Directory = empty (repo root) uses root `vercel.json` and `scripts/vercel-build.mjs` → output `dist/` at repo root.
 
-## Traccar setup
+## APIs
 
-1. Create a device in Traccar with **Unique ID** matching the PWA Device ID (e.g. `CREW-01`).
-2. Set **Traccar URL** in the app to your server host (e.g. `https://traccar.example.com`) — port `:5055` is added automatically for OsmAnd.
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /api/ingest` | Receive telemetry from phones |
+| `GET /api/devices` | Dashboard — rates and sensor presence |
+| `GET /api/positions` | Latest GPS per device (for maps) |
 
 ## Project layout
 
@@ -64,9 +67,7 @@ docs/                  Architecture summary (Word)
 
 ## Integration with traccar-overlay
 
-GPS appears on existing maps once Traccar receives OsmAnd positions. Overlay poll rate (3–10 s) is separate from recorder GPS interval.
-
-HR and high-rate accelerometer are stored via `/api/ingest` — extend traccar-overlay later to read `GET /api/ingest?sessionId=…`.
+Wire live maps to `GET /api/positions` on this deployment instead of Traccar. Details in [docs/INGEST-ONLY.md](docs/INGEST-ONLY.md).
 
 ## Local API (optional)
 

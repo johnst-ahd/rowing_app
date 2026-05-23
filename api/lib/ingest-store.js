@@ -189,6 +189,69 @@ function checkAuth(req) {
   return token === expected || q === expected;
 }
 
+/**
+ * Latest GPS fix per device (for maps / traccar-overlay integration later).
+ * @param {number} [onlineMs]
+ */
+function getPositionsSnapshot(onlineMs = 30000) {
+  const now = Date.now();
+  /** @type {Map<string, object>} */
+  const byDevice = new Map();
+
+  for (const [sessionId, row] of sessions) {
+    let lastGps = null;
+    let lastHr = null;
+    let lastMotion = null;
+    for (let i = row.samples.length - 1; i >= 0; i--) {
+      const s = row.samples[i];
+      if (!lastGps && s.gps?.lat != null && s.gps?.lon != null) lastGps = s;
+      if (!lastHr && s.hr?.bpm != null) lastHr = s;
+      if (!lastMotion && s.motion?.ax != null) lastMotion = s;
+      if (lastGps && lastHr && lastMotion) break;
+    }
+    if (!lastGps) continue;
+
+    const fixMs = lastGps.t;
+    const pos = {
+      uniqueId: row.deviceId,
+      deviceId: row.deviceId,
+      sessionId,
+      athleteId: row.athleteId || null,
+      latitude: lastGps.gps.lat,
+      longitude: lastGps.gps.lon,
+      accuracy: lastGps.gps.acc ?? null,
+      speed: lastGps.gps.spd ?? null,
+      course: lastGps.gps.hdg ?? null,
+      altitude: lastGps.gps.alt ?? null,
+      fixTime: new Date(fixMs).toISOString(),
+      deviceTime: new Date(fixMs).toISOString(),
+      lastUpdate: row.updatedAt,
+      online: now - row.updatedAt <= onlineMs,
+      attributes: {
+        ...(lastHr ? { hr: lastHr.hr.bpm, heartRate: lastHr.hr.bpm } : {}),
+        ...(lastMotion
+          ? {
+              ax: lastMotion.motion.ax,
+              ay: lastMotion.motion.ay,
+              az: lastMotion.motion.az,
+            }
+          : {}),
+      },
+    };
+
+    const prev = byDevice.get(row.deviceId);
+    if (!prev || row.updatedAt > prev.lastUpdate) {
+      byDevice.set(row.deviceId, pos);
+    }
+  }
+
+  return {
+    polledAt: now,
+    onlineThresholdSec: onlineMs / 1000,
+    positions: [...byDevice.values()].sort((a, b) => b.lastUpdate - a.lastUpdate),
+  };
+}
+
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -200,6 +263,7 @@ module.exports = {
   recordBatch,
   getSession,
   listDevices,
+  getPositionsSnapshot,
   checkAuth,
   cors,
 };

@@ -7,7 +7,7 @@
   "functions": {
     "api/ingest.js": { "maxDuration": 30 },
     "api/devices.js": { "maxDuration": 15 },
-    "api/traccar-forward.js": { "maxDuration": 15 },
+    "api/positions.js": { "maxDuration": 15 },
     "api/ping.js": { "maxDuration": 10 }
   },
   "rewrites": [

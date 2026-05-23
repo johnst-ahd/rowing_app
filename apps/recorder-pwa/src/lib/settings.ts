@@ -19,7 +19,9 @@ export function loadSettings(): RecorderSettings {
   try {
     const raw = localStorage.getItem(LS_KEY);
     if (!raw) return withOriginDefaults({ ...DEFAULT_SETTINGS });
-    return withOriginDefaults({ ...DEFAULT_SETTINGS, ...JSON.parse(raw) });
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const { traccarUrl: _removed, ...rest } = parsed;
+    return withOriginDefaults({ ...DEFAULT_SETTINGS, ...rest } as RecorderSettings);
   } catch {
     return withOriginDefaults({ ...DEFAULT_SETTINGS });
   }
@@ -38,7 +40,6 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
   return {
     deviceId: String(fd.get('deviceId') ?? '').trim(),
     athleteId: String(fd.get('athleteId') ?? '').trim(),
-    traccarUrl: String(fd.get('traccarUrl') ?? '').trim().replace(/\/$/, ''),
     ingestUrl: String(fd.get('ingestUrl') ?? '/api/ingest').trim(),
     ingestToken: String(fd.get('ingestToken') ?? '').trim(),
     gpsIntervalMs: num('gpsIntervalMs', DEFAULT_SETTINGS.gpsIntervalMs),

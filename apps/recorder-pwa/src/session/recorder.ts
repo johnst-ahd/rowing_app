@@ -9,12 +9,7 @@ import {
   type HeartRateMonitor,
 } from '../sensors/heart-rate';
 import { startMotionWatcher } from '../sensors/motion';
-import { buildOsmAndUrl, sendOsmAndPosition } from '../upload/traccar';
-import {
-  enqueueTelemetry,
-  enqueueTraccar,
-  saveSession,
-} from './store';
+import { enqueueTelemetry, saveSession } from './store';
 
 export type RecorderStats = {
   gpsCount: number;
@@ -83,11 +78,11 @@ export async function startRecorder(
 
   if (settings.enableGps) {
     const gps = startGpsWatcher(
-      async (r) => {
+      (r) => {
         if (stopped) return;
         stats.gpsCount++;
         stats.lastGps = { lat: r.lat, lon: r.lon };
-        const sample: TelemetrySample = {
+        batch.push({
           t: r.t,
           gps: {
             lat: r.lat,
@@ -99,25 +94,7 @@ export async function startRecorder(
           },
           hr: latestHr,
           motion: latestMotion,
-        };
-        batch.push(sample);
-
-        if (settings.traccarUrl) {
-          const url = buildOsmAndUrl(
-            settings.traccarUrl,
-            settings.deviceId,
-            sample.gps!,
-            r.t,
-            { hr: latestHr, motion: latestMotion },
-          );
-          const result = await sendOsmAndPosition(url);
-          if (!result.ok) {
-            await enqueueTraccar(sessionId, url);
-            stats.pendingOutbox += 1;
-            onPendingChange(stats.pendingOutbox);
-            onLog(`Traccar queued: ${result.error || 'failed'}`);
-          }
-        }
+        });
         emit();
       },
       settings.gpsIntervalMs,

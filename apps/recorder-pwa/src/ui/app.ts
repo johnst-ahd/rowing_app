@@ -99,9 +99,8 @@ export function mountApp(root: HTMLElement): void {
       </header>
       <main class="main">
         <form class="card form" data-settings-form>
-          <label>Device ID (Traccar uniqueId)<input name="deviceId" value="${esc(s.deviceId)}" required placeholder="CREW-01" /></label>
+          <label>Device ID<input name="deviceId" value="${esc(s.deviceId)}" required placeholder="CREW-01" /></label>
           <label>Athlete ID<input name="athleteId" value="${esc(s.athleteId)}" placeholder="optional" /></label>
-          <label>Traccar URL (host, port 5055 added if omitted)<input name="traccarUrl" value="${esc(s.traccarUrl)}" placeholder="https://traccar.example.com" /></label>
           <label>Ingest API URL<input name="ingestUrl" value="${esc(s.ingestUrl)}" /></label>
           <label>Ingest token<input name="ingestToken" type="password" value="${esc(s.ingestToken)}" autocomplete="off" /></label>
           <fieldset class="fieldset">
@@ -119,8 +118,8 @@ export function mountApp(root: HTMLElement): void {
           <button type="submit" class="btn btn-primary">Save settings</button>
         </form>
         <section class="card hint-card">
+          <p>All sensors upload to your RNZ ingest API only (no Traccar).</p>
           <p>Keep screen on during sessions. iOS needs a user tap to connect BLE HR.</p>
-          <p>Traccar overlay polls every 3–10s — set GPS interval to 1–3s for live maps.</p>
         </section>
       </main>
     `;
