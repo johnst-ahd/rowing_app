@@ -3,51 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RNZ Connection Test</title>
+    <title>Connection test · Altitude HD</title>
+    <link rel="stylesheet" href="/ahd-hub-theme.css" />
     <style>
-      body {
-        font-family: system-ui, sans-serif;
-        max-width: 520px;
-        margin: 1rem auto;
-        padding: 0 1rem;
-        background: #0f172a;
-        color: #f1f5f9;
-      }
-      button {
-        margin: 0.25rem 0.25rem 0.25rem 0;
-        padding: 0.5rem 0.75rem;
-        border-radius: 8px;
-        border: none;
-        background: #0284c7;
-        color: #fff;
-        font-weight: 600;
-        cursor: pointer;
-      }
-      pre {
-        background: #1e293b;
-        padding: 0.75rem;
-        border-radius: 8px;
-        font-size: 0.75rem;
-        overflow: auto;
-        white-space: pre-wrap;
-      }
-      input {
-        width: 100%;
-        padding: 0.5rem;
-        margin: 0.25rem 0 0.75rem;
-        border-radius: 6px;
-        border: 1px solid #334155;
-        background: #0f172a;
-        color: #f1f5f9;
-      }
-      label {
-        font-size: 0.85rem;
-        color: #94a3b8;
-      }
+      .test-wrap { max-width: 520px; margin: 0 auto; }
+      .test-wrap label { display: block; margin-bottom: 0.75rem; font-size: 13px; font-weight: 600; color: var(--ahd-muted); }
+      .test-wrap input { width: 100%; margin-top: 0.35rem; }
+      .test-btns { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0.75rem 0; }
+      pre { background: rgba(6, 20, 38, 0.65); border: 1px solid var(--ahd-border); padding: 0.75rem; border-radius: 8px; font-size: 0.75rem; overflow: auto; white-space: pre-wrap; }
     </style>
   </head>
-  <body>
-    <h1>Connection test</h1>
+  <body class="hub-page">
+    <header class="hub-topbar">
+      <div class="hub-topbar-inner">
+        <div class="hub-topbar-brands">
+          <img src="/altitude-hd-logo.png" alt="Altitude HD" class="hub-logo" width="260" height="98" />
+        </div>
+        <p class="hub-tagline">API connection test</p>
+      </div>
+    </header>
+    <div class="ahd-app-wrap ahd-app-wrap--narrow test-wrap">
+    <h1 class="hub-section-title">Connection test</h1>
     <p>Run these on the same phone/browser you use for recording.</p>
 
     <label>Ingest token (if set in Vercel)</label>
@@ -56,15 +32,17 @@
     <label>Device ID</label>
     <input id="deviceId" value="TEST-PHONE-01" />
 
-    <div>
-      <button type="button" id="btnPing">1. Ping API</button>
-      <button type="button" id="btnIngest">2. Test ingest</button>
-      <button type="button" id="btnDevices">3. List devices</button>
-      <button type="button" id="btnPositions">4. GPS positions</button>
+    <div class="test-btns">
+      <button type="button" class="hub-btn" id="btnPing">1. Ping API</button>
+      <button type="button" class="hub-btn" id="btnIngest">2. Test ingest</button>
+      <button type="button" class="hub-btn" id="btnDevices">3. List devices</button>
+      <button type="button" class="hub-btn" id="btnPositions">4. GPS positions</button>
     </div>
 
-    <p><a href="/" style="color:#7dd3fc">Recorder</a> · <a href="/dashboard.html" style="color:#7dd3fc">Dashboard</a></p>
+    <p class="hint"><a href="/">Recorder</a> · <a href="/dashboard.html">Dashboard</a> · <a href="https://traccar-overlay.vercel.app/">Hub</a></p>
     <pre id="out">Tap a test button…</pre>
+    </div>
+    <footer class="ahd-footer">Altitude HD · RNZ Row Recorder</footer>
 
     <script>
       const out = document.getElementById('out');

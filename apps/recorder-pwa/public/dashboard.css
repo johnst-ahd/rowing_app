@@ -1,143 +1,28 @@
-:root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --border: #334155;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-  --accent: #0284c7;
-  --ok: #22c55e;
-  --warn: #eab308;
-  --off: #64748b;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-}
+/* Dashboard — device cards on Altitude HD hub theme */
 
-* {
-  box-sizing: border-box;
-}
-
-body {
-  margin: 0;
-  min-height: 100dvh;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 1rem 1.5rem;
-  background: #0c4a6e;
-  border-bottom: 1px solid var(--border);
-}
-
-.header h1 {
-  margin: 0;
-  font-size: 1.25rem;
-}
-
-.header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.header-actions label {
-  font-size: 0.8rem;
-  color: #bae6fd;
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.header-actions input,
-.header-actions select {
-  padding: 0.35rem 0.5rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg);
-  color: var(--text);
-  font-size: 0.85rem;
-}
-
-.btn {
-  border: none;
-  border-radius: 8px;
-  padding: 0.5rem 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 0.85rem;
-  text-decoration: none;
-  display: inline-block;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: #fff;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-}
-
-.summary {
+.devices-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 1rem;
-  padding: 1rem 1.5rem;
-}
-
-.stat-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 0.85rem 1rem;
-}
-
-.stat-card .val {
-  font-size: 1.75rem;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-card .lbl {
-  font-size: 0.75rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.main {
-  padding: 0 1.5rem 2rem;
 }
 
 .empty {
   text-align: center;
-  padding: 3rem 1rem;
-  color: var(--muted);
-}
-
-.devices-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 1rem;
+  padding: 2.5rem 1rem;
+  color: var(--ahd-muted);
+  font-size: 14px;
 }
 
 .device-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem 1.15rem;
-  border-left: 4px solid var(--off);
+  background: rgba(6, 20, 38, 0.65);
+  border: 1px solid var(--ahd-border);
+  border-radius: 10px;
+  padding: 1rem 1.1rem;
+  border-left: 4px solid #64748b;
 }
 
 .device-card.online {
-  border-left-color: var(--ok);
+  border-left-color: var(--ahd-safety);
 }
 
 .device-head {
@@ -149,50 +34,45 @@ body {
 
 .device-head h2 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 1.05rem;
+  color: var(--ahd-text);
 }
 
 .device-head .sub {
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
   margin-top: 0.2rem;
 }
 
-.badge {
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 0.2rem 0.5rem;
-  border-radius: 999px;
-  text-transform: uppercase;
-}
-
 .badge-online {
-  background: #14532d;
-  color: #86efac;
+  background: rgba(74, 222, 128, 0.2);
+  color: var(--ahd-safety);
+  border: 1px solid rgba(74, 222, 128, 0.4);
 }
 
 .badge-offline {
-  background: #334155;
+  background: rgba(100, 116, 139, 0.3);
   color: #cbd5e1;
 }
 
 .sensors {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(3, 1fr);
   gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 
 .sensor {
-  background: var(--bg);
+  background: rgba(10, 22, 40, 0.85);
+  border: 1px solid rgba(0, 229, 255, 0.15);
   border-radius: 8px;
-  padding: 0.55rem 0.6rem;
+  padding: 0.55rem 0.5rem;
   text-align: center;
 }
 
 .sensor .name {
   font-size: 0.65rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -204,16 +84,16 @@ body {
 }
 
 .sensor.present .rate {
-  color: #38bdf8;
+  color: var(--ahd-accent);
 }
 
 .sensor.absent .rate {
-  color: var(--off);
+  color: #64748b;
 }
 
 .sensor .detail {
   font-size: 0.7rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
   margin-top: 0.15rem;
 }
 
@@ -222,32 +102,32 @@ body {
   flex-wrap: wrap;
   gap: 0.75rem 1.25rem;
   font-size: 0.78rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
 }
 
 .meta-row strong {
-  color: var(--text);
+  color: var(--ahd-text);
 }
 
 .coords {
   font-family: ui-monospace, monospace;
   font-size: 0.75rem;
   margin-top: 0.5rem;
-  color: #7dd3fc;
-}
-
-.poll-status {
-  font-size: 0.75rem;
-  color: var(--muted);
-  padding: 0 1.5rem 1rem;
-}
-
-.poll-status.err {
-  color: #f87171;
+  color: var(--ahd-accent-dim);
 }
 
 @media (max-width: 640px) {
   .sensors {
     grid-template-columns: 1fr;
+  }
+
+  .ahd-inline-fields {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ahd-inline-fields input,
+  .ahd-inline-fields select {
+    width: 100%;
   }
 }

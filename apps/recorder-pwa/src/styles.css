@@ -1,72 +1,29 @@
-:root {
-  --bg: #0f172a;
-  --surface: #1e293b;
-  --border: #334155;
-  --text: #f1f5f9;
-  --muted: #94a3b8;
-  --accent: #0284c7;
-  --accent-hover: #0369a1;
-  --danger: #dc2626;
-  --live: #22c55e;
-  font-family:
-    system-ui,
-    -apple-system,
-    'Segoe UI',
-    Roboto,
-    sans-serif;
-}
+@import url('/ahd-hub-theme.css');
 
-* {
-  box-sizing: border-box;
-}
+/* Recorder PWA — Altitude HD hub layout */
 
-html,
-body {
-  margin: 0;
+.ahd-recorder-page #app {
   min-height: 100dvh;
-  background: var(--bg);
-  color: var(--text);
-}
-
-#app {
-  min-height: 100dvh;
-  max-width: 480px;
-  margin: 0 auto;
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  background: #0c4a6e;
-}
-
-.header h1 {
-  margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-}
-
-.header-btns {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-}
-
-.main {
-  padding: 1rem 1.25rem 2rem;
   display: flex;
   flex-direction: column;
-  gap: 1rem;
 }
 
-.card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem 1.25rem;
+.ahd-recorder-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.ahd-recorder-main {
+  flex: 1;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 0 clamp(12px, 4vw, 20px) 1.5rem;
+}
+
+.ahd-recorder-main .hub-panel {
+  margin-bottom: 0.85rem;
 }
 
 .status-row {
@@ -76,29 +33,15 @@ body {
   margin-bottom: 1rem;
 }
 
-.label {
-  color: var(--muted);
+.status-row .label {
+  color: var(--ahd-muted);
   font-size: 0.875rem;
-}
-
-.badge {
-  font-size: 0.75rem;
-  font-weight: 600;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  background: var(--border);
-}
-
-.badge-live {
-  background: var(--live);
-  color: #052e16;
 }
 
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 0.5rem;
-  text-align: center;
 }
 
 .stat-val {
@@ -106,11 +49,12 @@ body {
   font-size: 1.35rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  color: var(--ahd-text);
 }
 
 .stat-lbl {
   font-size: 0.65rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -118,85 +62,55 @@ body {
 .coords {
   margin: 0.75rem 0 0;
   font-size: 0.8rem;
-  color: var(--muted);
+  color: var(--ahd-accent-dim);
   font-family: ui-monospace, monospace;
 }
 
 .actions {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-.btn {
-  border: none;
-  border-radius: 10px;
-  padding: 0.65rem 1rem;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: inherit;
-}
-
-.btn-lg {
-  padding: 1rem;
-  font-size: 1.1rem;
-}
-
-.btn-primary {
-  background: var(--accent);
-  color: white;
-}
-
-.btn-primary:hover {
-  background: var(--accent-hover);
-}
-
-.btn-secondary {
-  background: #475569;
-  color: white;
-}
-
-.btn-danger {
-  background: var(--danger);
-  color: white;
-}
-
-.btn-ghost {
-  background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
+  gap: 0.65rem;
 }
 
 .hint,
 .hint-card p {
   margin: 0.25rem 0;
   font-size: 0.8rem;
-  color: var(--muted);
-  line-height: 1.4;
+  color: var(--ahd-muted);
+  line-height: 1.45;
+}
+
+.hint strong {
+  color: var(--ahd-text);
 }
 
 .log h2 {
   margin: 0 0 0.5rem;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ahd-accent);
 }
 
 .log pre {
   margin: 0;
   font-size: 0.7rem;
   line-height: 1.35;
-  max-height: 200px;
+  max-height: 180px;
   overflow: auto;
-  color: var(--muted);
+  color: var(--ahd-muted);
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: ui-monospace, monospace;
 }
 
 .form label {
   display: block;
   margin-bottom: 0.85rem;
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ahd-muted);
 }
 
 .form input[type='text'],
@@ -206,16 +120,23 @@ body {
   display: block;
   width: 100%;
   margin-top: 0.35rem;
-  padding: 0.6rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
+  padding: 8px 12px;
+  border: 1px solid var(--ahd-border);
+  border-radius: 6px;
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--ahd-text);
   font-size: 1rem;
+  font-family: inherit;
+}
+
+.form input:focus {
+  outline: none;
+  border-color: var(--ahd-accent);
+  box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.2);
 }
 
 .fieldset {
-  border: 1px solid var(--border);
+  border: 1px solid var(--ahd-border);
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin: 1rem 0;
@@ -223,7 +144,7 @@ body {
 
 .fieldset legend {
   padding: 0 0.25rem;
-  color: var(--muted);
+  color: var(--ahd-muted);
   font-size: 0.8rem;
 }
 
@@ -231,10 +152,18 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: var(--text);
+  color: var(--ahd-text);
+  font-weight: 500;
 }
 
 .check input {
   width: auto;
   margin: 0;
+  accent-color: var(--ahd-accent);
+}
+
+@media (max-width: 400px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }

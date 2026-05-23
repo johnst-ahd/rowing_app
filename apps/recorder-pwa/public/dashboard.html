@@ -2,63 +2,87 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0c4a6e" />
-    <title>RNZ Device Monitor</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1628" />
+    <title>Device Monitor · Altitude HD</title>
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="stylesheet" href="/ahd-hub-theme.css" />
     <link rel="stylesheet" href="/dashboard.css" />
   </head>
-  <body>
-    <header class="header">
-      <h1>RNZ Device Monitor</h1>
-      <div class="header-actions">
-        <label>
-          Ingest token
-          <input type="password" id="token" placeholder="Bearer token (if set on server)" autocomplete="off" />
-        </label>
-        <label>
-          Stats window
-          <select id="windowSec">
-            <option value="30">30 s</option>
-            <option value="60" selected>60 s</option>
-            <option value="120">120 s</option>
-          </select>
-        </label>
-        <label>
-          Refresh
-          <select id="pollMs">
-            <option value="1000">1 s</option>
-            <option value="2000" selected>2 s</option>
-            <option value="5000">5 s</option>
-            <option value="10000">10 s</option>
-          </select>
-        </label>
-        <button type="button" class="btn btn-primary" id="applyBtn">Apply</button>
-        <button type="button" class="btn btn-ghost" id="refreshBtn">Refresh now</button>
-        <a class="btn btn-ghost" href="/">Recorder</a>
+  <body class="hub-page">
+    <header class="hub-topbar">
+      <div class="hub-topbar-inner">
+        <div class="hub-topbar-brands">
+          <img
+            src="/altitude-hd-logo.png"
+            alt="Altitude HD"
+            class="hub-logo"
+            width="320"
+            height="120"
+          />
+          <img
+            src="/assets/rnz/rnz-logo-white.png"
+            alt="Rowing New Zealand"
+            class="hub-rnz-logo"
+            width="200"
+            height="80"
+          />
+        </div>
+        <p class="hub-tagline">RNZ ingest device monitor — live rates and sensor status</p>
       </div>
     </header>
 
-    <section class="summary">
-      <div class="stat-card">
-        <div class="val" id="activeCount">0</div>
-        <div class="lbl">Online now</div>
-      </div>
-      <div class="stat-card">
-        <div class="val" id="deviceCount">0</div>
-        <div class="lbl">Devices seen</div>
-      </div>
-      <div class="stat-card">
-        <div class="val" id="windowLabel">60</div>
-        <div class="lbl">Rate window (sec)</div>
-      </div>
-    </section>
+    <div class="hub-stats-bar" aria-live="polite">
+      <span class="hub-stats-item hub-stats-item--accent" id="activeCount">Online: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="deviceCount">Devices: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="windowLabel">Window: —</span>
+    </div>
 
-    <p class="poll-status" id="pollStatus">Connecting…</p>
+    <div class="ahd-app-wrap">
+      <section class="hub-panel ahd-controls-panel">
+        <h2 class="hub-section-title">Monitor settings</h2>
+        <div class="ahd-inline-fields">
+          <label class="ahd-field">
+            Ingest token
+            <input type="password" id="token" placeholder="Bearer token (if set)" autocomplete="off" />
+          </label>
+          <label class="ahd-field">
+            Stats window
+            <select id="windowSec">
+              <option value="30">30 s</option>
+              <option value="60" selected>60 s</option>
+              <option value="120">120 s</option>
+            </select>
+          </label>
+          <label class="ahd-field">
+            Refresh
+            <select id="pollMs">
+              <option value="1000">1 s</option>
+              <option value="2000" selected>2 s</option>
+              <option value="5000">5 s</option>
+              <option value="10000">10 s</option>
+            </select>
+          </label>
+          <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
+          <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
+          <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
+          <a class="hub-btn hub-btn--ghost" href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Altitude HD hub</a>
+        </div>
+        <p class="poll-line" id="pollStatus">Connecting…</p>
+      </section>
 
-    <main class="main">
-      <div class="devices-grid" id="devicesGrid"></div>
-    </main>
+      <section class="hub-panel">
+        <h2 class="hub-section-title">Devices</h2>
+        <div class="devices-grid" id="devicesGrid"></div>
+      </section>
+    </div>
+
+    <footer class="ahd-footer">
+      Altitude HD · RNZ Row Recorder ·
+      <a href="https://traccar-overlay.vercel.app/">traccar-overlay.vercel.app</a>
+    </footer>
 
     <script src="/dashboard.js"></script>
   </body>

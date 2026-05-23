@@ -44,7 +44,7 @@ function renderDevice(d) {
         <h2>${esc(d.deviceId)}</h2>
         <div class="sub">${d.athleteId ? esc(d.athleteId) : 'No athlete ID'} · session ${esc(d.sessionId.slice(0, 8))}…</div>
       </div>
-      <span class="badge ${d.online ? 'badge-online' : 'badge-offline'}">${d.online ? 'Online' : 'Offline'}</span>
+      <span class="badge-pill ${d.online ? 'badge-pill--live' : 'badge-pill--idle'}">${d.online ? 'Online' : 'Offline'}</span>
     </div>
     <div class="sensors">
       <div class="sensor ${gps.present ? 'present' : 'absent'}">
@@ -94,9 +94,9 @@ async function poll() {
     }
     const data = await res.json();
 
-    $('#activeCount').textContent = String(data.activeCount ?? 0);
-    $('#deviceCount').textContent = String(data.deviceCount ?? 0);
-    $('#windowLabel').textContent = String(data.windowSec ?? windowSec);
+    $('#activeCount').textContent = `Online: ${data.activeCount ?? 0}`;
+    $('#deviceCount').textContent = `Devices: ${data.deviceCount ?? 0}`;
+    $('#windowLabel').textContent = `Window: ${data.windowSec ?? windowSec}s`;
 
     grid.innerHTML = '';
     if (!data.devices?.length) {
