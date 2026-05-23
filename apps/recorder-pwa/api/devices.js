@@ -24,7 +24,7 @@ module.exports = async function handler(req, res) {
     Math.max(5, Number(req.query?.onlineSec) || 30),
   );
 
-  const payload = store.listDevices({
+  const payload = await store.listDevices({
     windowMs: windowSec * 1000,
     onlineMs: onlineSec * 1000,
   });

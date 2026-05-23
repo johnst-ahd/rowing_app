@@ -64,6 +64,6 @@ module.exports = async function handler(req, res) {
     sessionId: String(sessionId),
     received: result.received,
     total: result.total,
-    persisted: store.hasDb(),
+    persisted: Boolean(result.persisted),
   });
 };

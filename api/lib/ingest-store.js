@@ -126,15 +126,16 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   trimSampleRing(row);
   trimSessions();
 
+  let persisted = false;
   try {
     if (db.hasDb()) {
-      await db.persistBatch(sessionId, deviceId, athleteId, samples);
+      persisted = await db.persistBatch(sessionId, deviceId, athleteId, samples);
     }
   } catch (err) {
     console.error('[ingest-store] DB persist failed:', err);
   }
 
-  return { received: samples.length, total: row.samples.length };
+  return { received: samples.length, total: row.samples.length, persisted };
 }
 
 /**
@@ -154,36 +155,87 @@ async function getSession(sessionId) {
   return { sessionId, ...row };
 }
 
+function buildDeviceEntry(entry, windowMs, onlineMs, now) {
+  const stats = sensorStats(entry.samples, windowMs);
+  const lastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
+  const online = now - lastSeenMs <= onlineMs;
+  return {
+    deviceId: entry.deviceId,
+    athleteId: entry.athleteId || null,
+    sessionId: entry.sessionId,
+    online,
+    lastSeenMs,
+    lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+    firstSeenMs: entry.firstSeenMs ?? entry.firstSeenAt ?? lastSeenMs,
+    totalSamples: entry.samples.length,
+    ...stats,
+  };
+}
+
 /**
  * @param {{ windowMs?: number, onlineMs?: number }} [opts]
  */
-function listDevices(opts = {}) {
+function listDevicesFromMemory(opts = {}) {
   const windowMs = opts.windowMs ?? 60000;
   const onlineMs = opts.onlineMs ?? 30000;
   const now = Date.now();
-
-  /** @type {Map<string, object>} */
   const byDevice = new Map();
 
   for (const [sessionId, row] of sessions) {
-    const stats = sensorStats(row.samples, windowMs);
-    const online = now - row.updatedAt <= onlineMs;
-    const entry = {
-      deviceId: row.deviceId,
-      athleteId: row.athleteId || null,
-      sessionId,
-      online,
-      lastSeenMs: row.updatedAt,
-      lastSeenAgoSec: Math.round((now - row.updatedAt) / 1000),
-      firstSeenMs: row.firstSeenAt,
-      totalSamples: row.samples.length,
-      persisted: db.hasDb(),
-      ...stats,
-    };
-
+    const built = buildDeviceEntry(
+      {
+        deviceId: row.deviceId,
+        athleteId: row.athleteId,
+        sessionId,
+        samples: row.samples,
+        lastSeenMs: row.updatedAt,
+        firstSeenMs: row.firstSeenAt,
+      },
+      windowMs,
+      onlineMs,
+      now,
+    );
     const prev = byDevice.get(row.deviceId);
-    if (!prev || row.updatedAt > prev.lastSeenMs) {
-      byDevice.set(row.deviceId, entry);
+    if (!prev || built.lastSeenMs > prev.lastSeenMs) {
+      byDevice.set(row.deviceId, built);
+    }
+  }
+
+  return byDevice;
+}
+
+/**
+ * @param {{ windowMs?: number, onlineMs?: number }} [opts]
+ */
+async function listDevices(opts = {}) {
+  const windowMs = opts.windowMs ?? 60000;
+  const onlineMs = opts.onlineMs ?? 30000;
+  const now = Date.now();
+  const hasPostgres = db.hasDb();
+
+  /** @type {Map<string, object>} */
+  const byDevice = listDevicesFromMemory(opts);
+
+  let storage = hasPostgres ? 'postgres' : 'memory';
+  let warning = hasPostgres
+    ? null
+    : 'No database configured — monitor only sees data on the same server instance. Add POSTGRES_URL in Vercel and redeploy.';
+
+  if (hasPostgres) {
+    try {
+      const fromDb = await db.fetchRecentSamplesByDevice(windowMs);
+      for (const entry of fromDb.values()) {
+        const built = buildDeviceEntry(entry, windowMs, onlineMs, now);
+        const prev = byDevice.get(entry.deviceId);
+        if (!prev || built.lastSeenMs > prev.lastSeenMs) {
+          byDevice.set(entry.deviceId, built);
+        }
+      }
+      warning = null;
+    } catch (err) {
+      console.error('[ingest-store] listDevices DB failed:', err);
+      storage = 'memory';
+      warning = `Database read failed: ${err.message}`;
     }
   }
 
@@ -198,6 +250,9 @@ function listDevices(opts = {}) {
     activeCount: devices.filter((d) => d.online).length,
     deviceCount: devices.length,
     devices,
+    persisted: hasPostgres,
+    storage,
+    warning,
   };
 }
 

@@ -86,13 +86,27 @@ async function poll() {
   const windowSec = $('#windowSec')?.value || 60;
 
   try {
-    const url = `${apiBase()}/api/devices?windowSec=${encodeURIComponent(windowSec)}`;
+    const url = `${apiBase()}/api/devices?windowSec=${encodeURIComponent(windowSec)}&onlineSec=120`;
     const res = await fetch(url, { headers: headers() });
     if (!res.ok) {
       const text = await res.text();
+      if (res.status === 401) {
+        throw new Error('401 Unauthorized — ingest token on this page must match INGEST_TOKEN in Vercel.');
+      }
       throw new Error(`${res.status} ${text.slice(0, 120)}`);
     }
     const data = await res.json();
+
+    const warnEl = $('#storageWarning');
+    if (warnEl) {
+      if (data.warning) {
+        warnEl.hidden = false;
+        warnEl.textContent = data.warning;
+      } else {
+        warnEl.hidden = true;
+        warnEl.textContent = '';
+      }
+    }
 
     $('#activeCount').textContent = `Online: ${data.activeCount ?? 0}`;
     $('#deviceCount').textContent = `Devices: ${data.deviceCount ?? 0}`;
@@ -100,8 +114,10 @@ async function poll() {
 
     grid.innerHTML = '';
     if (!data.devices?.length) {
-      grid.innerHTML =
-        '<p class="empty">No devices yet. Start a recording session on a phone with this deployment’s ingest URL.</p>';
+      const hint = data.persisted
+        ? 'No devices in the last window. Check the phone is recording and Device ID matches.'
+        : 'No devices visible — add POSTGRES_URL on Vercel (Storage → Postgres), redeploy, then record again. Without a database, phone uploads and the monitor often hit different servers.';
+      grid.innerHTML = `<p class="empty">${hint}</p>`;
     } else {
       for (const d of data.devices) {
         d.windowSec = data.windowSec;

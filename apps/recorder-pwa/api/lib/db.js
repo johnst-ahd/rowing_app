@@ -231,6 +231,71 @@ async function getLatestTraccarPositions(onlineMs = 30000) {
   return rows.rows.map(rowToTraccarPosition);
 }
 
+/**
+ * Recent samples grouped by device (for dashboard when Postgres is enabled).
+ * @returns {Promise<Map<string, { deviceId: string, athleteId: string|null, sessionId: string, samples: object[], lastSeenMs: number, firstSeenMs: number }>>}
+ */
+async function fetchRecentSamplesByDevice(windowMs) {
+  const sql = await getSql();
+  await initSchema();
+  const cutoff = Date.now() - windowMs;
+  const rows = await sql`
+    SELECT s.unique_id, s.session_id, s.t_ms,
+      s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude,
+      s.hr, s.ax, s.ay, s.az,
+      d.athlete_id
+    FROM rnz_samples s
+    LEFT JOIN rnz_devices d ON d.unique_id = s.unique_id
+    WHERE s.t_ms >= ${cutoff}
+    ORDER BY s.unique_id, s.t_ms ASC
+    LIMIT 80000
+  `;
+
+  /** @type {Map<string, object>} */
+  const byDevice = new Map();
+  for (const row of rows.rows) {
+    const uid = String(row.unique_id);
+    let entry = byDevice.get(uid);
+    const t = Number(row.t_ms);
+    const sample = {
+      t,
+      gps:
+        row.latitude != null
+          ? {
+              lat: row.latitude,
+              lon: row.longitude,
+              acc: row.accuracy,
+              spd: row.speed,
+              hdg: row.course,
+              alt: row.altitude,
+            }
+          : undefined,
+      hr: row.hr != null ? { bpm: row.hr } : undefined,
+      motion:
+        row.ax != null ? { ax: row.ax, ay: row.ay, az: row.az } : undefined,
+    };
+    if (!entry) {
+      entry = {
+        deviceId: uid,
+        athleteId: row.athlete_id || null,
+        sessionId: String(row.session_id),
+        samples: [],
+        lastSeenMs: t,
+        firstSeenMs: t,
+      };
+      byDevice.set(uid, entry);
+    }
+    entry.samples.push(sample);
+    if (t >= entry.lastSeenMs) {
+      entry.lastSeenMs = t;
+      entry.sessionId = String(row.session_id);
+    }
+    if (t < entry.firstSeenMs) entry.firstSeenMs = t;
+    if (row.athlete_id) entry.athleteId = row.athlete_id;
+  }
+  return byDevice;
+}
+
 async function listRegistryDevices() {
   const sql = await getSql();
   const rows = await sql`
@@ -325,6 +390,7 @@ module.exports = {
   hasDb,
   initSchema,
   persistBatch,
+  fetchRecentSamplesByDevice,
   getTraccarSnapshot,
   getRoutePositions,
   resolveDevice,
