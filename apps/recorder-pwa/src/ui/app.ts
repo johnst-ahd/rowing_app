@@ -9,7 +9,7 @@ import {
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
 import { startRecorder, type RecorderController } from '../session/recorder';
-import { countPendingOutbox } from '../session/store';
+import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 import { repairOversizedPendingOutbox } from '../session/store';
 import { testIngestConnection } from '../upload/telemetry-api';
@@ -47,26 +47,76 @@ export function mountApp(root: HTMLElement): void {
     if (el) el.textContent = String(n);
   };
 
-  async function runSync() {
-    const s = loadSettings();
-    const pendingBefore = await countPendingOutbox();
-    const { sent, failed, errors } = await flushOutbox(s);
-    const pendingAfter = await countPendingOutbox();
-    if (sent || failed) {
-      pushLog(`Upload: ${sent} sent, ${failed} failed · queue ${pendingAfter}`);
-    }
-    if (errors.length) {
-      for (const err of errors.slice(0, 2)) pushLog(err);
-      if (/failed to fetch|timed out/i.test(errors[0])) {
-        pushLog('Tip: check signal; tap Upload queue now. Upload batch 5s in Settings.');
+  async function runSync(manual = false) {
+    if (manual) pushLog('Uploading queued data…');
+    try {
+      const s = loadSettings();
+      const pendingBefore = await countPendingOutbox();
+      if (manual && pendingBefore === 0) {
+        pushLog('Queue is empty — nothing to upload.');
+        await updatePending();
+        return;
       }
-      if (/413/.test(errors[0])) {
-        pushLog('Batch too large — queue was split; wait for retry.');
+      const { sent, failed, errors } = await flushOutbox(s);
+      const pendingAfter = await countPendingOutbox();
+      if (manual || sent || failed) {
+        pushLog(`Upload: ${sent} sent, ${failed} failed · queue ${pendingAfter}`);
       }
-    } else if (pendingBefore > 0 && sent === 0 && pendingAfter >= pendingBefore) {
-      pushLog(`Queue stuck at ${pendingAfter}? Tap Upload queue now or check Settings URL.`);
+      if (errors.length) {
+        for (const err of errors.slice(0, 2)) pushLog(err);
+        if (/failed to fetch|timed out/i.test(errors[0])) {
+          pushLog('Tip: check signal; verify ingest URL in Settings.');
+        }
+        if (/413/.test(errors[0])) {
+          pushLog('Batch too large — queue was split; tap Upload again.');
+        }
+      } else if (pendingBefore > 0 && sent === 0 && pendingAfter >= pendingBefore) {
+        pushLog(`Queue stuck at ${pendingAfter}? Check Settings → Test upload.`);
+      } else if (manual && pendingAfter === 0 && sent > 0) {
+        pushLog('All queued data uploaded.');
+      }
+      await updatePending();
+    } catch (e) {
+      pushLog(`Upload error: ${e instanceof Error ? e.message : String(e)}`);
+      await updatePending();
     }
+  }
+
+  function logPanelHtml(): string {
+    return `
+      <section class="hub-panel log">
+        <h2>Log</h2>
+        <pre>${logLines.join('\n') || 'Ready.'}</pre>
+      </section>
+    `;
+  }
+
+  async function clearQueue(manual = true): Promise<void> {
+    const n = await clearPendingOutbox();
     await updatePending();
+    if (manual) pushLog(n ? `Cleared ${n} queued batch(es).` : 'Queue was already empty.');
+  }
+
+  async function clearSession(): Promise<void> {
+    if (recording) {
+      if (syncTimer) clearInterval(syncTimer);
+      syncTimer = null;
+      stopBackgroundSession();
+      await controller?.stop();
+      controller = null;
+      recording = false;
+      capsizeActive = false;
+      backgroundStatus = 'foreground';
+    }
+    clearRecordingActive();
+    const n = await clearPendingOutbox();
+    await updatePending();
+    pushLog(
+      n
+        ? `Session cleared — stopped recording and removed ${n} queued batch(es).`
+        : 'Session cleared — stopped recording; queue was empty.',
+    );
+    render();
   }
 
   function render() {
@@ -178,6 +228,8 @@ export function mountApp(root: HTMLElement): void {
                 `
             }
             <button type="button" class="hub-btn hub-btn--ghost" data-action="sync">Upload queue now</button>
+            <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-queue">Clear upload queue</button>
+            <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
           </section>
           <section class="hub-panel toggles-hint">
             <p class="hint">Sensors: GPS ${settings.enableGps ? 'on' : 'off'} · Motion ${settings.enableMotion ? 'on' : 'off'} · HR ${settings.enableHr ? 'on' : 'off'}</p>
@@ -188,10 +240,7 @@ export function mountApp(root: HTMLElement): void {
                 : ''
             }
           </section>
-          <section class="hub-panel log">
-            <h2>Log</h2>
-            <pre>${logLines.join('\n') || 'Ready.'}</pre>
-          </section>
+          ${logPanelHtml()}
         </div>
         ${hubFooter()}
       </div>
@@ -238,7 +287,11 @@ export function mountApp(root: HTMLElement): void {
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
             <button type="button" class="hub-btn" data-action="test-ingest">Test upload connection</button>
+            <button type="button" class="hub-btn" data-action="sync">Upload queue now</button>
+            <button type="button" class="hub-btn" data-action="clear-queue">Clear upload queue</button>
+            <button type="button" class="hub-btn" data-action="clear-session">Clear session</button>
           </form>
+          ${logPanelHtml()}
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
             <p>Add to home screen for the best background behaviour. Android works better than iOS when the screen is locked.</p>
@@ -322,8 +375,8 @@ export function mountApp(root: HTMLElement): void {
 
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
       const syncInterval = Math.max(3000, Math.min(s.uploadBatchMs, 8000));
-      syncTimer = setInterval(() => void runSync(), syncInterval);
-      void runSync();
+      syncTimer = setInterval(() => void runSync(false), syncInterval);
+      void runSync(false);
       render();
     });
 
@@ -336,7 +389,7 @@ export function mountApp(root: HTMLElement): void {
       capsizeActive = false;
       backgroundStatus = 'foreground';
       clearRecordingActive();
-      await runSync();
+      await runSync(true);
       render();
     });
 
@@ -344,7 +397,25 @@ export function mountApp(root: HTMLElement): void {
       void controller?.connectHr();
     });
 
-    root.querySelector('[data-action="sync"]')?.addEventListener('click', () => void runSync());
+    root.querySelectorAll('[data-action="sync"]').forEach((el) => {
+      el.addEventListener('click', () => void runSync(true));
+    });
+
+    root.querySelectorAll('[data-action="clear-queue"]').forEach((el) => {
+      el.addEventListener('click', () => {
+        if (recording) {
+          pushLog('Stop the session before clearing the queue.');
+          return;
+        }
+        void clearQueue(true);
+      });
+    });
+
+    root.querySelectorAll('[data-action="clear-session"]').forEach((el) => {
+      el.addEventListener('click', () => {
+        void clearSession();
+      });
+    });
 
     void updatePending();
   }

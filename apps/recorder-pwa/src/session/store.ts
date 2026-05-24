@@ -187,6 +187,15 @@ export async function countPendingOutbox(): Promise<number> {
   return pending.length;
 }
 
+/** Remove all pending uploads (does not delete sent history on server). */
+export async function clearPendingOutbox(): Promise<number> {
+  const rows = await listPendingOutbox(9999);
+  for (const row of rows) {
+    if (row.id != null) await deleteOutboxRow(row.id);
+  }
+  return rows.length;
+}
+
 export async function saveUploadConfig(
   config: Omit<UploadConfig, 'updatedAt'> & { updatedAt?: number },
 ): Promise<void> {
