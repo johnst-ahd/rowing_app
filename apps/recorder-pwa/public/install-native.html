@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0a1628" />
+    <title>Install native app · RNZ Row Recorder</title>
+    <link rel="stylesheet" href="/ahd-hub-theme.css" />
+    <style>
+      body {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 1.25rem;
+        line-height: 1.5;
+      }
+      h1 {
+        font-size: 1.35rem;
+        color: var(--ahd-text);
+      }
+      ol {
+        padding-left: 1.2rem;
+      }
+      li {
+        margin-bottom: 0.65rem;
+      }
+      .hub-panel {
+        margin: 1rem 0;
+      }
+      a {
+        color: var(--ahd-accent);
+      }
+      .note {
+        font-size: 0.9rem;
+        color: var(--ahd-muted);
+      }
+    </style>
+  </head>
+  <body class="hub-page">
+    <h1>Install native Android app</h1>
+    <p class="note">
+      For Samsung and other Android phones — install once, no Play Store required.
+    </p>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">Download APK (Android)</h2>
+      <p>
+        <a
+          id="apk-link"
+          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk"
+          download
+          ><strong>Download RNZ-Row-Recorder.apk</strong></a
+        >
+      </p>
+      <p class="note">
+        If the link 404s, the build may still be running —
+        <a href="https://github.com/JohnSt-AHD/rowing_app/releases/tag/android-apk-latest"
+          >check Releases</a
+        >
+        or
+        <a href="https://github.com/JohnSt-AHD/rowing_app/actions/workflows/android-apk.yml"
+          >Actions</a
+        >.
+      </p>
+    </section>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">Option 1 — APK file</h2>
+      <ol>
+        <li>
+          Get <strong>RNZ-Row-Recorder.apk</strong> from your team (GitHub Actions
+          artifact, Google Drive, or USB).
+        </li>
+        <li>On the phone, open the APK file.</li>
+        <li>
+          If prompted, allow <strong>Install unknown apps</strong> for Files or
+          Drive.
+        </li>
+        <li>
+          Open <strong>RNZ Row Recorder</strong> — the top bar should say
+          <strong>Native app</strong>.
+        </li>
+      </ol>
+    </section>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">Samsung settings (once)</h2>
+      <ol>
+        <li>Settings → Apps → RNZ Row Recorder → Battery → <strong>Unrestricted</strong></li>
+        <li>Location → <strong>Allow all the time</strong></li>
+        <li>In the app: set <strong>Device ID</strong>, then <strong>Start session</strong></li>
+      </ol>
+    </section>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">Option 2 — Web app (no install)</h2>
+      <p>
+        <a href="/">Open recorder in browser</a> and use Chrome → Install app /
+        Add to Home screen. Easier, but GPS may pause when the screen locks.
+      </p>
+    </section>
+
+    <p>
+      <a href="/">← Back to recorder</a> ·
+      <a href="/dashboard.html">Monitor</a>
+    </p>
+  </body>
+</html>

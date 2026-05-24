@@ -44,6 +44,49 @@ function fmtHz(v) {
   return `${v} Hz`;
 }
 
+function fmtSpm(v) {
+  if (v == null || v === 0) return '—';
+  return `${v} spm`;
+}
+
+function playCapsizeAlarm() {
+  if (typeof window === 'undefined') return;
+  if (window.__rnzCapsizeAlarmAt && Date.now() - window.__rnzCapsizeAlarmAt < 8000) return;
+  window.__rnzCapsizeAlarmAt = Date.now();
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'square';
+    osc.frequency.value = 660;
+    gain.gain.value = 0.12;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    setTimeout(() => {
+      osc.stop();
+      void ctx.close();
+    }, 900);
+  } catch {
+    /* optional */
+  }
+}
+
+function updateCapsizeBanner(devices) {
+  const bar = $('#capsizeAlertBar');
+  const text = $('#capsizeAlertText');
+  if (!bar || !text) return;
+  const capsized = (devices || []).filter((d) => d.rowing?.capsize);
+  if (!capsized.length) {
+    bar.hidden = true;
+    text.textContent = '—';
+    return;
+  }
+  bar.hidden = false;
+  text.textContent = capsized.map((d) => d.deviceId).join(', ');
+  playCapsizeAlarm();
+}
+
 function esc(s) {
   return String(s)
     .replace(/&/g, '&amp;')
@@ -92,7 +135,9 @@ function popupHtml(p) {
   const state = gpsFixState(p.fixAgeSec);
   const status = gpsStatusLabel(state);
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}</div>`;
+  const spm = p.strokeRate != null ? `<br>Stroke: ${p.strokeRate} spm` : '';
+  const cap = p.capsize ? `<br><strong class="map-popup-capsize">CAPSIZE</strong>` : '';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}${spm}${cap}</div>`;
 }
 
 function updateMap(positions) {
@@ -171,21 +216,30 @@ async function fetchMapPositions() {
 
 function renderDevice(d) {
   const card = document.createElement('article');
-  const gpsState = gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec);
+  const rowing = d.rowing || {};
+  const gpsState = rowing.capsize
+    ? 'capsize'
+    : gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec);
   card.className = `device-card device-card--${gpsState}`;
 
   const gps = d.gps || {};
   const hr = d.hr || {};
   const motion = d.motion || {};
 
-  const badgeClass =
-    gpsState === 'live'
+  const badgeClass = rowing.capsize
+    ? 'badge-pill--capsize'
+    : gpsState === 'live'
       ? 'badge-pill--live'
       : gpsState === 'amber'
         ? 'badge-pill--amber'
         : 'badge-pill--lost';
-  const badgeLabel =
-    gpsState === 'live' ? 'GPS live' : gpsState === 'amber' ? 'GPS delayed' : 'Last known';
+  const badgeLabel = rowing.capsize
+    ? 'Capsize'
+    : gpsState === 'live'
+      ? 'GPS live'
+      : gpsState === 'amber'
+        ? 'GPS delayed'
+        : 'Last known';
 
   const coords =
     gps.last?.lat != null
@@ -200,21 +254,26 @@ function renderDevice(d) {
       </div>
       <span class="badge-pill ${badgeClass}">${badgeLabel}</span>
     </div>
-    <div class="sensors">
+    <div class="sensors sensors--four">
       <div class="sensor ${gps.present ? 'present' : 'absent'}">
         <div class="name">GPS</div>
         <div class="rate">${gps.present ? fmtHz(gps.rateHz) : '—'}</div>
         <div class="detail">${gps.present ? `${gps.count} fixes / ${d.windowSec || 60}s` : 'No data'}</div>
+      </div>
+      <div class="sensor ${rowing.strokeRateValid ? 'present' : motion.present ? 'present' : 'absent'}">
+        <div class="name">Stroke rate</div>
+        <div class="rate">${rowing.strokeRateValid ? fmtSpm(rowing.strokeRate) : '—'}</div>
+        <div class="detail">${rowing.strokeRateValid ? '15–50 spm' : motion.present ? 'Detecting…' : 'No motion'}</div>
       </div>
       <div class="sensor ${hr.present ? 'present' : 'absent'}">
         <div class="name">Heart rate</div>
         <div class="rate">${hr.present ? fmtHz(hr.rateHz) : '—'}</div>
         <div class="detail">${hr.last ? `${hr.last.bpm} bpm · ${hr.ageSec}s ago` : 'Not present'}</div>
       </div>
-      <div class="sensor ${motion.present ? 'present' : 'absent'}">
-        <div class="name">Accelerometer</div>
-        <div class="rate">${motion.present ? fmtHz(motion.rateHz) : '—'}</div>
-        <div class="detail">${motion.present ? `${motion.count} samples` : 'Not present'}</div>
+      <div class="sensor ${motion.present ? 'present' : 'absent'} ${rowing.capsize ? 'sensor--capsize' : ''}">
+        <div class="name">${rowing.capsize ? 'Capsize' : 'Tilt'}</div>
+        <div class="rate">${rowing.tiltDeg != null ? `${rowing.tiltDeg}°` : '—'}</div>
+        <div class="detail">${rowing.capsize ? 'Boat tipped' : motion.present ? `${motion.count} samples` : 'Not present'}</div>
       </div>
     </div>
     <div class="meta-row">
@@ -273,6 +332,8 @@ async function poll() {
     $('#activeCount').textContent = `Online: ${data.activeCount ?? 0}`;
     $('#deviceCount').textContent = `Devices: ${data.deviceCount ?? 0}`;
     $('#windowLabel').textContent = `Window: ${data.windowSec ?? windowSec}s`;
+
+    updateCapsizeBanner(data.devices);
 
     grid.innerHTML = '';
     if (!data.devices?.length) {

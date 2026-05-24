@@ -1,4 +1,5 @@
 const db = require('./db');
+const { analyzeMotionWindow } = require('./motion-analysis');
 
 const MAX_SAMPLES_PER_REQUEST = 500;
 const MAX_SESSIONS = 200;
@@ -10,7 +11,7 @@ const sessions = globalThis.__rnzIngestSessions ?? new Map();
 globalThis.__rnzIngestSessions = sessions;
 
 /**
- * @typedef {{ t: number, gps?: object, motion?: object, hr?: object }} Sample
+ * @typedef {{ t: number, gps?: object, motion?: object, hr?: object, derived?: object }} Sample
  * @typedef {{
  *   deviceId: string,
  *   athleteId?: string,
@@ -50,6 +51,7 @@ function sensorStats(samples, windowMs) {
   let lastGps = null;
   let lastMotion = null;
   let lastHr = null;
+  let lastDerived = null;
 
   for (const s of recent) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
@@ -64,7 +66,18 @@ function sensorStats(samples, windowMs) {
       hrCount++;
       lastHr = { t: s.t, bpm: s.hr.bpm };
     }
+    if (s.derived) {
+      lastDerived = { t: s.t, ...s.derived };
+    }
   }
+
+  const motionSamples = recent.filter((s) => s.motion && s.motion.ax != null);
+  const analyzed = motionSamples.length ? analyzeMotionWindow(motionSamples) : null;
+  const strokeRate =
+    analyzed?.strokeRate ??
+    (lastDerived?.strokeRate != null ? lastDerived.strokeRate : null);
+  const capsize = analyzed?.capsize ?? Boolean(lastDerived?.capsize);
+  const tiltDeg = analyzed?.tiltDeg ?? lastDerived?.tiltDeg ?? null;
 
   const windowSec = windowMs / 1000;
   const rate = (n) => (windowSec > 0 ? Math.round((n / windowSec) * 10) / 10 : 0);
@@ -90,6 +103,14 @@ function sensorStats(samples, windowMs) {
       count: hrCount,
       last: lastHr,
       ageSec: lastHr ? Math.round((now - lastHr.t) / 1000) : null,
+    },
+    rowing: {
+      strokeRate,
+      strokeRateValid: strokeRate != null,
+      capsize,
+      tiltDeg,
+      calibrated: analyzed?.calibrated ?? false,
+      ageSec: lastMotion ? Math.round((now - lastMotion.t) / 1000) : null,
     },
     totalInWindow: recent.length,
     ingestRateHz: rate(recent.length),

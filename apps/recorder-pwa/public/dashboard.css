@@ -120,8 +120,59 @@
   border-left-color: #fbbf24;
 }
 
+.device-card--capsize {
+  border-left-color: #ef4444;
+  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35);
+  animation: capsize-card-pulse 1.4s ease-in-out infinite;
+}
+
 .device-card--lost {
   border-left-color: #ef4444;
+}
+
+.badge-pill--capsize {
+  background: rgba(239, 68, 68, 0.25);
+  color: #fecaca;
+  border: 1px solid rgba(248, 113, 113, 0.55);
+}
+
+.sensor--capsize {
+  border-color: rgba(248, 113, 113, 0.65);
+  background: rgba(127, 29, 29, 0.35);
+}
+
+.sensor--capsize .rate {
+  color: #fca5a5;
+}
+
+.capsize-alert-bar {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: rgba(127, 29, 29, 0.92);
+  color: #fecaca;
+  text-align: center;
+  border-bottom: 1px solid rgba(248, 113, 113, 0.45);
+  animation: capsize-card-pulse 1.2s ease-in-out infinite;
+}
+
+.capsize-alert-bar strong {
+  margin-right: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.map-popup-capsize {
+  color: #dc2626;
+}
+
+@keyframes capsize-card-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.78;
+  }
 }
 
 .badge-pill--amber {
@@ -168,9 +219,15 @@
 
 .sensors {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+}
+
+@media (min-width: 520px) {
+  .sensors--four {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 .sensor {

@@ -1,18 +1,12 @@
 import type { MotionSample } from '@rowing/telemetry-types';
-
-export type MotionReading = MotionSample & { t: number };
-
-export type MotionWatcher = {
-  stop: () => void;
-};
+import type { MotionReading, MotionWatcher } from '../types';
 
 async function requestMotionPermission(): Promise<boolean> {
   const dm = DeviceMotionEvent as typeof DeviceMotionEvent & {
     requestPermission?: () => Promise<'granted' | 'denied'>;
   };
   if (typeof dm.requestPermission === 'function') {
-    const result = await dm.requestPermission();
-    return result === 'granted';
+    return (await dm.requestPermission()) === 'granted';
   }
   return true;
 }
@@ -54,3 +48,5 @@ export async function startMotionWatcher(
     },
   };
 }
+
+export type { MotionReading, MotionWatcher };

@@ -22,6 +22,20 @@ Open http://localhost:5173 — configure **Settings** (Device ID, Traccar URL, i
 - IndexedDB offline outbox with background flush
 - Installable PWA (manifest + service worker)
 - Screen wake lock while recording (where supported)
+- **Native app (Capacitor)** for reliable background GPS on iOS/Android — see [docs/NATIVE-APP.md](docs/NATIVE-APP.md)
+
+## Native app (Capacitor)
+
+For crew phones that need **GPS and HR while the screen is locked**:
+
+```bash
+npm install
+npm run native:sync       # build + sync to android/ and ios/
+npm run native:android    # open Android Studio
+npm run native:ios        # open Xcode (Mac)
+```
+
+Full setup: [docs/NATIVE-APP.md](docs/NATIVE-APP.md)
 
 ## Deploy (Vercel)
 

@@ -69,5 +69,7 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     enableGps: fd.get('enableGps') === 'on',
     enableMotion: fd.get('enableMotion') === 'on',
     enableHr: fd.get('enableHr') === 'on',
+    enableBackgroundRecording: fd.get('enableBackgroundRecording') === 'on',
+    keepScreenOn: fd.get('keepScreenOn') === 'on',
   });
 }

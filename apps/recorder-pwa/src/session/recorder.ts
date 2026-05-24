@@ -3,12 +3,17 @@ import type {
   SessionMeta,
   TelemetrySample,
 } from '@rowing/telemetry-types';
-import { startGpsWatcher } from '../sensors/gps';
 import {
   connectHeartRate,
+  startGpsWatcher,
+  startMotionWatcher,
   type HeartRateMonitor,
-} from '../sensors/heart-rate';
-import { startMotionWatcher } from '../sensors/motion';
+} from '@rowing/sensor-adapters';
+import {
+  createMotionAnalyzer,
+  metricsFromAnalyzer,
+  triggerCapsizeAlert,
+} from '../sensors/motion-analysis';
 import { enqueueTelemetry, saveSession } from './store';
 
 export type RecorderStats = {
@@ -18,12 +23,17 @@ export type RecorderStats = {
   lastHr?: number;
   lastGps?: { lat: number; lon: number };
   pendingOutbox: number;
+  strokeRate?: number;
+  tiltDeg?: number;
+  capsize?: boolean;
+  motionCalibrated?: boolean;
 };
 
 export type RecorderController = {
+  sessionId: string;
   stop: () => Promise<void>;
   getStats: () => RecorderStats;
-  flush: () => void;
+  flush: () => Promise<void>;
   connectHr: () => Promise<void>;
 };
 
@@ -32,6 +42,7 @@ export async function startRecorder(
   onStats: (s: RecorderStats) => void,
   onLog: (msg: string) => void,
   onPendingChange: (n: number) => void,
+  onCapsize?: (active: boolean) => void,
 ): Promise<RecorderController | null> {
   if (!settings.deviceId.trim()) {
     onLog('Set a Device ID in Settings before recording.');
@@ -56,8 +67,11 @@ export async function startRecorder(
 
   let latestHr: TelemetrySample['hr'];
   let latestMotion: TelemetrySample['motion'];
+  let latestDerived: TelemetrySample['derived'];
   const batch: TelemetrySample[] = [];
   let batchTimer: ReturnType<typeof setInterval> | null = null;
+  let motionAnalyzer: ReturnType<typeof createMotionAnalyzer> | null = null;
+  let capsizeActive = false;
 
   const stoppers: Array<() => void | Promise<void>> = [];
   let hrMonitor: HeartRateMonitor | null = null;
@@ -94,36 +108,75 @@ export async function startRecorder(
           },
           hr: latestHr,
           motion: latestMotion,
+          derived: latestDerived,
         });
         emit();
       },
       settings.gpsIntervalMs,
       (m) => onLog(`GPS: ${m}`),
     );
-    stoppers.push(() => gps.stop());
+    stoppers.push(async () => {
+      await Promise.resolve(gps.stop());
+    });
   }
 
   if (settings.enableMotion) {
+    motionAnalyzer = createMotionAnalyzer();
     const motion = await startMotionWatcher(
       (r) => {
         if (stopped) return;
         stats.motionCount++;
         latestMotion = { ax: r.ax, ay: r.ay, az: r.az };
-        batch.push({ t: r.t, motion: latestMotion, hr: latestHr });
+        motionAnalyzer!.process(r.t, r.ax, r.ay, r.az);
+        const metrics = metricsFromAnalyzer(motionAnalyzer!);
+        stats.strokeRate = metrics.strokeRate;
+        stats.tiltDeg = metrics.tiltDeg;
+        stats.capsize = metrics.capsize;
+        stats.motionCalibrated = metrics.calibrated;
+
+        latestDerived = {
+          strokeRate: metrics.strokeRate,
+          capsize: metrics.capsize,
+          tiltDeg: metrics.tiltDeg,
+        };
+
+        if (metrics.capsize && !capsizeActive) {
+          capsizeActive = true;
+          triggerCapsizeAlert();
+          onLog('CAPSIZE ALERT — boat tipped past horizontal');
+          onCapsize?.(true);
+        } else if (!metrics.capsize && capsizeActive) {
+          capsizeActive = false;
+          onLog('Capsize cleared — boat upright again');
+          onCapsize?.(false);
+        }
+
+        batch.push({
+          t: r.t,
+          motion: latestMotion,
+          hr: latestHr,
+          derived: latestDerived,
+        });
         emit();
       },
       settings.motionIntervalMs,
       (m) => onLog(`Motion: ${m}`),
     );
-    stoppers.push(() => motion.stop());
+    stoppers.push(async () => {
+      await Promise.resolve(motion.stop());
+    });
   }
 
   emit();
   onLog(`Session started: ${sessionId.slice(0, 8)}…`);
+  if (settings.enableMotion) {
+    onLog('Hold boat steady for ~2s at start to calibrate upright orientation.');
+  }
 
   return {
+    sessionId,
     getStats: () => ({ ...stats }),
-    flush: () => void pushBatch(),
+    flush: () => pushBatch(),
     async connectHr() {
       if (!settings.enableHr) return;
       if (hrMonitor) await hrMonitor.disconnect();
@@ -133,7 +186,7 @@ export async function startRecorder(
           stats.hrCount++;
           stats.lastHr = r.bpm;
           latestHr = { bpm: r.bpm, contact: r.contact };
-          batch.push({ t: r.t, hr: latestHr });
+          batch.push({ t: r.t, hr: latestHr, derived: latestDerived });
           emit();
         },
         (m) => onLog(`HR: ${m}`),

@@ -1,14 +1,8 @@
 import type { HrSample } from '@rowing/telemetry-types';
-
-export type HrReading = HrSample & { t: number };
+import type { HeartRateMonitor, HrReading } from '../types';
 
 const HR_SERVICE = 0x180d;
 const HR_MEASUREMENT = 0x2a37;
-
-export type HeartRateMonitor = {
-  name: string;
-  disconnect: () => Promise<void>;
-};
 
 function parseHrMeasurement(value: DataView): HrSample {
   const flags = value.getUint8(0);
@@ -49,8 +43,7 @@ export async function connectHeartRate(
       const target = ev.target as BluetoothRemoteGATTCharacteristic;
       const value = target.value;
       if (!value) return;
-      const hr = parseHrMeasurement(value);
-      onReading({ ...hr, t: Date.now() });
+      onReading({ ...parseHrMeasurement(value), t: Date.now() });
     });
 
     await characteristic.startNotifications();
@@ -76,3 +69,5 @@ export async function connectHeartRate(
     return null;
   }
 }
+
+export type { HeartRateMonitor, HrReading };

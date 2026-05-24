@@ -20,11 +20,21 @@ export type HrSample = {
   contact?: boolean;
 };
 
+export type DerivedSample = {
+  /** Strokes per minute from boat surge (15–50 when valid). */
+  strokeRate?: number;
+  /** Boat tipped past ~90° from session-start upright. */
+  capsize?: boolean;
+  /** Angle from calibrated upright (degrees). */
+  tiltDeg?: number;
+};
+
 export type TelemetrySample = {
   t: number;
   gps?: GpsSample;
   motion?: MotionSample;
   hr?: HrSample;
+  derived?: DerivedSample;
 };
 
 export type TelemetryBatch = {
@@ -45,6 +55,10 @@ export type RecorderSettings = {
   enableGps: boolean;
   enableMotion: boolean;
   enableHr: boolean;
+  /** Best-effort recording when screen locks or app is in background. */
+  enableBackgroundRecording: boolean;
+  /** Keep screen awake while recording (Screen Wake Lock API). */
+  keepScreenOn: boolean;
 };
 
 /** Production ingest API (Vercel). Used as default on phones and new installs. */
@@ -62,6 +76,8 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   enableGps: true,
   enableMotion: true,
   enableHr: true,
+  enableBackgroundRecording: true,
+  keepScreenOn: true,
 };
 
 export type SessionMeta = {

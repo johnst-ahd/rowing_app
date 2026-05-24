@@ -1,13 +1,26 @@
 import { loadSettings, saveSettings, settingsFromForm } from '../lib/settings';
+import {
+  clearRecordingActive,
+  getInterruptedRecording,
+  markRecordingActive,
+  startBackgroundSession,
+  stopBackgroundSession,
+  type BackgroundStatus,
+} from '../lib/background-session';
+import { requestNativePermissions } from '@rowing/sensor-adapters';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 
 type View = 'record' | 'settings';
 
+const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+
 export function mountApp(root: HTMLElement): void {
   let view: View = 'record';
   let recording = false;
+  let capsizeActive = false;
+  let backgroundStatus: BackgroundStatus = 'foreground';
   let controller: RecorderController | null = null;
   let syncTimer: ReturnType<typeof setInterval> | null = null;
   const settings = loadSettings();
@@ -47,7 +60,7 @@ export function mountApp(root: HTMLElement): void {
             <img src="/altitude-hd-logo.png" alt="Altitude HD" class="hub-logo" width="320" height="120" />
             <img src="/assets/rnz/rnz-logo-white.png" alt="Rowing New Zealand" class="hub-rnz-logo" width="200" height="80" />
           </div>
-          <p class="hub-tagline">GPS, heart rate and accelerometer recorder for RNZ ingest</p>
+          <p class="hub-tagline">GPS, heart rate and accelerometer recorder for RNZ ingest${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
       </header>
     `;
@@ -58,6 +71,7 @@ export function mountApp(root: HTMLElement): void {
       <footer class="ahd-footer">
         Altitude HD · RNZ Row Recorder ·
         <a href="/dashboard.html">Monitor</a> ·
+        <a href="/install-native.html">Install Android app</a> ·
         <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
       </footer>
     `;
@@ -65,15 +79,29 @@ export function mountApp(root: HTMLElement): void {
 
   function recordStatsBar(stats: ReturnType<RecorderController['getStats']> | undefined): string {
     const device = settings.deviceId || '—';
-    const status = recording ? 'Recording' : 'Idle';
-    const statusClass = recording ? 'hub-stats-item--accent' : '';
+    const status = capsizeActive ? 'CAPSIZE' : recording ? 'Recording' : 'Idle';
+    const statusClass = capsizeActive
+      ? 'hub-stats-item--danger'
+      : recording
+        ? 'hub-stats-item--accent'
+        : '';
     const gps = stats?.lastGps
       ? `${stats.lastGps.lat.toFixed(4)}, ${stats.lastGps.lon.toFixed(4)}`
       : 'No GPS fix';
+    const spm =
+      stats?.strokeRate != null ? `${stats.strokeRate} spm` : recording ? 'SPM —' : '';
+    const bg =
+      recording && backgroundStatus === 'background'
+        ? 'Background'
+        : recording && settings.enableBackgroundRecording
+          ? 'Background ready'
+          : '';
     return `
       <span class="hub-stats-item ${statusClass}">${status}</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item">Device: ${esc(device)}</span>
+      ${spm ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item">${esc(spm)}</span>` : ''}
+      ${bg ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item hub-stats-item--muted">${esc(bg)}</span>` : ''}
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item">${gps}</span>
     `;
@@ -86,6 +114,11 @@ export function mountApp(root: HTMLElement): void {
         ${hubHeader()}
         <div class="hub-stats-bar" aria-live="polite">${recordStatsBar(stats)}</div>
         <div class="ahd-recorder-main">
+          ${
+            capsizeActive
+              ? `<div class="capsize-banner" role="alert">Capsize detected — boat tipped past horizontal. Check crew immediately.</div>`
+              : ''
+          }
           <div class="ahd-toolbar">
             <h1>Session</h1>
             <div class="ahd-toolbar-actions">
@@ -97,12 +130,14 @@ export function mountApp(root: HTMLElement): void {
             <h2 class="hub-section-title">Live session</h2>
             <div class="status-row">
               <span class="label">Status</span>
-              <span class="badge-pill ${recording ? 'badge-pill--live' : 'badge-pill--idle'}">${recording ? 'Recording' : 'Idle'}</span>
+              <span class="badge-pill ${capsizeActive ? 'badge-pill--capsize' : recording ? 'badge-pill--live' : 'badge-pill--idle'}">${capsizeActive ? 'Capsize' : recording ? 'Recording' : 'Idle'}</span>
             </div>
             <div class="stats-grid">
               <div><span class="stat-val" data-stat="gps">${stats?.gpsCount ?? 0}</span><span class="stat-lbl">GPS</span></div>
               <div><span class="stat-val" data-stat="motion">${stats?.motionCount ?? 0}</span><span class="stat-lbl">Motion</span></div>
+              <div><span class="stat-val" data-stat="spm">${stats?.strokeRate ?? '—'}</span><span class="stat-lbl">Stroke rate</span></div>
               <div><span class="stat-val" data-stat="hr">${stats?.lastHr ?? '—'}</span><span class="stat-lbl">HR bpm</span></div>
+              <div><span class="stat-val" data-stat="tilt">${stats?.tiltDeg ?? '—'}</span><span class="stat-lbl">Tilt °</span></div>
               <div><span class="stat-val" data-pending>0</span><span class="stat-lbl">Queued</span></div>
             </div>
             ${
@@ -125,6 +160,11 @@ export function mountApp(root: HTMLElement): void {
           <section class="hub-panel toggles-hint">
             <p class="hint">Sensors: GPS ${settings.enableGps ? 'on' : 'off'} · Motion ${settings.enableMotion ? 'on' : 'off'} · HR ${settings.enableHr ? 'on' : 'off'}</p>
             <p class="hint">Device: <strong>${esc(settings.deviceId || '(not set)')}</strong></p>
+            ${
+              recording
+                ? `<p class="hint hint--background">Recording in background is best-effort. Install to home screen, allow audio, and avoid force-closing the app. iOS may pause sensors when fully backgrounded.</p>`
+                : ''
+            }
           </section>
           <section class="hub-panel log">
             <h2>Log</h2>
@@ -169,11 +209,17 @@ export function mountApp(root: HTMLElement): void {
               <label class="check"><input type="checkbox" name="enableMotion" ${s.enableMotion ? 'checked' : ''} /> Accelerometer</label>
               <label class="check"><input type="checkbox" name="enableHr" ${s.enableHr ? 'checked' : ''} /> Heart rate (BLE)</label>
             </fieldset>
+            <fieldset class="fieldset checks">
+              <legend>Background recording</legend>
+              <label class="check"><input type="checkbox" name="enableBackgroundRecording" ${s.enableBackgroundRecording !== false ? 'checked' : ''} /> Allow background (best effort)</label>
+              <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
+            </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
           </form>
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
-            <p>Keep screen on during sessions. iOS needs a user tap to connect BLE HR.</p>
+            <p>Add to home screen for the best background behaviour. Android works better than iOS when the screen is locked.</p>
+            <p>iOS needs a user tap to connect BLE HR. Sensors may pause if the app is swiped away.</p>
           </section>
         </div>
         ${hubFooter()}
@@ -202,12 +248,8 @@ export function mountApp(root: HTMLElement): void {
 
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
-      try {
-        if ('wakeLock' in navigator) {
-          await (navigator as Navigator & { wakeLock: { request: (t: string) => Promise<unknown> } }).wakeLock.request('screen');
-        }
-      } catch {
-        /* optional */
+      if (IS_NATIVE) {
+        await requestNativePermissions();
       }
       controller = await startRecorder(
         s,
@@ -217,9 +259,27 @@ export function mountApp(root: HTMLElement): void {
           const el = root.querySelector('[data-pending]');
           if (el) el.textContent = String(n);
         },
+        (active) => {
+          capsizeActive = active;
+          render();
+        },
       );
       if (!controller) return;
+
       recording = true;
+      backgroundStatus = 'foreground';
+      markRecordingActive(controller.sessionId, s.deviceId);
+
+      await startBackgroundSession(s, {
+        onFlush: () => controller!.flush(),
+        onSync: runSync,
+        onLog: pushLog,
+        onStatus: (status) => {
+          backgroundStatus = status;
+          render();
+        },
+      });
+
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
       syncTimer = setInterval(() => void runSync(), s.uploadBatchMs);
       void runSync();
@@ -228,9 +288,13 @@ export function mountApp(root: HTMLElement): void {
 
     root.querySelector('[data-action="stop"]')?.addEventListener('click', async () => {
       if (syncTimer) clearInterval(syncTimer);
+      stopBackgroundSession();
       await controller?.stop();
       controller = null;
       recording = false;
+      capsizeActive = false;
+      backgroundStatus = 'foreground';
+      clearRecordingActive();
       await runSync();
       render();
     });
@@ -245,6 +309,13 @@ export function mountApp(root: HTMLElement): void {
   }
 
   render();
+  const interrupted = getInterruptedRecording();
+  if (interrupted) {
+    pushLog(
+      `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
+    );
+    clearRecordingActive();
+  }
   pushLog('RNZ Row Recorder ready. Configure settings, then start a session.');
 }
 

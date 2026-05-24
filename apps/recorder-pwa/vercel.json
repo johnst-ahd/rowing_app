@@ -15,6 +15,7 @@
   },
   "rewrites": [
     { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/install-native", "destination": "/install-native.html" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

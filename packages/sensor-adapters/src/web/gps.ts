@@ -1,10 +1,5 @@
 import type { GpsSample } from '@rowing/telemetry-types';
-
-export type GpsReading = GpsSample & { t: number };
-
-export type GpsWatcher = {
-  stop: () => void;
-};
+import type { GpsReading, GpsWatcher } from '../types';
 
 function positionToReading(pos: GeolocationPosition): GpsReading {
   const c = pos.coords;
@@ -19,7 +14,6 @@ function positionToReading(pos: GeolocationPosition): GpsReading {
   };
 }
 
-/** Poll GPS at a fixed interval (more predictable than watchPosition alone). */
 export function startGpsWatcher(
   onReading: (r: GpsReading) => void,
   intervalMs: number,
@@ -63,3 +57,5 @@ export function startGpsWatcher(
     },
   };
 }
+
+export type { GpsReading, GpsWatcher };

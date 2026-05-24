@@ -1,0 +1,26 @@
+{
+  "name": "@rowing/sensor-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/web/index.ts",
+  "types": "./src/types.ts",
+  "exports": {
+    ".": "./src/web/index.ts",
+    "./web": "./src/web/index.ts",
+    "./capacitor": "./src/capacitor/index.ts",
+    "./types": "./src/types.ts"
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=6.0.0",
+    "@capacitor/geolocation": ">=6.0.0",
+    "@capacitor/motion": ">=6.0.0",
+    "@capacitor-community/bluetooth-le": ">=6.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@capacitor/core": { "optional": true },
+    "@capacitor/geolocation": { "optional": true },
+    "@capacitor/motion": { "optional": true },
+    "@capacitor-community/bluetooth-le": { "optional": true }
+  }
+}

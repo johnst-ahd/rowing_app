@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merge these keys into ios/App/App/Info.plist after `npx cap add ios`.
+  See docs/NATIVE-APP.md
+-->
+<plist version="1.0">
+<dict>
+  <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+  <string>Track boat position during rowing sessions, including when the screen is locked.</string>
+  <key>NSLocationWhenInUseUsageDescription</key>
+  <string>Track boat position during rowing sessions.</string>
+  <key>NSMotionUsageDescription</key>
+  <string>Measure stroke rate and detect capsize from boat motion.</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Connect to a heart rate chest strap during rowing.</string>
+  <key>UIBackgroundModes</key>
+  <array>
+    <string>location</string>
+    <string>bluetooth-central</string>
+  </array>
+</dict>
+</plist>

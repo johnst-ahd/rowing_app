@@ -1,0 +1,31 @@
+{
+  "name": "recorder-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor native shell for RNZ rowing recorder",
+  "scripts": {
+    "build:web": "npm run build:native -w recorder-pwa",
+    "sync": "npm run build:web && npx cap sync",
+    "sync:android": "npm run build:web && npx cap sync android",
+    "sync:ios": "npm run build:web && npx cap sync ios",
+    "open:android": "npx cap open android",
+    "open:ios": "npx cap open ios",
+    "run:android": "npm run sync:android && npx cap run android",
+    "run:ios": "npm run sync:ios && npx cap run ios",
+    "apk": "node ../../scripts/build-android-apk.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/geolocation": "^7.1.1",
+    "@capacitor/ios": "^7.2.0",
+    "@capacitor/motion": "^7.0.0",
+    "@capacitor-community/bluetooth-le": "^7.1.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.2.0"
+  },
+  "capacitor": {
+    "platforms": ["android", "ios"]
+  }
+}

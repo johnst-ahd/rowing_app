@@ -1,7 +1,15 @@
 import type { SessionMeta, TelemetrySample } from '@rowing/telemetry-types';
 
 const DB_NAME = 'rnz-recorder';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+
+export type UploadConfig = {
+  deviceId: string;
+  athleteId: string;
+  ingestUrl: string;
+  ingestToken: string;
+  updatedAt: number;
+};
 
 export type OutboxRow = {
   id?: number;
@@ -29,6 +37,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('sessions')) {
         db.createObjectStore('sessions', { keyPath: 'sessionId' });
+      }
+      if (!db.objectStoreNames.contains('uploadConfig')) {
+        db.createObjectStore('uploadConfig', { keyPath: 'id' });
       }
     };
   });
@@ -115,6 +126,36 @@ export async function markOutboxSent(id: number): Promise<void> {
 export async function countPendingOutbox(): Promise<number> {
   const pending = await listPendingOutbox(9999);
   return pending.length;
+}
+
+export async function saveUploadConfig(
+  config: Omit<UploadConfig, 'updatedAt'> & { updatedAt?: number },
+): Promise<void> {
+  const db = await openDb();
+  await idbPut(db, 'uploadConfig', {
+    id: 'active',
+    ...config,
+    updatedAt: config.updatedAt ?? Date.now(),
+  });
+}
+
+export async function getUploadConfig(): Promise<UploadConfig | undefined> {
+  const db = await openDb();
+  const row = await idbGet<UploadConfig & { id: string }>(db, 'uploadConfig', 'active');
+  if (!row) return undefined;
+  const { id: _id, ...config } = row;
+  return config;
+}
+
+export async function requestOutboxBackgroundSync(): Promise<void> {
+  if (!('serviceWorker' in navigator)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sync = (reg as ServiceWorkerRegistration & { sync?: { register: (tag: string) => Promise<void> } }).sync;
+    if (sync) await sync.register('rnz-upload-outbox');
+  } catch {
+    /* Background Sync not supported */
+  }
 }
 
 function idbGet<T>(db: IDBDatabase, store: string, key: IDBValidKey): Promise<T | undefined> {
