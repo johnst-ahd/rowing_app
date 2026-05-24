@@ -10,6 +10,8 @@ on:
       - 'apps/recorder-native/**'
       - 'packages/**'
       - '.github/workflows/android-apk.yml'
+    paths-ignore:
+      - 'apps/recorder-pwa/public/downloads/**'
 
 permissions:
   contents: write
@@ -63,6 +65,20 @@ jobs:
           name: RNZ-Row-Recorder-debug-apk
           path: RNZ-Row-Recorder.apk
           retention-days: 90
+
+      - name: Copy APK for Vercel install page
+        run: |
+          mkdir -p apps/recorder-pwa/public/downloads
+          cp RNZ-Row-Recorder.apk apps/recorder-pwa/public/downloads/RNZ-Row-Recorder.apk
+
+      - name: Commit APK for phone-friendly Vercel download
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/recorder-pwa/public/downloads/RNZ-Row-Recorder.apk
+          git diff --staged --quiet && echo "APK unchanged" && exit 0
+          git commit -m "chore: update APK on Vercel download path [skip ci]"
+          git push
 
       - name: Publish GitHub Release (stable download link)
         uses: softprops/action-gh-release@v2

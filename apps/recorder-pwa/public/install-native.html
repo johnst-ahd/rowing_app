@@ -33,6 +33,21 @@
         font-size: 0.9rem;
         color: var(--ahd-muted);
       }
+      .btn-dl {
+        display: inline-block;
+        margin: 0.5rem 0;
+        padding: 0.75rem 1.25rem;
+        background: var(--ahd-accent, #3b82f6);
+        color: #fff !important;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+      .warn {
+        border-left: 3px solid #f59e0b;
+        padding-left: 0.75rem;
+        margin: 0.75rem 0;
+      }
     </style>
   </head>
   <body class="hub-page">
@@ -42,49 +57,54 @@
     </p>
 
     <section class="hub-panel">
-      <h2 class="hub-section-title">Download APK (Android)</h2>
+      <h2 class="hub-section-title">Download APK</h2>
       <p>
-        <a
-          id="apk-link"
-          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk"
-          download
+        <a class="btn-dl" href="/downloads/RNZ-Row-Recorder.apk"
           ><strong>Download RNZ-Row-Recorder.apk</strong></a
         >
       </p>
       <p class="note">
-        If the link 404s, the build may still be running —
-        <a href="https://github.com/JohnSt-AHD/rowing_app/releases/tag/android-apk-latest"
-          >check Releases</a
+        Mirror:
+        <a
+          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk"
+          >GitHub release</a
         >
-        or
-        <a href="https://github.com/JohnSt-AHD/rowing_app/actions/workflows/android-apk.yml"
-          >Actions</a
-        >.
+        (if the button above fails).
       </p>
     </section>
 
-    <section class="hub-panel">
-      <h2 class="hub-section-title">Option 1 — APK file</h2>
+    <section class="hub-panel warn">
+      <h2 class="hub-section-title">Samsung: stuck at “Downloading… 100%”?</h2>
+      <p class="note">The file is usually already on your phone. Chrome does not always open the installer automatically.</p>
       <ol>
         <li>
-          Get <strong>RNZ-Row-Recorder.apk</strong> from your team (GitHub Actions
-          artifact, Google Drive, or USB).
-        </li>
-        <li>On the phone, open the APK file.</li>
-        <li>
-          If prompted, allow <strong>Install unknown apps</strong> for Files or
-          Drive.
+          <strong>Swipe down</strong> from the top of the screen (notification shade).
         </li>
         <li>
-          Open <strong>RNZ Row Recorder</strong> — the top bar should say
-          <strong>Native app</strong>.
+          Tap the notification <strong>Download complete</strong> or
+          <strong>RNZ-Row-Recorder.apk</strong>.
+        </li>
+        <li>
+          If nothing appears: open <strong>My Files</strong> → <strong>Downloads</strong> → tap
+          <strong>RNZ-Row-Recorder.apk</strong>.
+        </li>
+        <li>
+          Or in Chrome: <strong>⋮</strong> menu → <strong>Downloads</strong> → tap the APK.
+        </li>
+        <li>
+          Tap <strong>Install</strong>. If asked, allow
+          <strong>Install unknown apps</strong> for Chrome or My Files.
         </li>
       </ol>
     </section>
 
     <section class="hub-panel">
-      <h2 class="hub-section-title">Samsung settings (once)</h2>
+      <h2 class="hub-section-title">After install</h2>
       <ol>
+        <li>
+          Open <strong>RNZ Row Recorder</strong> — the top bar should say
+          <strong>Native app</strong>.
+        </li>
         <li>Settings → Apps → RNZ Row Recorder → Battery → <strong>Unrestricted</strong></li>
         <li>Location → <strong>Allow all the time</strong></li>
         <li>In the app: set <strong>Device ID</strong>, then <strong>Start session</strong></li>
