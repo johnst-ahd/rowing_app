@@ -16,6 +16,12 @@ type View = 'record' | 'settings';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 
+/** Resolve static assets for web (/) and Capacitor (./). */
+function asset(path: string): string {
+  const clean = path.replace(/^\//, '');
+  return `${import.meta.env.BASE_URL}${clean}`;
+}
+
 export function mountApp(root: HTMLElement): void {
   let view: View = 'record';
   let recording = false;
@@ -57,8 +63,8 @@ export function mountApp(root: HTMLElement): void {
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="/altitude-hd-logo.png" alt="Altitude HD" class="hub-logo" width="320" height="120" />
-            <img src="/assets/rnz/rnz-logo-white.png" alt="Rowing New Zealand" class="hub-rnz-logo" width="200" height="80" />
+            <img src="${asset('altitude-hd-logo.png')}" alt="Altitude HD" class="hub-logo" width="320" height="120" />
+            <img src="${asset('assets/rnz/rnz-logo-white.png')}" alt="Rowing New Zealand" class="hub-rnz-logo" width="200" height="80" />
           </div>
           <p class="hub-tagline">GPS, heart rate and accelerometer recorder for RNZ ingest${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
@@ -70,8 +76,8 @@ export function mountApp(root: HTMLElement): void {
     return `
       <footer class="ahd-footer">
         Altitude HD · RNZ Row Recorder ·
-        <a href="/dashboard.html">Monitor</a> ·
-        <a href="/install-native.html">Install Android app</a> ·
+        <a href="${asset('dashboard.html')}">Monitor</a> ·
+        <a href="${asset('install-native.html')}">Install Android app</a> ·
         <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
       </footer>
     `;

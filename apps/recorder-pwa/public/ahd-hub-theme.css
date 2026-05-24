@@ -36,7 +36,8 @@
   background-size: 280px;
   opacity: 0.06;
   pointer-events: none;
-  z-index: 0;
+  /* Behind all page content (Android WebView was painting this over the app UI). */
+  z-index: -1;
 }
 
 .hub-topbar,

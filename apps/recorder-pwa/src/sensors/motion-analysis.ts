@@ -1,10 +1,10 @@
-import * as motionPkg from '@rowing/motion-analysis';
+import { MotionAnalyzer } from '@rowing/motion-analysis';
 import type { DerivedSample } from '@rowing/telemetry-types';
 
-type MotionAnalyzerInstance = InstanceType<typeof motionPkg.MotionAnalyzer>;
+type MotionAnalyzerInstance = InstanceType<typeof MotionAnalyzer>;
 
 export function createMotionAnalyzer(): MotionAnalyzerInstance {
-  return new motionPkg.MotionAnalyzer();
+  return new MotionAnalyzer();
 }
 
 export function triggerCapsizeAlert(): void {

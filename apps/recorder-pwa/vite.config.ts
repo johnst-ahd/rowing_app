@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      commonjsOptions: {
+        defaultIsModuleExports: true,
+      },
     },
     define: {
       'import.meta.env.VITE_PLATFORM': JSON.stringify(isNative ? 'native' : 'web'),

@@ -283,9 +283,4 @@ function analyzeMotionWindow(samples) {
   return analyzer.getMetrics();
 }
 
-module.exports = {
-  MotionAnalyzer,
-  analyzeMotionWindow,
-  MIN_SPM,
-  MAX_SPM,
-};
+export { MotionAnalyzer, analyzeMotionWindow, MIN_SPM, MAX_SPM };

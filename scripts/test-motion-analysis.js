@@ -1,6 +1,4 @@
-'use strict';
-
-const { MotionAnalyzer, analyzeMotionWindow } = require('../packages/motion-analysis');
+import { MotionAnalyzer, analyzeMotionWindow } from '../packages/motion-analysis/index.js';
 
 function synthStrokeSamples(spm, seconds, hz) {
   const intervalMs = 60000 / spm;
