@@ -204,7 +204,108 @@
   }
 }
 
+/* Sticky live session HUD (recording) */
+.session-live-hud {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 clamp(12px, 4vw, 20px) 0.5rem;
+  max-width: 520px;
+  width: calc(100% - clamp(24px, 8vw, 40px));
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(15, 35, 58, 0.98) 0%, rgba(10, 22, 40, 0.96) 100%);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.session-live-hud__alert {
+  margin: 0 0 0.65rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(239, 68, 68, 0.28);
+  border: 1px solid rgba(248, 113, 113, 0.6);
+  color: #fecaca;
+  font-weight: 800;
+  font-size: 0.85rem;
+  text-align: center;
+  letter-spacing: 0.06em;
+  animation: capsize-pulse 1.2s ease-in-out infinite;
+}
+
+.session-live-hud__alert[hidden] {
+  display: none;
+}
+
+.session-live-hud__metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.35rem 0.5rem;
+}
+
+.session-metric {
+  text-align: center;
+  min-width: 0;
+}
+
+.session-metric__value {
+  display: block;
+  font-size: clamp(1.25rem, 5vw, 1.65rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ahd-text);
+  line-height: 1.15;
+}
+
+.session-metric--timer .session-metric__value {
+  color: var(--ahd-accent);
+}
+
+.session-metric--capsize .session-metric__value {
+  color: #f87171;
+}
+
+.session-metric__label {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ahd-muted);
+}
+
+.session-drawer-toggle {
+  display: block;
+  width: calc(100% - clamp(24px, 8vw, 40px));
+  max-width: 520px;
+  margin: 0 auto 0.5rem;
+}
+
+.session-drawer {
+  max-width: 520px;
+  margin: 0 auto;
+}
+
+.session-drawer--collapsed {
+  display: none;
+}
+
+.ahd-recorder-shell--recording .hub-topbar {
+  padding-bottom: 0.35rem;
+}
+
+.ahd-recorder-shell--recording .hub-tagline {
+  display: none;
+}
+
 @media (max-width: 400px) {
+  .session-live-hud__metrics {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }

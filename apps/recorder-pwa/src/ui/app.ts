@@ -31,6 +31,9 @@ export function mountApp(root: HTMLElement): void {
   let backgroundStatus: BackgroundStatus = 'foreground';
   let controller: RecorderController | null = null;
   let syncTimer: ReturnType<typeof setInterval> | null = null;
+  let sessionStartedAt: number | null = null;
+  let hudTickTimer: ReturnType<typeof setInterval> | null = null;
+  let controlsCollapsed = false;
   const settings = loadSettings();
 
   const logLines: string[] = [];
@@ -118,6 +121,9 @@ export function mountApp(root: HTMLElement): void {
     if (recording) {
       if (syncTimer) clearInterval(syncTimer);
       syncTimer = null;
+      stopHudTimer();
+      sessionStartedAt = null;
+      controlsCollapsed = false;
       stopBackgroundSession();
       await controller?.stop();
       controller = null;
@@ -136,9 +142,74 @@ export function mountApp(root: HTMLElement): void {
     render();
   }
 
+  function formatElapsed(ms: number): string {
+    const totalSec = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(totalSec / 3600);
+    const m = Math.floor((totalSec % 3600) / 60);
+    const s = totalSec % 60;
+    if (h > 0) {
+      return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${m}:${String(s).padStart(2, '0')}`;
+  }
+
+  function formatSplit500m(speedMps: number | undefined): string {
+    if (speedMps == null || speedMps < 0.25) return '—';
+    const sec = 500 / speedMps;
+    const m = Math.floor(sec / 60);
+    const s = (sec % 60).toFixed(1);
+    return `${m}:${s.padStart(4, '0')}`;
+  }
+
+  function stopHudTimer(): void {
+    if (hudTickTimer) clearInterval(hudTickTimer);
+    hudTickTimer = null;
+  }
+
+  function setHudText(sel: string, text: string): void {
+    const el = root.querySelector(sel);
+    if (el) el.textContent = text;
+  }
+
+  function updateLiveHud(): void {
+    if (!recording || view !== 'record') return;
+    const stats = controller?.getStats();
+    const elapsed = sessionStartedAt != null ? Date.now() - sessionStartedAt : 0;
+
+    setHudText('[data-hud-timer]', formatElapsed(elapsed));
+
+    const spm = stats?.strokeRate;
+    setHudText(
+      '[data-hud-spm]',
+      spm != null && spm > 0 ? String(Math.round(spm)) : '—',
+    );
+
+    setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
+    setHudText('[data-hud-split]', formatSplit500m(stats?.speedMps));
+
+    const capsizeEl = root.querySelector('[data-hud-capsize]');
+    if (capsizeEl) {
+      if (capsizeActive) capsizeEl.removeAttribute('hidden');
+      else capsizeEl.setAttribute('hidden', '');
+    }
+
+    const pending = root.querySelector('[data-pending]');
+    if (pending) pending.textContent = String(stats?.pendingOutbox ?? 0);
+
+    const statsBar = root.querySelector('.hub-stats-bar');
+    if (statsBar) statsBar.innerHTML = recordStatsBar(stats);
+  }
+
+  function startHudTimer(): void {
+    stopHudTimer();
+    updateLiveHud();
+    hudTickTimer = setInterval(() => updateLiveHud(), 1000);
+  }
+
   function render() {
     root.innerHTML = view === 'settings' ? settingsHtml() : recordHtml();
     bind();
+    if (recording && view === 'record') updateLiveHud();
   }
 
   function hubHeader(): string {
@@ -196,68 +267,112 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
+  function liveHudHtml(): string {
+    return `
+      <section class="session-live-hud" aria-live="polite">
+        <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
+          ⚠ CAPSIZE — boat tipped. Check crew now.
+        </div>
+        <div class="session-live-hud__metrics">
+          <div class="session-metric session-metric--timer">
+            <span class="session-metric__value" data-hud-timer>0:00</span>
+            <span class="session-metric__label">Time</span>
+          </div>
+          <div class="session-metric">
+            <span class="session-metric__value" data-hud-spm>—</span>
+            <span class="session-metric__label">Stroke /min</span>
+          </div>
+          <div class="session-metric">
+            <span class="session-metric__value" data-hud-hr>—</span>
+            <span class="session-metric__label">HR</span>
+          </div>
+          <div class="session-metric">
+            <span class="session-metric__value" data-hud-split>—</span>
+            <span class="session-metric__label">Pace /500m</span>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+
+  function recordDrawerHtml(stats: ReturnType<RecorderController['getStats']> | undefined): string {
+    return `
+      <div class="ahd-toolbar">
+        <h1>Session</h1>
+        <div class="ahd-toolbar-actions">
+          <a class="hub-btn hub-btn--ghost" href="${asset('dashboard.html')}">Monitor</a>
+          <button type="button" class="hub-btn" data-nav="settings">Settings</button>
+        </div>
+      </div>
+      <section class="hub-panel actions">
+        ${
+          !recording
+            ? `<button type="button" class="hub-btn hub-btn--primary hub-btn-lg" data-action="start">Start session</button>`
+            : `
+              <button type="button" class="hub-btn" data-action="connect-hr">Connect HR strap</button>
+              <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
+            `
+        }
+        <button type="button" class="hub-btn hub-btn--ghost" data-action="sync">Upload queue now</button>
+        <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-queue">Clear upload queue</button>
+        <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
+      </section>
+      ${
+        recording
+          ? `
+            <section class="hub-panel">
+              <h2 class="hub-section-title">Details</h2>
+              <div class="stats-grid">
+                <div><span class="stat-val" data-stat="gps">${stats?.gpsCount ?? 0}</span><span class="stat-lbl">GPS</span></div>
+                <div><span class="stat-val" data-stat="motion">${stats?.motionCount ?? 0}</span><span class="stat-lbl">Motion</span></div>
+                <div><span class="stat-val" data-stat="tilt">${stats?.tiltDeg != null ? stats.tiltDeg.toFixed(0) : '—'}</span><span class="stat-lbl">Tilt °</span></div>
+                <div><span class="stat-val" data-pending>${stats?.pendingOutbox ?? 0}</span><span class="stat-lbl">Queued</span></div>
+              </div>
+              ${
+                stats?.lastGps
+                  ? `<p class="coords">${stats.lastGps.lat.toFixed(5)}, ${stats.lastGps.lon.toFixed(5)}</p>`
+                  : ''
+              }
+            </section>
+          `
+          : `
+            <section class="hub-panel">
+              <p class="hint">Set a <strong>Device ID</strong> in Settings, then start a session. Live timer, stroke rate, HR, and pace appear at the top while recording.</p>
+            </section>
+          `
+      }
+      <section class="hub-panel toggles-hint">
+        <p class="hint">Sensors: GPS ${settings.enableGps ? 'on' : 'off'} · Motion ${settings.enableMotion ? 'on' : 'off'} · HR ${settings.enableHr ? 'on' : 'off'}</p>
+        <p class="hint">Device: <strong>${esc(settings.deviceId || '(not set)')}</strong></p>
+        ${
+          recording
+            ? `<p class="hint hint--background">Native app: <strong>Location → Always</strong>, notifications, battery <strong>Unrestricted</strong>. Do not force-close while recording.</p>`
+            : ''
+        }
+      </section>
+      ${logPanelHtml()}
+    `;
+  }
+
   function recordHtml(): string {
     const stats = controller?.getStats();
+    const shellClass = recording ? 'ahd-recorder-shell ahd-recorder-shell--recording' : 'ahd-recorder-shell';
     return `
-      <div class="ahd-recorder-shell">
+      <div class="${shellClass}">
         ${hubHeader()}
         <div class="hub-stats-bar" aria-live="polite">${recordStatsBar(stats)}</div>
+        ${recording ? liveHudHtml() : ''}
+        ${
+          recording
+            ? `<button type="button" class="hub-btn hub-btn--ghost session-drawer-toggle" data-action="toggle-drawer" aria-expanded="${!controlsCollapsed}">
+                ${controlsCollapsed ? 'Show controls & log ▼' : 'Hide controls & log ▲'}
+              </button>`
+            : ''
+        }
         <div class="ahd-recorder-main">
-          ${
-            capsizeActive
-              ? `<div class="capsize-banner" role="alert">Capsize detected — boat tipped past horizontal. Check crew immediately.</div>`
-              : ''
-          }
-          <div class="ahd-toolbar">
-            <h1>Session</h1>
-            <div class="ahd-toolbar-actions">
-              <a class="hub-btn hub-btn--ghost" href="/dashboard.html">Monitor</a>
-              <button type="button" class="hub-btn" data-nav="settings">Settings</button>
-            </div>
+          <div class="session-drawer ${controlsCollapsed && recording ? 'session-drawer--collapsed' : ''}" data-drawer>
+            ${recordDrawerHtml(stats)}
           </div>
-          <section class="hub-panel">
-            <h2 class="hub-section-title">Live session</h2>
-            <div class="status-row">
-              <span class="label">Status</span>
-              <span class="badge-pill ${capsizeActive ? 'badge-pill--capsize' : recording ? 'badge-pill--live' : 'badge-pill--idle'}">${capsizeActive ? 'Capsize' : recording ? 'Recording' : 'Idle'}</span>
-            </div>
-            <div class="stats-grid">
-              <div><span class="stat-val" data-stat="gps">${stats?.gpsCount ?? 0}</span><span class="stat-lbl">GPS</span></div>
-              <div><span class="stat-val" data-stat="motion">${stats?.motionCount ?? 0}</span><span class="stat-lbl">Motion</span></div>
-              <div><span class="stat-val" data-stat="spm">${stats?.strokeRate ?? '—'}</span><span class="stat-lbl">Stroke rate</span></div>
-              <div><span class="stat-val" data-stat="hr">${stats?.lastHr ?? '—'}</span><span class="stat-lbl">HR bpm</span></div>
-              <div><span class="stat-val" data-stat="tilt">${stats?.tiltDeg ?? '—'}</span><span class="stat-lbl">Tilt °</span></div>
-              <div><span class="stat-val" data-pending>0</span><span class="stat-lbl">Queued</span></div>
-            </div>
-            ${
-              stats?.lastGps
-                ? `<p class="coords">${stats.lastGps.lat.toFixed(5)}, ${stats.lastGps.lon.toFixed(5)}</p>`
-                : ''
-            }
-          </section>
-          <section class="hub-panel actions">
-            ${
-              !recording
-                ? `<button type="button" class="hub-btn hub-btn--primary hub-btn-lg" data-action="start">Start session</button>`
-                : `
-                  <button type="button" class="hub-btn" data-action="connect-hr">Connect HR strap</button>
-                  <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
-                `
-            }
-            <button type="button" class="hub-btn hub-btn--ghost" data-action="sync">Upload queue now</button>
-            <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-queue">Clear upload queue</button>
-            <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
-          </section>
-          <section class="hub-panel toggles-hint">
-            <p class="hint">Sensors: GPS ${settings.enableGps ? 'on' : 'off'} · Motion ${settings.enableMotion ? 'on' : 'off'} · HR ${settings.enableHr ? 'on' : 'off'}</p>
-            <p class="hint">Device: <strong>${esc(settings.deviceId || '(not set)')}</strong></p>
-            ${
-              recording
-                ? `<p class="hint hint--background">Native app: allow <strong>Location → Always</strong>, <strong>Notifications</strong>, battery <strong>Unrestricted</strong>. A persistent notification keeps GPS when the screen is off — do not force-close the app. Stroke rate may pause in background; GPS and uploads continue.</p>`
-                : ''
-            }
-          </section>
-          ${logPanelHtml()}
         </div>
         ${hubFooter()}
       </div>
@@ -363,17 +478,21 @@ export function mountApp(root: HTMLElement): void {
       if (IS_NATIVE) {
         await requestNativePermissions();
       }
+      sessionStartedAt = Date.now();
+      controlsCollapsed = true;
+
       controller = await startRecorder(
         s,
-        () => render(),
+        () => updateLiveHud(),
         pushLog,
         async (n) => {
           const el = root.querySelector('[data-pending]');
           if (el) el.textContent = String(n);
+          updateLiveHud();
         },
         (active) => {
           capsizeActive = active;
-          render();
+          updateLiveHud();
         },
         {
           onBackgroundPulse: () => void runSync(false),
@@ -401,10 +520,14 @@ export function mountApp(root: HTMLElement): void {
       syncTimer = setInterval(() => void runSync(false), syncInterval);
       void runSync(false);
       render();
+      startHudTimer();
     });
 
     root.querySelector('[data-action="stop"]')?.addEventListener('click', async () => {
       if (syncTimer) clearInterval(syncTimer);
+      stopHudTimer();
+      sessionStartedAt = null;
+      controlsCollapsed = false;
       stopBackgroundSession();
       await controller?.stop();
       controller = null;
@@ -413,6 +536,11 @@ export function mountApp(root: HTMLElement): void {
       backgroundStatus = 'foreground';
       clearRecordingActive();
       await runSync(true);
+      render();
+    });
+
+    root.querySelector('[data-action="toggle-drawer"]')?.addEventListener('click', () => {
+      controlsCollapsed = !controlsCollapsed;
       render();
     });
 

@@ -22,7 +22,9 @@ export type RecorderStats = {
   motionCount: number;
   hrCount: number;
   lastHr?: number;
-  lastGps?: { lat: number; lon: number };
+  lastGps?: { lat: number; lon: number; spd?: number };
+  /** Latest GPS speed (m/s) for pace display. */
+  speedMps?: number;
   pendingOutbox: number;
   strokeRate?: number;
   tiltDeg?: number;
@@ -179,7 +181,8 @@ export async function startRecorder(
       (r) => {
         if (stopped) return;
         stats.gpsCount++;
-        stats.lastGps = { lat: r.lat, lon: r.lon };
+        stats.lastGps = { lat: r.lat, lon: r.lon, spd: r.spd };
+        if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
         queueSample(
           telemetrySample(r.t, {
             gps: {
