@@ -130,6 +130,8 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 
 **Note:** GPS and heart rate use full native APIs and continue in background with the correct iOS/Android permissions. Accelerometer/stroke rate uses the Capacitor Motion plugin (WebView-based). For always-on background accel on iOS, a CoreMotion native plugin could be added later.
 
+**Upload rate with accelerometer:** Motion is analyzed at full rate (e.g. 50 ms) on the phone, but when GPS is also enabled, upload samples are only queued on each GPS fix (~1/s) with the latest accel + stroke/capsize attached. That keeps the outbox small so uploads do not stall. Without GPS, motion uploads are throttled (default 500 ms) via **Motion upload interval** in Settings.
+
 Vite `--mode native` sets `VITE_PLATFORM=native` and aliases `@rowing/sensor-adapters` to the Capacitor implementation.
 
 ## TestFlight / distribution

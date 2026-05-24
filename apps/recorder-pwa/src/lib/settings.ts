@@ -89,6 +89,10 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     ingestToken: String(fd.get('ingestToken') ?? '').trim(),
     gpsIntervalMs: num('gpsIntervalMs', DEFAULT_SETTINGS.gpsIntervalMs),
     motionIntervalMs: num('motionIntervalMs', DEFAULT_SETTINGS.motionIntervalMs),
+    motionUploadIntervalMs: num(
+      'motionUploadIntervalMs',
+      DEFAULT_SETTINGS.motionUploadIntervalMs,
+    ),
     uploadBatchMs: num('uploadBatchMs', DEFAULT_SETTINGS.uploadBatchMs),
     enableGps: fd.get('enableGps') === 'on',
     enableMotion: fd.get('enableMotion') === 'on',

@@ -51,6 +51,8 @@ export type RecorderSettings = {
   ingestToken: string;
   gpsIntervalMs: number;
   motionIntervalMs: number;
+  /** Min interval between motion-only upload samples (when GPS is off). */
+  motionUploadIntervalMs: number;
   uploadBatchMs: number;
   enableGps: boolean;
   enableMotion: boolean;
@@ -72,6 +74,7 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   ingestToken: '',
   gpsIntervalMs: 1000,
   motionIntervalMs: 50,
+  motionUploadIntervalMs: 500,
   uploadBatchMs: 5000,
   enableGps: true,
   enableMotion: true,

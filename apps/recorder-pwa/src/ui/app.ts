@@ -288,8 +288,10 @@ export function mountApp(root: HTMLElement): void {
             <fieldset class="fieldset">
               <legend>Sample rates (ms)</legend>
               <label>GPS interval<input name="gpsIntervalMs" type="number" min="500" step="100" value="${s.gpsIntervalMs}" /></label>
-              <label>Motion interval<input name="motionIntervalMs" type="number" min="20" step="10" value="${s.motionIntervalMs}" /></label>
+              <label>Motion interval (analysis)<input name="motionIntervalMs" type="number" min="20" step="10" value="${s.motionIntervalMs}" /></label>
+              <label>Motion upload interval (no GPS)<input name="motionUploadIntervalMs" type="number" min="200" step="100" value="${s.motionUploadIntervalMs ?? 500}" /></label>
               <label>Upload batch interval<input name="uploadBatchMs" type="number" min="1000" step="500" value="${s.uploadBatchMs}" /></label>
+              <p class="hint">With GPS + accelerometer, motion is analyzed at full rate but only uploaded on each GPS fix (~1/s) so uploads keep up.</p>
             </fieldset>
             <fieldset class="fieldset checks">
               <legend>Sensors</legend>
@@ -391,7 +393,8 @@ export function mountApp(root: HTMLElement): void {
       });
 
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
-      const syncInterval = Math.max(3000, Math.min(s.uploadBatchMs, 8000));
+      const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;
+      const syncInterval = Math.max(4000, Math.min(batchMs, 12000));
       syncTimer = setInterval(() => void runSync(false), syncInterval);
       void runSync(false);
       render();

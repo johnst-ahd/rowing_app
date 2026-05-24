@@ -1,4 +1,5 @@
 import type {
+  MotionSample,
   RecorderSettings,
   SessionMeta,
   TelemetrySample,
@@ -37,6 +38,31 @@ export type RecorderController = {
   connectHr: () => Promise<void>;
 };
 
+/** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
+const MAX_BATCH_SAMPLES = 40;
+/** With GPS + motion, only GPS rows are queued — ~1 Hz × batch window. */
+const MAX_BATCH_SAMPLES_GPS_AND_MOTION = 20;
+
+function roundMotion(m: MotionSample): MotionSample {
+  return {
+    ax: Math.round(m.ax * 100) / 100,
+    ay: Math.round(m.ay * 100) / 100,
+    az: Math.round(m.az * 100) / 100,
+  };
+}
+
+function telemetrySample(
+  t: number,
+  parts: Pick<TelemetrySample, 'gps' | 'motion' | 'hr' | 'derived'>,
+): TelemetrySample {
+  const sample: TelemetrySample = { t };
+  if (parts.gps) sample.gps = parts.gps;
+  if (parts.motion) sample.motion = roundMotion(parts.motion);
+  if (parts.hr) sample.hr = parts.hr;
+  if (parts.derived) sample.derived = parts.derived;
+  return sample;
+}
+
 export async function startRecorder(
   settings: RecorderSettings,
   onStats: (s: RecorderStats) => void,
@@ -72,6 +98,27 @@ export async function startRecorder(
   let batchTimer: ReturnType<typeof setInterval> | null = null;
   let motionAnalyzer: ReturnType<typeof createMotionAnalyzer> | null = null;
   let capsizeActive = false;
+  let pushInFlight = false;
+  let lastMotionUploadAt = 0;
+
+  const motionUploadMs = Math.max(
+    200,
+    settings.motionUploadIntervalMs ?? 500,
+  );
+  const batchCap =
+    settings.enableMotion && settings.enableGps
+      ? MAX_BATCH_SAMPLES_GPS_AND_MOTION
+      : settings.enableMotion
+        ? Math.min(
+            MAX_BATCH_SAMPLES,
+            Math.ceil(
+              Math.max(settings.uploadBatchMs, 8000) / motionUploadMs,
+            ) + 4,
+          )
+        : MAX_BATCH_SAMPLES;
+  const batchIntervalMs = settings.enableMotion
+    ? Math.max(settings.uploadBatchMs, 8000)
+    : settings.uploadBatchMs;
 
   const stoppers: Array<() => void | Promise<void>> = [];
   let hrMonitor: HeartRateMonitor | null = null;
@@ -80,15 +127,25 @@ export async function startRecorder(
   const emit = () => onStats({ ...stats });
 
   const pushBatch = async () => {
-    if (batch.length === 0) return;
-    const slice = batch.splice(0, batch.length);
-    await enqueueTelemetry(sessionId, slice);
-    stats.pendingOutbox = await countPendingOutbox();
-    onPendingChange(stats.pendingOutbox);
-    emit();
+    if (batch.length === 0 || pushInFlight) return;
+    pushInFlight = true;
+    try {
+      const slice = batch.splice(0, batch.length);
+      await enqueueTelemetry(sessionId, slice);
+      stats.pendingOutbox = await countPendingOutbox();
+      onPendingChange(stats.pendingOutbox);
+      emit();
+    } finally {
+      pushInFlight = false;
+    }
   };
 
-  batchTimer = setInterval(() => void pushBatch(), settings.uploadBatchMs);
+  const queueSample = (sample: TelemetrySample) => {
+    batch.push(sample);
+    if (batch.length >= batchCap) void pushBatch();
+  };
+
+  batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
 
   if (settings.enableGps) {
     const gps = startGpsWatcher(
@@ -96,20 +153,21 @@ export async function startRecorder(
         if (stopped) return;
         stats.gpsCount++;
         stats.lastGps = { lat: r.lat, lon: r.lon };
-        batch.push({
-          t: r.t,
-          gps: {
-            lat: r.lat,
-            lon: r.lon,
-            acc: r.acc,
-            spd: r.spd,
-            hdg: r.hdg,
-            alt: r.alt,
-          },
-          hr: latestHr,
-          motion: latestMotion,
-          derived: latestDerived,
-        });
+        queueSample(
+          telemetrySample(r.t, {
+            gps: {
+              lat: r.lat,
+              lon: r.lon,
+              acc: r.acc,
+              spd: r.spd,
+              hdg: r.hdg,
+              alt: r.alt,
+            },
+            hr: latestHr,
+            motion: latestMotion,
+            derived: latestDerived,
+          }),
+        );
         emit();
       },
       settings.gpsIntervalMs,
@@ -151,12 +209,20 @@ export async function startRecorder(
           onCapsize?.(false);
         }
 
-        batch.push({
-          t: r.t,
-          motion: latestMotion,
-          hr: latestHr,
-          derived: latestDerived,
-        });
+        // Full-rate analysis locally; upload motion on GPS fixes or throttled interval.
+        if (!settings.enableGps) {
+          const now = Date.now();
+          if (now - lastMotionUploadAt >= motionUploadMs) {
+            lastMotionUploadAt = now;
+            queueSample(
+              telemetrySample(r.t, {
+                motion: latestMotion,
+                hr: latestHr,
+                derived: latestDerived,
+              }),
+            );
+          }
+        }
         emit();
       },
       settings.motionIntervalMs,
@@ -171,6 +237,13 @@ export async function startRecorder(
   onLog(`Session started: ${sessionId.slice(0, 8)}…`);
   if (settings.enableMotion) {
     onLog('Hold boat steady for ~2s at start to calibrate upright orientation.');
+    if (settings.enableGps) {
+      onLog(
+        'Motion: fast analysis on device; uploads ride on GPS (~1/s) to keep queue small.',
+      );
+    } else {
+      onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);
+    }
   }
 
   return {
@@ -186,7 +259,15 @@ export async function startRecorder(
           stats.hrCount++;
           stats.lastHr = r.bpm;
           latestHr = { bpm: r.bpm, contact: r.contact };
-          batch.push({ t: r.t, hr: latestHr, derived: latestDerived });
+          if (!settings.enableGps) {
+            queueSample(
+              telemetrySample(r.t, {
+                hr: latestHr,
+                motion: latestMotion,
+                derived: latestDerived,
+              }),
+            );
+          }
           emit();
         },
         (m) => onLog(`HR: ${m}`),
