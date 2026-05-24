@@ -34,11 +34,16 @@ export function mountApp(root: HTMLElement): void {
   const settings = loadSettings();
 
   const logLines: string[] = [];
-  const pushLog = (msg: string) => {
+  const refreshLogPre = () => {
+    const pre = root.querySelector('.hub-panel.log pre');
+    if (pre) pre.textContent = logLines.join('\n') || 'Ready.';
+  };
+  const pushLog = (msg: string, rerender = true) => {
     const t = new Date().toLocaleTimeString();
     logLines.unshift(`[${t}] ${msg}`);
     if (logLines.length > 80) logLines.length = 80;
-    render();
+    if (rerender) render();
+    else refreshLogPre();
   };
 
   const updatePending = async () => {
@@ -48,7 +53,12 @@ export function mountApp(root: HTMLElement): void {
   };
 
   async function runSync(manual = false) {
-    if (manual) pushLog('Uploading queued data…');
+    if (manual) {
+      pushLog('Uploading queued data…');
+      if (recording) {
+        pushLog('Tip: queue still grows while recording — stop session to freeze queue.', false);
+      }
+    }
     try {
       const s = loadSettings();
       const pendingBefore = await countPendingOutbox();
@@ -57,23 +67,30 @@ export function mountApp(root: HTMLElement): void {
         await updatePending();
         return;
       }
-      const { sent, failed, errors } = await flushOutbox(s);
+
+      const { sent, failed, errors } = await flushOutbox(s, {
+        force: manual,
+        maxBatches: manual ? 15 : 40,
+        onProgress: manual ? (msg) => pushLog(msg, false) : undefined,
+      });
+
       const pendingAfter = await countPendingOutbox();
       if (manual || sent || failed) {
         pushLog(`Upload: ${sent} sent, ${failed} failed · queue ${pendingAfter}`);
       }
       if (errors.length) {
-        for (const err of errors.slice(0, 2)) pushLog(err);
+        for (const err of errors.slice(0, 3)) pushLog(err, false);
+        refreshLogPre();
+        render();
         if (/failed to fetch|timed out/i.test(errors[0])) {
-          pushLog('Tip: check signal; verify ingest URL in Settings.');
-        }
-        if (/413/.test(errors[0])) {
-          pushLog('Batch too large — queue was split; tap Upload again.');
+          pushLog('Tip: stop session, check signal, Settings → Test upload.');
         }
       } else if (pendingBefore > 0 && sent === 0 && pendingAfter >= pendingBefore) {
-        pushLog(`Queue stuck at ${pendingAfter}? Check Settings → Test upload.`);
+        pushLog(`Queue still ${pendingAfter} — tap Upload again or Clear session.`);
       } else if (manual && pendingAfter === 0 && sent > 0) {
         pushLog('All queued data uploaded.');
+      } else if (manual && pendingAfter > 0 && sent > 0) {
+        pushLog(`${pendingAfter} batch(es) left — tap Upload again.`);
       }
       await updatePending();
     } catch (e) {

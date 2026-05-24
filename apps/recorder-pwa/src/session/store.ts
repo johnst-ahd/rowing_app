@@ -144,10 +144,12 @@ export async function deleteOutboxRow(id: number): Promise<void> {
 /** Split legacy oversized queue rows so one bad batch cannot block the rest. */
 export async function repairOversizedPendingOutbox(
   maxPerRow = MAX_SAMPLES_PER_OUTBOX,
+  maxRowsToRepair = 20,
 ): Promise<number> {
   const rows = await listPendingOutbox(9999);
   let repaired = 0;
   for (const row of rows) {
+    if (repaired >= maxRowsToRepair) break;
     if (row.kind !== 'telemetry' || row.id == null) continue;
     let parsed: { sessionId?: string; samples?: TelemetrySample[] };
     try {

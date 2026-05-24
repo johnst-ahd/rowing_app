@@ -6,25 +6,66 @@ import {
 } from '../session/store';
 import { MAX_SAMPLES_PER_UPLOAD, postTelemetryBatch } from './telemetry-api';
 
-let flushInFlight: Promise<{
-  sent: number;
-  failed: number;
-  errors: string[];
-}> | null = null;
+const FLUSH_TOTAL_TIMEOUT_MS = 60_000;
+/** Must cover native HTTP timeout + up to 3 retries in telemetry-api. */
+const PER_BATCH_TIMEOUT_MS = 90_000;
 
-async function flushOutboxInner(settings: RecorderSettings): Promise<{
+export type FlushResult = {
   sent: number;
   failed: number;
   errors: string[];
-}> {
-  const repaired = await repairOversizedPendingOutbox(MAX_SAMPLES_PER_UPLOAD);
-  const rows = await listPendingOutbox(40);
+};
+
+export type FlushOptions = {
+  /** Log progress without re-rendering the whole page. */
+  onProgress?: (msg: string) => void;
+  /** Start a new upload even if one is in progress (manual button). */
+  force?: boolean;
+  /** Max queue batches per run (keeps UI responsive). */
+  maxBatches?: number;
+};
+
+let flushInFlight: Promise<FlushResult> | null = null;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${Math.round(ms / 1000)}s`)),
+        ms,
+      );
+    }),
+  ]);
+}
+
+async function flushOutboxInner(
+  settings: RecorderSettings,
+  opts: FlushOptions,
+): Promise<FlushResult> {
+  const progress = opts.onProgress;
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
+  const maxBatches = opts.maxBatches ?? 40;
 
-  for (const row of rows) {
+  progress?.('Checking queue…');
+  const repaired = await repairOversizedPendingOutbox(MAX_SAMPLES_PER_UPLOAD, 12);
+  if (repaired > 0) {
+    progress?.(`Split ${repaired} oversized batch(es).`);
+  }
+
+  const rows = await listPendingOutbox(maxBatches);
+  if (!rows.length) {
+    return { sent, failed, errors };
+  }
+
+  progress?.(`Uploading ${rows.length} batch(es)…`);
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     if (!row.id) continue;
+
     try {
       if (row.kind === 'traccar') {
         await markOutboxSent(row.id);
@@ -43,27 +84,31 @@ async function flushOutboxInner(settings: RecorderSettings): Promise<{
         continue;
       }
 
-      await postTelemetryBatch(settings.ingestUrl, settings.ingestToken, {
-        sessionId: parsed.sessionId,
-        deviceId: settings.deviceId,
-        athleteId: settings.athleteId || undefined,
-        samples: parsed.samples,
-      });
+      progress?.(`Batch ${i + 1}/${rows.length} (${sampleCount} samples)…`);
+
+      await withTimeout(
+        postTelemetryBatch(settings.ingestUrl, settings.ingestToken, {
+          sessionId: parsed.sessionId,
+          deviceId: settings.deviceId,
+          athleteId: settings.athleteId || undefined,
+          samples: parsed.samples,
+        }),
+        PER_BATCH_TIMEOUT_MS,
+        `Batch ${i + 1}`,
+      );
+
       await markOutboxSent(row.id);
       sent++;
+      progress?.(`Batch ${i + 1} sent.`);
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       const parsed = safeParsePayload(row.payload);
       const n = parsed?.samples?.length ?? '?';
-      errors.push(`batch (${n} samples): ${msg}`);
-      // Only stop the cycle for auth / config errors — keep draining other rows.
+      errors.push(`batch ${i + 1} (${n} samples): ${msg}`);
+      progress?.(`Batch ${i + 1} failed.`);
       if (/401|403|localhost/i.test(msg)) break;
     }
-  }
-
-  if (repaired > 0 && errors.length === 0 && sent === 0 && failed === 0) {
-    errors.push(`Split ${repaired} oversized queue batch(es) — retrying…`);
   }
 
   return { sent, failed, errors };
@@ -77,14 +122,28 @@ function safeParsePayload(payload: string): { samples?: TelemetryBatch['samples'
   }
 }
 
-export async function flushOutbox(settings: RecorderSettings): Promise<{
-  sent: number;
-  failed: number;
-  errors: string[];
-}> {
-  if (flushInFlight) return flushInFlight;
-  flushInFlight = flushOutboxInner(settings).finally(() => {
+export async function flushOutbox(
+  settings: RecorderSettings,
+  opts: FlushOptions = {},
+): Promise<FlushResult> {
+  if (flushInFlight && !opts.force) {
+    return withTimeout(flushInFlight, 8000, 'Waiting for previous upload').catch(
+      () => ({
+        sent: 0,
+        failed: 0,
+        errors: ['Previous upload still running — wait or tap Upload again'],
+      }),
+    );
+  }
+
+  // Manual upload: per-batch timeouts only (so logs show each batch). Background: cap total time.
+  const work = opts.onProgress
+    ? flushOutboxInner(settings, opts)
+    : withTimeout(flushOutboxInner(settings, opts), FLUSH_TOTAL_TIMEOUT_MS, 'Upload');
+
+  flushInFlight = work.finally(() => {
     flushInFlight = null;
   });
+
   return flushInFlight;
 }
