@@ -3,6 +3,7 @@ import {
   DEFAULT_SETTINGS,
   type RecorderSettings,
 } from '@rowing/telemetry-types';
+import { normalizeIngestUrl } from '../upload/telemetry-api';
 
 const LS_KEY = 'rnz_recorder_settings_v1';
 
@@ -47,6 +48,7 @@ function withOriginDefaults(s: RecorderSettings): RecorderSettings {
       s.ingestUrl = DEFAULT_INGEST_URL;
     }
   }
+  s.ingestUrl = normalizeIngestUrl(s.ingestUrl);
   return s;
 }
 

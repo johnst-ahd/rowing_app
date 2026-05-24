@@ -15,6 +15,9 @@ const config: CapacitorConfig = {
     backgroundColor: '#0a1628',
   },
   plugins: {
+    CapacitorHttp: {
+      enabled: true,
+    },
     Geolocation: {
       /* iOS: enable "Location updates" background mode in Xcode (see docs/NATIVE-APP.md) */
     },

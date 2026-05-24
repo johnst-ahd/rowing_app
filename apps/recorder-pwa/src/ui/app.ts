@@ -11,6 +11,7 @@ import { requestNativePermissions } from '@rowing/sensor-adapters';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
+import { testIngestConnection } from '../upload/telemetry-api';
 
 type View = 'record' | 'settings';
 
@@ -228,6 +229,7 @@ export function mountApp(root: HTMLElement): void {
               <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
+            <button type="button" class="hub-btn" data-action="test-ingest">Test upload connection</button>
           </form>
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
@@ -257,6 +259,23 @@ export function mountApp(root: HTMLElement): void {
       pushLog('Settings saved.');
       view = 'record';
       render();
+    });
+
+    root.querySelector('[data-action="test-ingest"]')?.addEventListener('click', async () => {
+      const form = root.querySelector('[data-settings-form]') as HTMLFormElement | null;
+      if (!form) return;
+      const draft = settingsFromForm(form);
+      pushLog(`Testing ${draft.ingestUrl}…`);
+      try {
+        const msg = await testIngestConnection(
+          draft.ingestUrl,
+          draft.ingestToken,
+          draft.deviceId,
+        );
+        pushLog(msg);
+      } catch (e) {
+        pushLog(e instanceof Error ? e.message : String(e));
+      }
     });
 
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {

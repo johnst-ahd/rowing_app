@@ -42,7 +42,16 @@ This creates:
 
 Copy that file to the phone and tap it to install. Windows Explorer opens the folder when done.
 
-### After install (Samsung S21)
+### Upload fails with “Failed to fetch”
+
+1. **Settings → Ingest API URL** must be exactly:  
+   `https://rowing-app-recorder-pwa.vercel.app/api/ingest`  
+   (not `localhost` — the native WebView uses `https://localhost` internally.)
+2. Tap **Test upload connection** (v1.0.2+). You should see `OK — server received …`.
+3. **Ingest token** — leave empty unless you set `INGEST_TOKEN` on Vercel (then use the same token).
+4. Install APK **v1.0.2** or newer (uses Android native HTTP instead of WebView `fetch`).
+
+## After install (Samsung S21)
 
 1. **Settings → Apps → RNZ Row Recorder → Battery** → **Unrestricted**
 2. **Location** → **Allow all the time**
