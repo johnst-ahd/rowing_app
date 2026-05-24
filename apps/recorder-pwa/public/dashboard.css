@@ -44,7 +44,11 @@
   color: var(--ahd-safety);
 }
 
-.map-legend-item--stale {
+.map-legend-item--amber {
+  color: #fbbf24;
+}
+
+.map-legend-item--lost {
   color: #f87171;
 }
 
@@ -70,7 +74,11 @@
   background: #4ade80;
 }
 
-.map-marker--stale {
+.map-marker--amber {
+  background: #fbbf24;
+}
+
+.map-marker--lost {
   background: #ef4444;
 }
 
@@ -104,8 +112,28 @@
   border-left: 4px solid #64748b;
 }
 
-.device-card.online {
+.device-card--live {
   border-left-color: var(--ahd-safety);
+}
+
+.device-card--amber {
+  border-left-color: #fbbf24;
+}
+
+.device-card--lost {
+  border-left-color: #ef4444;
+}
+
+.badge-pill--amber {
+  background: rgba(251, 191, 36, 0.2);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+}
+
+.badge-pill--lost {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.45);
 }
 
 .device-head {

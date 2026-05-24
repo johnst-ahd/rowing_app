@@ -5,6 +5,9 @@ const LS_STALE = 'rnz_dashboard_stale_sec';
 const MAP_CENTER = [-37.9305, 175.5485];
 const MAP_ZOOM = 12;
 const ONLINE_SEC = 120;
+/** GPS fix age thresholds (seconds) for map/card colours. */
+const GPS_LIVE_SEC = 30;
+const GPS_STALE_SEC = 300;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -61,17 +64,33 @@ function initMap() {
   markersLayer = L.layerGroup().addTo(map);
 }
 
-function markerIcon(online) {
+/** @returns {'live' | 'amber' | 'lost'} */
+function gpsFixState(fixAgeSec) {
+  const age = Number(fixAgeSec);
+  if (!Number.isFinite(age)) return 'lost';
+  if (age <= GPS_LIVE_SEC) return 'live';
+  if (age <= GPS_STALE_SEC) return 'amber';
+  return 'lost';
+}
+
+function gpsStatusLabel(state) {
+  if (state === 'live') return 'GPS live (≤30s)';
+  if (state === 'amber') return 'GPS delayed (30s–5min)';
+  return 'Last known (>5min)';
+}
+
+function markerIcon(state) {
   return L.divIcon({
-    className: online ? 'map-marker-wrap map-marker-wrap--live' : 'map-marker-wrap map-marker-wrap--stale',
-    html: `<span class="map-marker ${online ? 'map-marker--live' : 'map-marker--stale'}" aria-hidden="true"></span>`,
+    className: `map-marker-wrap map-marker-wrap--${state}`,
+    html: `<span class="map-marker map-marker--${state}" aria-hidden="true"></span>`,
     iconSize: [14, 14],
     iconAnchor: [7, 7],
   });
 }
 
 function popupHtml(p) {
-  const status = p.online ? 'Active' : 'Last known';
+  const state = gpsFixState(p.fixAgeSec);
+  const status = gpsStatusLabel(state);
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
   return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}</div>`;
 }
@@ -90,7 +109,8 @@ function updateMap(positions) {
 
     const latlng = L.latLng(p.latitude, p.longitude);
     let marker = deviceMarkers.get(p.deviceId);
-    const icon = markerIcon(p.online);
+    const state = gpsFixState(p.fixAgeSec);
+    const icon = markerIcon(state);
 
     if (marker) {
       marker.setLatLng(latlng);
@@ -111,13 +131,21 @@ function updateMap(positions) {
   }
 
   const statusEl = $('#mapStatus');
-  const live = positions.filter((p) => p.online).length;
-  const stale = positions.length - live;
+  let liveN = 0;
+  let amberN = 0;
+  let lostN = 0;
+  for (const p of positions) {
+    if (p.latitude == null || p.longitude == null) continue;
+    const s = gpsFixState(p.fixAgeSec);
+    if (s === 'live') liveN++;
+    else if (s === 'amber') amberN++;
+    else lostN++;
+  }
   if (statusEl) {
     statusEl.textContent =
       positions.length === 0
         ? 'No GPS positions in the selected time window.'
-        : `${live} active · ${stale} last known on map`;
+        : `${liveN} live · ${amberN} delayed · ${lostN} last known`;
   }
 
   if (latlngs.length === 1 && !mapDidFit) {
@@ -143,11 +171,21 @@ async function fetchMapPositions() {
 
 function renderDevice(d) {
   const card = document.createElement('article');
-  card.className = `device-card ${d.online ? 'online' : ''}`;
+  const gpsState = gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec);
+  card.className = `device-card device-card--${gpsState}`;
 
   const gps = d.gps || {};
   const hr = d.hr || {};
   const motion = d.motion || {};
+
+  const badgeClass =
+    gpsState === 'live'
+      ? 'badge-pill--live'
+      : gpsState === 'amber'
+        ? 'badge-pill--amber'
+        : 'badge-pill--lost';
+  const badgeLabel =
+    gpsState === 'live' ? 'GPS live' : gpsState === 'amber' ? 'GPS delayed' : 'Last known';
 
   const coords =
     gps.last?.lat != null
@@ -160,7 +198,7 @@ function renderDevice(d) {
         <h2>${esc(d.deviceId)}</h2>
         <div class="sub">${d.athleteId ? esc(d.athleteId) : 'No athlete ID'} · session ${esc(d.sessionId.slice(0, 8))}…</div>
       </div>
-      <span class="badge-pill ${d.online ? 'badge-pill--live' : 'badge-pill--idle'}">${d.online ? 'Online' : 'Offline'}</span>
+      <span class="badge-pill ${badgeClass}">${badgeLabel}</span>
     </div>
     <div class="sensors">
       <div class="sensor ${gps.present ? 'present' : 'absent'}">
