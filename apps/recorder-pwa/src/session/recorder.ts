@@ -84,7 +84,7 @@ export async function startRecorder(
     const slice = batch.splice(0, batch.length);
     await enqueueTelemetry(sessionId, slice);
     stats.pendingOutbox = await countPendingOutbox();
-    onPendingChange(pending);
+    onPendingChange(stats.pendingOutbox);
     emit();
   };
 

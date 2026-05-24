@@ -2,8 +2,9 @@ import type { RecorderSettings, TelemetryBatch } from '@rowing/telemetry-types';
 import {
   listPendingOutbox,
   markOutboxSent,
+  repairOversizedPendingOutbox,
 } from '../session/store';
-import { postTelemetryBatch } from './telemetry-api';
+import { MAX_SAMPLES_PER_UPLOAD, postTelemetryBatch } from './telemetry-api';
 
 let flushInFlight: Promise<{
   sent: number;
@@ -16,7 +17,8 @@ async function flushOutboxInner(settings: RecorderSettings): Promise<{
   failed: number;
   errors: string[];
 }> {
-  const rows = await listPendingOutbox(25);
+  const repaired = await repairOversizedPendingOutbox(MAX_SAMPLES_PER_UPLOAD);
+  const rows = await listPendingOutbox(40);
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -34,6 +36,13 @@ async function flushOutboxInner(settings: RecorderSettings): Promise<{
         sessionId: string;
         samples: TelemetryBatch['samples'];
       };
+      const sampleCount = parsed.samples?.length ?? 0;
+      if (sampleCount === 0) {
+        await markOutboxSent(row.id);
+        sent++;
+        continue;
+      }
+
       await postTelemetryBatch(settings.ingestUrl, settings.ingestToken, {
         sessionId: parsed.sessionId,
         deviceId: settings.deviceId,
@@ -45,13 +54,27 @@ async function flushOutboxInner(settings: RecorderSettings): Promise<{
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
-      errors.push(msg);
-      // Stop this cycle on hard errors so we do not hammer a bad URL/token.
-      if (/401|403|413|localhost/i.test(msg)) break;
+      const parsed = safeParsePayload(row.payload);
+      const n = parsed?.samples?.length ?? '?';
+      errors.push(`batch (${n} samples): ${msg}`);
+      // Only stop the cycle for auth / config errors — keep draining other rows.
+      if (/401|403|localhost/i.test(msg)) break;
     }
   }
 
+  if (repaired > 0 && errors.length === 0 && sent === 0 && failed === 0) {
+    errors.push(`Split ${repaired} oversized queue batch(es) — retrying…`);
+  }
+
   return { sent, failed, errors };
+}
+
+function safeParsePayload(payload: string): { samples?: TelemetryBatch['samples'] } | null {
+  try {
+    return JSON.parse(payload) as { samples?: TelemetryBatch['samples'] };
+  } catch {
+    return null;
+  }
 }
 
 export async function flushOutbox(settings: RecorderSettings): Promise<{

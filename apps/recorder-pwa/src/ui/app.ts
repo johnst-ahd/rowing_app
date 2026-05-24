@@ -11,6 +11,7 @@ import { requestNativePermissions } from '@rowing/sensor-adapters';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
+import { repairOversizedPendingOutbox } from '../session/store';
 import { testIngestConnection } from '../upload/telemetry-api';
 
 type View = 'record' | 'settings';
@@ -48,15 +49,22 @@ export function mountApp(root: HTMLElement): void {
 
   async function runSync() {
     const s = loadSettings();
+    const pendingBefore = await countPendingOutbox();
     const { sent, failed, errors } = await flushOutbox(s);
+    const pendingAfter = await countPendingOutbox();
     if (sent || failed) {
-      pushLog(`Upload: ${sent} sent, ${failed} failed`);
+      pushLog(`Upload: ${sent} sent, ${failed} failed · queue ${pendingAfter}`);
     }
     if (errors.length) {
-      pushLog(errors[0]);
+      for (const err of errors.slice(0, 2)) pushLog(err);
       if (/failed to fetch|timed out/i.test(errors[0])) {
-        pushLog('Tip: check mobile signal; queue will retry. Keep upload batch ≤ 5s in Settings.');
+        pushLog('Tip: check signal; tap Upload queue now. Upload batch 5s in Settings.');
       }
+      if (/413/.test(errors[0])) {
+        pushLog('Batch too large — queue was split; wait for retry.');
+      }
+    } else if (pendingBefore > 0 && sent === 0 && pendingAfter >= pendingBefore) {
+      pushLog(`Queue stuck at ${pendingAfter}? Tap Upload queue now or check Settings URL.`);
     }
     await updatePending();
   }
@@ -313,7 +321,8 @@ export function mountApp(root: HTMLElement): void {
       });
 
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
-      syncTimer = setInterval(() => void runSync(), s.uploadBatchMs);
+      const syncInterval = Math.max(3000, Math.min(s.uploadBatchMs, 8000));
+      syncTimer = setInterval(() => void runSync(), syncInterval);
       void runSync();
       render();
     });
@@ -341,6 +350,9 @@ export function mountApp(root: HTMLElement): void {
   }
 
   render();
+  void repairOversizedPendingOutbox().then((n) => {
+    if (n > 0) pushLog(`Split ${n} oversized queued batch(es) for upload.`);
+  });
   const interrupted = getInterruptedRecording();
   if (interrupted) {
     pushLog(

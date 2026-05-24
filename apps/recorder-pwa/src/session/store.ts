@@ -66,8 +66,10 @@ export async function enqueueOutbox(
   });
 }
 
+import { MAX_SAMPLES_PER_UPLOAD } from '../upload/telemetry-api';
+
 /** Match upload chunk size so queued rows are never oversized. */
-const MAX_SAMPLES_PER_OUTBOX = 150;
+const MAX_SAMPLES_PER_OUTBOX = MAX_SAMPLES_PER_UPLOAD;
 
 export async function enqueueTelemetry(
   sessionId: string,
@@ -127,6 +129,57 @@ export async function markOutboxSent(id: number): Promise<void> {
     row.sent = 1;
     await idbPut(db, 'outbox', row);
   }
+}
+
+export async function deleteOutboxRow(id: number): Promise<void> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('outbox', 'readwrite');
+    const req = tx.objectStore('outbox').delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Split legacy oversized queue rows so one bad batch cannot block the rest. */
+export async function repairOversizedPendingOutbox(
+  maxPerRow = MAX_SAMPLES_PER_OUTBOX,
+): Promise<number> {
+  const rows = await listPendingOutbox(9999);
+  let repaired = 0;
+  for (const row of rows) {
+    if (row.kind !== 'telemetry' || row.id == null) continue;
+    let parsed: { sessionId?: string; samples?: TelemetrySample[] };
+    try {
+      parsed = JSON.parse(row.payload);
+    } catch {
+      await deleteOutboxRow(row.id);
+      repaired++;
+      continue;
+    }
+    const samples = parsed.samples;
+    if (!Array.isArray(samples)) {
+      await deleteOutboxRow(row.id);
+      repaired++;
+      continue;
+    }
+    if (samples.length <= maxPerRow) continue;
+
+    const sessionId = parsed.sessionId || row.sessionId;
+    await deleteOutboxRow(row.id);
+    for (let i = 0; i < samples.length; i += maxPerRow) {
+      await enqueueOutbox({
+        sessionId,
+        kind: 'telemetry',
+        payload: JSON.stringify({
+          sessionId,
+          samples: samples.slice(i, i + maxPerRow),
+        }),
+      });
+    }
+    repaired++;
+  }
+  return repaired;
 }
 
 export async function countPendingOutbox(): Promise<number> {

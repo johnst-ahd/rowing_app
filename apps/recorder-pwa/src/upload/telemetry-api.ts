@@ -1,10 +1,11 @@
 import type { IngestResponse, TelemetryBatch } from '@rowing/telemetry-types';
 
-/** Stay under server limit (500) and avoid huge POST bodies on mobile networks. */
-export const MAX_SAMPLES_PER_UPLOAD = 150;
-
-const UPLOAD_TIMEOUT_MS = 45_000;
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+
+/** Stay under server limit (500) and keep POST bodies small on mobile networks. */
+export const MAX_SAMPLES_PER_UPLOAD = IS_NATIVE ? 50 : 120;
+
+const UPLOAD_TIMEOUT_MS = IS_NATIVE ? 25_000 : 45_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
