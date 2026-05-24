@@ -52,6 +52,10 @@
   color: #f87171;
 }
 
+.map-legend-item--capsize {
+  color: #fca5a5;
+}
+
 .map-status {
   margin: 8px 0 0;
 }
@@ -80,6 +84,31 @@
 
 .map-marker--lost {
   background: #ef4444;
+}
+
+.map-marker--capsize {
+  background: #ef4444;
+  border-color: #fecaca;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.45);
+  animation: capsize-marker-pulse 1s ease-in-out infinite;
+}
+
+.map-marker-wrap--capsize {
+  z-index: 1000 !important;
+}
+
+@keyframes capsize-marker-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.15);
+  }
+}
+
+.hub-stats-item--danger {
+  color: #f87171;
 }
 
 .map-popup {

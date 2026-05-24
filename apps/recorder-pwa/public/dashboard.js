@@ -83,8 +83,47 @@ function updateCapsizeBanner(devices) {
     return;
   }
   bar.hidden = false;
-  text.textContent = capsized.map((d) => d.deviceId).join(', ');
+  text.textContent = capsized
+    .map((d) => {
+      const tilt = d.rowing?.tiltDeg != null ? ` (${d.rowing.tiltDeg}° tilt)` : '';
+      return `${d.deviceId}${tilt}`;
+    })
+    .join(', ');
   playCapsizeAlarm();
+}
+
+function updateRowingSummary(devices) {
+  const strokeEl = $('#strokeSummary');
+  const capsizeEl = $('#capsizeSummary');
+  if (!strokeEl || !capsizeEl) return;
+
+  const list = devices || [];
+  const spms = list
+    .map((d) => d.rowing?.strokeRate)
+    .filter((v) => v != null && v > 0);
+
+  if (!spms.length) {
+    strokeEl.textContent = 'Stroke: —';
+    strokeEl.classList.remove('hub-stats-item--accent');
+  } else if (spms.length === 1) {
+    strokeEl.textContent = `Stroke: ${spms[0]} spm`;
+    strokeEl.classList.add('hub-stats-item--accent');
+  } else {
+    const min = Math.min(...spms);
+    const max = Math.max(...spms);
+    strokeEl.textContent =
+      min === max ? `Stroke: ${min} spm` : `Stroke: ${min}–${max} spm`;
+    strokeEl.classList.add('hub-stats-item--accent');
+  }
+
+  const capsized = list.filter((d) => d.rowing?.capsize);
+  if (!capsized.length) {
+    capsizeEl.textContent = 'Capsize: clear';
+    capsizeEl.classList.remove('hub-stats-item--danger');
+  } else {
+    capsizeEl.textContent = `Capsize: ${capsized.length} boat(s)`;
+    capsizeEl.classList.add('hub-stats-item--danger');
+  }
 }
 
 function esc(s) {
@@ -122,12 +161,15 @@ function gpsStatusLabel(state) {
   return 'Last known (>5min)';
 }
 
-function markerIcon(state) {
+function markerIcon(state, capsize = false) {
+  const visual = capsize ? 'capsize' : state;
+  const size = capsize ? 18 : 14;
+  const half = size / 2;
   return L.divIcon({
-    className: `map-marker-wrap map-marker-wrap--${state}`,
-    html: `<span class="map-marker map-marker--${state}" aria-hidden="true"></span>`,
-    iconSize: [14, 14],
-    iconAnchor: [7, 7],
+    className: `map-marker-wrap map-marker-wrap--${visual}`,
+    html: `<span class="map-marker map-marker--${visual}" aria-hidden="true"></span>`,
+    iconSize: [size, size],
+    iconAnchor: [half, half],
   });
 }
 
@@ -135,9 +177,15 @@ function popupHtml(p) {
   const state = gpsFixState(p.fixAgeSec);
   const status = gpsStatusLabel(state);
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
-  const spm = p.strokeRate != null ? `<br>Stroke: ${p.strokeRate} spm` : '';
-  const cap = p.capsize ? `<br><strong class="map-popup-capsize">CAPSIZE</strong>` : '';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}${spm}${cap}</div>`;
+  const spm =
+    p.strokeRate != null && p.strokeRate > 0
+      ? `<br>Stroke rate: <strong>${p.strokeRate} spm</strong>`
+      : '';
+  const tilt = p.tiltDeg != null ? `<br>Tilt: ${p.tiltDeg}°` : '';
+  const cap = p.capsize
+    ? `<br><strong class="map-popup-capsize">⚠ CAPSIZE — boat tipped</strong>`
+    : '';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}${spm}${tilt}${cap}</div>`;
 }
 
 function updateMap(positions) {
@@ -155,7 +203,7 @@ function updateMap(positions) {
     const latlng = L.latLng(p.latitude, p.longitude);
     let marker = deviceMarkers.get(p.deviceId);
     const state = gpsFixState(p.fixAgeSec);
-    const icon = markerIcon(state);
+    const icon = markerIcon(state, Boolean(p.capsize));
 
     if (marker) {
       marker.setLatLng(latlng);
@@ -179,18 +227,21 @@ function updateMap(positions) {
   let liveN = 0;
   let amberN = 0;
   let lostN = 0;
+  let capsizeN = 0;
   for (const p of positions) {
     if (p.latitude == null || p.longitude == null) continue;
+    if (p.capsize) capsizeN++;
     const s = gpsFixState(p.fixAgeSec);
     if (s === 'live') liveN++;
     else if (s === 'amber') amberN++;
     else lostN++;
   }
   if (statusEl) {
+    const capPart = capsizeN ? ` · ${capsizeN} capsize` : '';
     statusEl.textContent =
       positions.length === 0
         ? 'No GPS positions in the selected time window.'
-        : `${liveN} live · ${amberN} delayed · ${lostN} last known`;
+        : `${liveN} live · ${amberN} delayed · ${lostN} last known${capPart}`;
   }
 
   if (latlngs.length === 1 && !mapDidFit) {
@@ -334,6 +385,7 @@ async function poll() {
     $('#windowLabel').textContent = `Window: ${data.windowSec ?? windowSec}s`;
 
     updateCapsizeBanner(data.devices);
+    updateRowingSummary(data.devices);
 
     grid.innerHTML = '';
     if (!data.devices?.length) {

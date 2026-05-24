@@ -34,7 +34,7 @@
             height="80"
           />
         </div>
-        <p class="hub-tagline">RNZ ingest device monitor — live rates and sensor status</p>
+        <p class="hub-tagline">RNZ ingest monitor — GPS, stroke rate (15–50 spm), and capsize alerts</p>
       </div>
     </header>
 
@@ -44,6 +44,10 @@
       <span class="hub-stats-item" id="deviceCount">Devices: —</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item" id="windowLabel">Window: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="strokeSummary">Stroke: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="capsizeSummary">Capsize: —</span>
     </div>
 
     <div class="capsize-alert-bar" id="capsizeAlertBar" hidden role="alert">
@@ -100,6 +104,7 @@
           <span class="map-legend-item map-legend-item--live">● GPS live (≤30s)</span>
           <span class="map-legend-item map-legend-item--amber">● GPS delayed (30s–5min)</span>
           <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
+          <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
         </p>
         <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
         <p class="poll-line map-status" id="mapStatus">Loading map…</p>
