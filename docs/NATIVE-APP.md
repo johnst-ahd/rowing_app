@@ -18,9 +18,11 @@ You do **not** need Android Studio on your phone. Pick one:
 
 ### A) Direct download link (Samsung / Android)
 
-**https://rowing-app-recorder-pwa.vercel.app/downloads/RNZ-Row-Recorder.apk** (recommended on Samsung)
+**https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk** (~10 MB arm64 build)
 
-Mirror: **https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk**
+Install page: **https://rowing-app-recorder-pwa.vercel.app/install-native.html**
+
+(Vercel `/downloads/…` redirects to GitHub — do not use old 40 MB universal APKs.)
 
 Install steps and Samsung “stuck at 100%” help: [install-native.html](https://rowing-app-recorder-pwa.vercel.app/install-native.html)
 

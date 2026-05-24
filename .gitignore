@@ -6,6 +6,7 @@ apps/recorder-pwa/dist/
 *.local
 .DS_Store
 .vercel
+apps/recorder-pwa/public/downloads/*.apk
 apps/recorder-pwa/dev-dist/
 ~$*
 *.tmp

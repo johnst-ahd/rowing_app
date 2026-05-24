@@ -13,19 +13,11 @@
     "api/map-positions.js": { "maxDuration": 20 },
     "api/ping.js": { "maxDuration": 10 }
   },
-  "headers": [
+  "redirects": [
     {
-      "source": "/downloads/(.*\\.apk)",
-      "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/vnd.android.package-archive"
-        },
-        {
-          "key": "Content-Disposition",
-          "value": "attachment; filename=\"RNZ-Row-Recorder.apk\""
-        }
-      ]
+      "source": "/downloads/RNZ-Row-Recorder.apk",
+      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk",
+      "permanent": false
     }
   ],
   "rewrites": [

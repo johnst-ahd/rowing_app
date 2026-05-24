@@ -53,48 +53,50 @@
   <body class="hub-page">
     <h1>Install native Android app</h1>
     <p class="note">
-      For Samsung and other Android phones — install once, no Play Store required.
+      v1.0.2+ · arm64 build (~10 MB) for Samsung and other Android phones.
     </p>
 
     <section class="hub-panel">
       <h2 class="hub-section-title">Download APK</h2>
+      <p class="note">
+        Use <strong>Samsung Internet</strong> or <strong>Chrome</strong>. If download stalls, use USB (below).
+      </p>
       <p>
-        <a class="btn-dl" href="/downloads/RNZ-Row-Recorder.apk"
+        <a
+          class="btn-dl"
+          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk"
           ><strong>Download RNZ-Row-Recorder.apk</strong></a
         >
       </p>
       <p class="note">
-        Mirror:
-        <a
-          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk"
-          >GitHub release</a
+        <a href="https://github.com/JohnSt-AHD/rowing_app/releases/tag/android-apk-latest"
+          >Releases page</a
         >
-        (if the button above fails).
+        ·
+        <a href="https://github.com/JohnSt-AHD/rowing_app/actions/workflows/android-apk.yml"
+          >Build status</a
+        >
+        (if the button 404s, wait ~5 min after a push, then refresh).
       </p>
     </section>
 
     <section class="hub-panel warn">
-      <h2 class="hub-section-title">Samsung: stuck at “Downloading… 100%”?</h2>
-      <p class="note">The file is usually already on your phone. Chrome does not always open the installer automatically.</p>
+      <h2 class="hub-section-title">Samsung: download stuck or failed?</h2>
       <ol>
         <li>
-          <strong>Swipe down</strong> from the top of the screen (notification shade).
+          <strong>Do not use a 40 MB build</strong> — old universal APKs fail on many phones. New builds are ~10 MB (arm64 only).
         </li>
         <li>
-          Tap the notification <strong>Download complete</strong> or
-          <strong>RNZ-Row-Recorder.apk</strong>.
+          <strong>USB from PC</strong> (most reliable): copy
+          <code>RNZ-Row-Recorder.apk</code> from the project folder
+          <code>apps/recorder-pwa/public/downloads/</code> or from GitHub Actions artifact → phone
+          <strong>Download</strong> folder → tap to install.
         </li>
         <li>
-          If nothing appears: open <strong>My Files</strong> → <strong>Downloads</strong> → tap
-          <strong>RNZ-Row-Recorder.apk</strong>.
+          Swipe down → tap <strong>Download complete</strong>, or
+          <strong>My Files → Downloads</strong>.
         </li>
-        <li>
-          Or in Chrome: <strong>⋮</strong> menu → <strong>Downloads</strong> → tap the APK.
-        </li>
-        <li>
-          Tap <strong>Install</strong>. If asked, allow
-          <strong>Install unknown apps</strong> for Chrome or My Files.
-        </li>
+        <li>Allow <strong>Install unknown apps</strong> for Chrome or My Files.</li>
       </ol>
     </section>
 
@@ -102,20 +104,19 @@
       <h2 class="hub-section-title">After install</h2>
       <ol>
         <li>
-          Open <strong>RNZ Row Recorder</strong> — the top bar should say
-          <strong>Native app</strong>.
+          Settings → <strong>Ingest API URL</strong>:
+          <code>https://rowing-app-recorder-pwa.vercel.app/api/ingest</code>
         </li>
-        <li>Settings → Apps → RNZ Row Recorder → Battery → <strong>Unrestricted</strong></li>
-        <li>Location → <strong>Allow all the time</strong></li>
-        <li>In the app: set <strong>Device ID</strong>, then <strong>Start session</strong></li>
+        <li>Tap <strong>Test upload connection</strong> (should say OK).</li>
+        <li>Battery → <strong>Unrestricted</strong>; Location → <strong>Allow all the time</strong></li>
+        <li>Set <strong>Device ID</strong> → <strong>Start session</strong></li>
       </ol>
     </section>
 
     <section class="hub-panel">
       <h2 class="hub-section-title">Option 2 — Web app (no install)</h2>
       <p>
-        <a href="/">Open recorder in browser</a> and use Chrome → Install app /
-        Add to Home screen. Easier, but GPS may pause when the screen locks.
+        <a href="/">Open recorder in browser</a> and add to Home screen. Easier install; GPS may pause when the screen locks.
       </p>
     </section>
 

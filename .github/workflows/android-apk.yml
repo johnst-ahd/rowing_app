@@ -53,9 +53,15 @@ jobs:
         working-directory: apps/recorder-native/android
         run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
 
-      - name: Prepare release asset
+      - name: Prepare release asset (arm64 — smaller download for phones)
         run: |
-          cp apps/recorder-native/android/app/build/outputs/apk/debug/app-debug.apk RNZ-Row-Recorder.apk
+          APK_DIR=apps/recorder-native/android/app/build/outputs/apk/debug
+          if [ -f "$APK_DIR/app-arm64-v8a-debug.apk" ]; then
+            cp "$APK_DIR/app-arm64-v8a-debug.apk" RNZ-Row-Recorder.apk
+          else
+            cp "$APK_DIR/app-debug.apk" RNZ-Row-Recorder.apk
+          fi
+          ls -lh RNZ-Row-Recorder.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -63,20 +69,6 @@ jobs:
           name: RNZ-Row-Recorder-debug-apk
           path: RNZ-Row-Recorder.apk
           retention-days: 90
-
-      - name: Copy APK for Vercel install page
-        run: |
-          mkdir -p apps/recorder-pwa/public/downloads
-          cp RNZ-Row-Recorder.apk apps/recorder-pwa/public/downloads/RNZ-Row-Recorder.apk
-
-      - name: Commit APK for phone-friendly Vercel download
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/recorder-pwa/public/downloads/RNZ-Row-Recorder.apk
-          git diff --staged --quiet && echo "APK unchanged" && exit 0
-          git commit -m "chore: update APK on Vercel download path [skip ci]"
-          git push
 
       - name: Publish GitHub Release (stable download link)
         uses: softprops/action-gh-release@v2
