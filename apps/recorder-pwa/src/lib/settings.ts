@@ -6,10 +6,24 @@ import {
 
 const LS_KEY = 'rnz_recorder_settings_v1';
 
+const IS_NATIVE_APP = import.meta.env.VITE_PLATFORM === 'native';
+
 function isLocalDevOrigin(origin: string): boolean {
+  if (IS_NATIVE_APP) return false;
   try {
     const host = new URL(origin).hostname;
     return host === 'localhost' || host === '127.0.0.1';
+  } catch {
+    return false;
+  }
+}
+
+/** Capacitor WebView uses https://localhost — that is not a reachable ingest server. */
+function isBrokenNativeIngestUrl(url: string): boolean {
+  if (!IS_NATIVE_APP) return false;
+  try {
+    const u = new URL(url.trim());
+    return u.hostname === 'localhost' || u.hostname === '127.0.0.1';
   } catch {
     return false;
   }
@@ -42,7 +56,15 @@ export function loadSettings(): RecorderSettings {
     if (!raw) return withOriginDefaults({ ...DEFAULT_SETTINGS });
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const { traccarUrl: _removed, ...rest } = parsed;
-    return withOriginDefaults({ ...DEFAULT_SETTINGS, ...rest } as RecorderSettings);
+    const merged = withOriginDefaults({
+      ...DEFAULT_SETTINGS,
+      ...rest,
+    } as RecorderSettings);
+    if (isBrokenNativeIngestUrl(merged.ingestUrl)) {
+      merged.ingestUrl = DEFAULT_INGEST_URL;
+      saveSettings(merged);
+    }
+    return merged;
   } catch {
     return withOriginDefaults({ ...DEFAULT_SETTINGS });
   }
