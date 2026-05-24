@@ -66,16 +66,22 @@ export async function enqueueOutbox(
   });
 }
 
+/** Match upload chunk size so queued rows are never oversized. */
+const MAX_SAMPLES_PER_OUTBOX = 150;
+
 export async function enqueueTelemetry(
   sessionId: string,
   samples: TelemetrySample[],
 ): Promise<void> {
   if (samples.length === 0) return;
-  await enqueueOutbox({
-    sessionId,
-    kind: 'telemetry',
-    payload: JSON.stringify({ sessionId, samples }),
-  });
+  for (let i = 0; i < samples.length; i += MAX_SAMPLES_PER_OUTBOX) {
+    const slice = samples.slice(i, i + MAX_SAMPLES_PER_OUTBOX);
+    await enqueueOutbox({
+      sessionId,
+      kind: 'telemetry',
+      payload: JSON.stringify({ sessionId, samples: slice }),
+    });
+  }
 }
 
 export async function enqueueTraccar(

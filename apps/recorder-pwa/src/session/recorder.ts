@@ -14,7 +14,7 @@ import {
   metricsFromAnalyzer,
   triggerCapsizeAlert,
 } from '../sensors/motion-analysis';
-import { enqueueTelemetry, saveSession } from './store';
+import { countPendingOutbox, enqueueTelemetry, saveSession } from './store';
 
 export type RecorderStats = {
   gpsCount: number;
@@ -83,8 +83,8 @@ export async function startRecorder(
     if (batch.length === 0) return;
     const slice = batch.splice(0, batch.length);
     await enqueueTelemetry(sessionId, slice);
-    stats.pendingOutbox += 1;
-    onPendingChange(stats.pendingOutbox);
+    stats.pendingOutbox = await countPendingOutbox();
+    onPendingChange(pending);
     emit();
   };
 

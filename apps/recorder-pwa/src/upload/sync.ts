@@ -5,12 +5,18 @@ import {
 } from '../session/store';
 import { postTelemetryBatch } from './telemetry-api';
 
-export async function flushOutbox(settings: RecorderSettings): Promise<{
+let flushInFlight: Promise<{
+  sent: number;
+  failed: number;
+  errors: string[];
+}> | null = null;
+
+async function flushOutboxInner(settings: RecorderSettings): Promise<{
   sent: number;
   failed: number;
   errors: string[];
 }> {
-  const rows = await listPendingOutbox(40);
+  const rows = await listPendingOutbox(25);
   let sent = 0;
   let failed = 0;
   const errors: string[] = [];
@@ -20,6 +26,7 @@ export async function flushOutbox(settings: RecorderSettings): Promise<{
     try {
       if (row.kind === 'traccar') {
         await markOutboxSent(row.id);
+        sent++;
         continue;
       }
 
@@ -37,9 +44,24 @@ export async function flushOutbox(settings: RecorderSettings): Promise<{
       sent++;
     } catch (e) {
       failed++;
-      errors.push(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(msg);
+      // Stop this cycle on hard errors so we do not hammer a bad URL/token.
+      if (/401|403|413|localhost/i.test(msg)) break;
     }
   }
 
   return { sent, failed, errors };
+}
+
+export async function flushOutbox(settings: RecorderSettings): Promise<{
+  sent: number;
+  failed: number;
+  errors: string[];
+}> {
+  if (flushInFlight) return flushInFlight;
+  flushInFlight = flushOutboxInner(settings).finally(() => {
+    flushInFlight = null;
+  });
+  return flushInFlight;
 }

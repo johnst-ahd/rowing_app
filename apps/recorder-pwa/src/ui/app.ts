@@ -48,8 +48,15 @@ export function mountApp(root: HTMLElement): void {
   async function runSync() {
     const s = loadSettings();
     const { sent, failed, errors } = await flushOutbox(s);
-    if (sent || failed) pushLog(`Upload: ${sent} sent, ${failed} failed`);
-    if (errors.length) pushLog(errors[0]);
+    if (sent || failed) {
+      pushLog(`Upload: ${sent} sent, ${failed} failed`);
+    }
+    if (errors.length) {
+      pushLog(errors[0]);
+      if (/failed to fetch|timed out/i.test(errors[0])) {
+        pushLog('Tip: check mobile signal; queue will retry. Keep upload batch ≤ 5s in Settings.');
+      }
+    }
     await updatePending();
   }
 
