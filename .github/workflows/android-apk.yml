@@ -10,8 +10,6 @@ on:
       - 'apps/recorder-native/**'
       - 'packages/**'
       - '.github/workflows/android-apk.yml'
-    paths-ignore:
-      - 'apps/recorder-pwa/public/downloads/**'
 
 permissions:
   contents: write
