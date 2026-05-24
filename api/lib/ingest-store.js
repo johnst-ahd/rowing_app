@@ -322,6 +322,44 @@ function getPositionsSnapshot(onlineMs = 30000) {
   };
 }
 
+async function getMapPositions(onlineMs, staleMs) {
+  if (db.hasDb()) {
+    try {
+      return await db.getMapPositions(onlineMs, staleMs);
+    } catch (err) {
+      console.error('[ingest-store] getMapPositions DB failed:', err);
+    }
+  }
+  const now = Date.now();
+  const mem = getPositionsSnapshot(onlineMs);
+  return mem.positions
+    .filter((p) => {
+      const fixMs = new Date(p.fixTime).getTime();
+      return (
+        Number.isFinite(fixMs) &&
+        now - fixMs <= staleMs &&
+        p.latitude != null &&
+        p.longitude != null
+      );
+    })
+    .map((p) => {
+      const fixMs = new Date(p.fixTime).getTime();
+      const lastSeenMs = p.lastUpdate || fixMs;
+      return {
+        deviceId: String(p.uniqueId),
+        athleteId: p.athleteId || null,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        accuracy: p.accuracy,
+        fixMs,
+        fixAgeSec: Math.round((now - fixMs) / 1000),
+        lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+        online: Boolean(p.online),
+        hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
+      };
+    });
+}
+
 async function getTraccarSnapshot(onlineMs = 120000) {
   if (db.hasDb()) {
     try {
@@ -396,6 +434,7 @@ module.exports = {
   listDevices,
   getPositionsSnapshot,
   getTraccarSnapshot,
+  getMapPositions,
   getRouteHistory,
   listSessionsHistory,
   checkAuth,

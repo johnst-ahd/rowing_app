@@ -291,6 +291,45 @@ async function fetchRecentSamplesByDevice(windowMs) {
   return byDevice;
 }
 
+/**
+ * Latest GPS fix per device for dashboard map (within stale window).
+ */
+async function getMapPositions(onlineMs, staleMs) {
+  const sql = await getSql();
+  await initSchema();
+  const now = Date.now();
+  const staleCutoff = now - staleMs;
+  const rows = await sql`
+    SELECT DISTINCT ON (s.unique_id)
+      s.unique_id, s.latitude, s.longitude, s.accuracy, s.t_ms, s.hr,
+      d.last_seen_at, d.athlete_id
+    FROM rnz_samples s
+    JOIN rnz_devices d ON d.unique_id = s.unique_id
+    WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+      AND s.t_ms >= ${staleCutoff}
+    ORDER BY s.unique_id, s.t_ms DESC
+  `;
+  return rows.rows.map((row) => {
+    const fixMs = Number(row.t_ms);
+    const lastSeenMs = Math.max(
+      fixMs,
+      new Date(row.last_seen_at).getTime(),
+    );
+    return {
+      deviceId: String(row.unique_id),
+      athleteId: row.athlete_id || null,
+      latitude: row.latitude,
+      longitude: row.longitude,
+      accuracy: row.accuracy,
+      fixMs,
+      fixAgeSec: Math.round((now - fixMs) / 1000),
+      lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+      online: now - lastSeenMs <= onlineMs,
+      hr: row.hr,
+    };
+  });
+}
+
 async function listRegistryDevices() {
   const sql = await getSql();
   const rows = await sql`
@@ -386,6 +425,7 @@ module.exports = {
   initSchema,
   persistBatch,
   fetchRecentSamplesByDevice,
+  getMapPositions,
   getTraccarSnapshot,
   getRoutePositions,
   resolveDevice,

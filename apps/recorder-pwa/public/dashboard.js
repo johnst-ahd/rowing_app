@@ -1,7 +1,18 @@
 const LS_TOKEN = 'rnz_dashboard_token';
 const LS_POLL = 'rnz_dashboard_poll_ms';
+const LS_STALE = 'rnz_dashboard_stale_sec';
+
+const MAP_CENTER = [-37.9305, 175.5485];
+const MAP_ZOOM = 12;
+const ONLINE_SEC = 120;
 
 const $ = (sel) => document.querySelector(sel);
+
+let map = null;
+let markersLayer = null;
+/** @type {Map<string, L.Marker>} */
+const deviceMarkers = new Map();
+let mapDidFit = false;
 
 function apiBase() {
   return window.location.origin;
@@ -18,11 +29,116 @@ function savePrefs() {
   const token = $('#token')?.value?.trim();
   if (token) localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_POLL, String($('#pollMs')?.value || 2000));
+  localStorage.setItem(LS_STALE, String($('#staleSec')?.value || 3600));
+}
+
+function staleSec() {
+  return Number($('#staleSec')?.value || localStorage.getItem(LS_STALE) || 3600);
 }
 
 function fmtHz(v) {
   if (v == null || v === 0) return '—';
   return `${v} Hz`;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/"/g, '&quot;');
+}
+
+function initMap() {
+  const el = $('#fleetMap');
+  if (!el || map || typeof L === 'undefined') return;
+
+  map = L.map(el, { zoomControl: true }).setView(MAP_CENTER, MAP_ZOOM);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap',
+  }).addTo(map);
+
+  markersLayer = L.layerGroup().addTo(map);
+}
+
+function markerIcon(online) {
+  return L.divIcon({
+    className: online ? 'map-marker-wrap map-marker-wrap--live' : 'map-marker-wrap map-marker-wrap--stale',
+    html: `<span class="map-marker ${online ? 'map-marker--live' : 'map-marker--stale'}" aria-hidden="true"></span>`,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
+}
+
+function popupHtml(p) {
+  const status = p.online ? 'Active' : 'Last known';
+  const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}</div>`;
+}
+
+function updateMap(positions) {
+  initMap();
+  if (!map || !markersLayer) return;
+
+  const seen = new Set();
+  const latlngs = [];
+
+  for (const p of positions) {
+    if (p.latitude == null || p.longitude == null) continue;
+    seen.add(p.deviceId);
+    latlngs.push([p.latitude, p.longitude]);
+
+    const latlng = L.latLng(p.latitude, p.longitude);
+    let marker = deviceMarkers.get(p.deviceId);
+    const icon = markerIcon(p.online);
+
+    if (marker) {
+      marker.setLatLng(latlng);
+      marker.setIcon(icon);
+      marker.setPopupContent(popupHtml(p));
+    } else {
+      marker = L.marker(latlng, { icon }).bindPopup(popupHtml(p));
+      markersLayer.addLayer(marker);
+      deviceMarkers.set(p.deviceId, marker);
+    }
+  }
+
+  for (const [id, marker] of deviceMarkers) {
+    if (!seen.has(id)) {
+      markersLayer.removeLayer(marker);
+      deviceMarkers.delete(id);
+    }
+  }
+
+  const statusEl = $('#mapStatus');
+  const live = positions.filter((p) => p.online).length;
+  const stale = positions.length - live;
+  if (statusEl) {
+    statusEl.textContent =
+      positions.length === 0
+        ? 'No GPS positions in the selected time window.'
+        : `${live} active · ${stale} last known on map`;
+  }
+
+  if (latlngs.length === 1 && !mapDidFit) {
+    map.setView(latlngs[0], Math.max(map.getZoom(), 14));
+    mapDidFit = true;
+  } else if (latlngs.length > 1) {
+    map.fitBounds(L.latLngBounds(latlngs), { padding: [36, 36], maxZoom: 15 });
+    mapDidFit = true;
+  }
+}
+
+async function fetchMapPositions() {
+  const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}`;
+  const res = await fetch(url, { headers: headers() });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Map ${res.status} ${text.slice(0, 80)}`);
+  }
+  const data = await res.json();
+  updateMap(Array.isArray(data.positions) ? data.positions : []);
+  return data;
 }
 
 function renderDevice(d) {
@@ -73,21 +189,22 @@ function renderDevice(d) {
   return card;
 }
 
-function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/"/g, '&quot;');
-}
-
 async function poll() {
   const status = $('#pollStatus');
   const grid = $('#devicesGrid');
   const windowSec = $('#windowSec')?.value || 60;
 
   try {
-    const url = `${apiBase()}/api/devices?windowSec=${encodeURIComponent(windowSec)}&onlineSec=120`;
-    const res = await fetch(url, { headers: headers() });
+    const devicesUrl = `${apiBase()}/api/devices?windowSec=${encodeURIComponent(windowSec)}&onlineSec=${ONLINE_SEC}`;
+    const [devicesRes, mapResult] = await Promise.allSettled([
+      fetch(devicesUrl, { headers: headers() }),
+      fetchMapPositions(),
+    ]);
+
+    if (devicesRes.status !== 'fulfilled') {
+      throw devicesRes.reason;
+    }
+    const res = devicesRes.value;
     if (!res.ok) {
       const text = await res.text();
       if (res.status === 401) {
@@ -96,6 +213,13 @@ async function poll() {
       throw new Error(`${res.status} ${text.slice(0, 120)}`);
     }
     const data = await res.json();
+
+    if (mapResult.status === 'rejected') {
+      const mapStatus = $('#mapStatus');
+      if (mapStatus) {
+        mapStatus.textContent = `Map error: ${mapResult.reason?.message || mapResult.reason}`;
+      }
+    }
 
     const warnEl = $('#storageWarning');
     if (warnEl) {
@@ -116,7 +240,7 @@ async function poll() {
     if (!data.devices?.length) {
       const hint = data.persisted
         ? 'No devices in the last window. Check the phone is recording and Device ID matches.'
-        : 'No devices visible — add POSTGRES_URL on Vercel (Storage → Postgres), redeploy, then record again. Without a database, phone uploads and the monitor often hit different servers.';
+        : 'No devices visible — add POSTGRES_URL on Vercel (Storage → Postgres), redeploy, then record again.';
       grid.innerHTML = `<p class="empty">${hint}</p>`;
     } else {
       for (const d of data.devices) {
@@ -147,12 +271,16 @@ function startPolling() {
 function init() {
   const savedToken = localStorage.getItem(LS_TOKEN);
   const savedPoll = localStorage.getItem(LS_POLL);
+  const savedStale = localStorage.getItem(LS_STALE);
   if (savedToken && $('#token')) $('#token').value = savedToken;
   if (savedPoll && $('#pollMs')) $('#pollMs').value = savedPoll;
+  if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
+
+  initMap();
 
   $('#refreshBtn')?.addEventListener('click', () => void poll());
   $('#applyBtn')?.addEventListener('click', startPolling);
-  ['#token', '#pollMs', '#windowSec'].forEach((sel) => {
+  ['#token', '#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
     $(sel)?.addEventListener('change', savePrefs);
   });
 

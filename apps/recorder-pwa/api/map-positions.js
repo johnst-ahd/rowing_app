@@ -1,0 +1,43 @@
+const store = require('./lib/ingest-store');
+
+/** Latest GPS positions for dashboard map (online + stale offline). */
+module.exports = async function handler(req, res) {
+  store.cors(res);
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ ok: false, error: 'Method not allowed' });
+  }
+
+  if (!store.checkAuth(req)) {
+    return res.status(401).json({ ok: false, error: 'Unauthorized' });
+  }
+
+  const onlineSec = Math.min(
+    600,
+    Math.max(30, Number(req.query?.onlineSec) || 120),
+  );
+  const staleSec = Math.min(
+    86400,
+    Math.max(onlineSec, Number(req.query?.staleSec) || 3600),
+  );
+
+  const positions = await store.getMapPositions(
+    onlineSec * 1000,
+    staleSec * 1000,
+  );
+
+  return res.status(200).json({
+    ok: true,
+    polledAt: Date.now(),
+    onlineThresholdSec: onlineSec,
+    staleThresholdSec: staleSec,
+    activeCount: positions.filter((p) => p.online).length,
+    positionCount: positions.length,
+    positions,
+    persisted: store.hasDb(),
+  });
+};
