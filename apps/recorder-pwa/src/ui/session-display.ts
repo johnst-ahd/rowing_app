@@ -1,0 +1,89 @@
+/** Live session HUD: rainbow rails, rolling speed, pace formatting. */
+
+export const SPLIT_SLOW_SEC = 2 * 60 + 30; // 2:30 /500m
+export const SPLIT_FAST_SEC = 60 + 15; // 1:15 /500m
+export const HR_SLOW_BPM = 100;
+export const HR_FAST_BPM = 200;
+export const SPEED_AVG_WINDOW_MS = 10_000;
+
+export function clamp01(t: number): number {
+  return Math.max(0, Math.min(1, t));
+}
+
+/** Rainbow hue 0 (red) → 300 (violet) for normalized 0–1. */
+export function rainbowColor(t: number): string {
+  const hue = clamp01(t) * 300;
+  return `hsl(${hue}, 92%, 48%)`;
+}
+
+/** Split seconds → 0 slow (2:30) … 1 fast (1:15). */
+export function splitSecToT(splitSec: number): number {
+  return clamp01((SPLIT_SLOW_SEC - splitSec) / (SPLIT_SLOW_SEC - SPLIT_FAST_SEC));
+}
+
+export function hrToT(bpm: number): number {
+  return clamp01((bpm - HR_SLOW_BPM) / (HR_FAST_BPM - HR_SLOW_BPM));
+}
+
+/** Vertical marker: 0% top = fast, 100% bottom = slow. */
+export function railPositionFromT(t: number): number {
+  return (1 - clamp01(t)) * 100;
+}
+
+export function formatSplit500m(speedMps: number | undefined): string {
+  if (speedMps == null || speedMps < 0.25) return '—';
+  const sec = 500 / speedMps;
+  const m = Math.floor(sec / 60);
+  const s = (sec % 60).toFixed(1);
+  return `${m}:${s.padStart(4, '0')}`;
+}
+
+export function splitSecFromMps(mps: number | undefined): number | undefined {
+  if (mps == null || mps < 0.25) return undefined;
+  return 500 / mps;
+}
+
+export class SpeedRollingAvg {
+  private samples: { t: number; mps: number }[] = [];
+
+  push(mps: number): void {
+    if (mps < 0.15) return;
+    const now = Date.now();
+    this.samples.push({ t: now, mps });
+    const cutoff = now - SPEED_AVG_WINDOW_MS;
+    while (this.samples.length && this.samples[0].t < cutoff) {
+      this.samples.shift();
+    }
+  }
+
+  average(): number | undefined {
+    if (!this.samples.length) return undefined;
+    let sum = 0;
+    for (const s of this.samples) sum += s.mps;
+    return sum / this.samples.length;
+  }
+
+  clear(): void {
+    this.samples = [];
+  }
+}
+
+export function updateSpectrumRail(
+  el: HTMLElement | null,
+  t: number | undefined,
+  idleColor = 'hsl(220, 22%, 18%)',
+): void {
+  if (!el) return;
+  const marker = el.querySelector('[data-rail-marker]') as HTMLElement | null;
+  if (t == null) {
+    el.style.backgroundColor = idleColor;
+    if (marker) marker.style.opacity = '0';
+    return;
+  }
+  const ct = clamp01(t);
+  el.style.backgroundColor = rainbowColor(ct);
+  if (marker) {
+    marker.style.opacity = '1';
+    marker.style.top = `${railPositionFromT(ct)}%`;
+  }
+}

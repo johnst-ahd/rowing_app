@@ -13,6 +13,14 @@ import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 import { repairOversizedPendingOutbox } from '../session/store';
 import { testIngestConnection } from '../upload/telemetry-api';
+import {
+  formatSplit500m,
+  hrToT,
+  SpeedRollingAvg,
+  splitSecFromMps,
+  splitSecToT,
+  updateSpectrumRail,
+} from './session-display';
 
 type View = 'record' | 'settings';
 
@@ -34,7 +42,22 @@ export function mountApp(root: HTMLElement): void {
   let sessionStartedAt: number | null = null;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
   let controlsCollapsed = false;
+  const speedAvg = new SpeedRollingAvg();
   const settings = loadSettings();
+
+  document.addEventListener('fullscreenchange', () => {
+    const stage = root.querySelector('[data-session-stage]');
+    if (!stage) return;
+    stage.classList.toggle(
+      'session-stage--fullscreen',
+      document.fullscreenElement === stage,
+    );
+    const btn = root.querySelector('[data-action="toggle-fullscreen"]');
+    if (btn) {
+      btn.textContent =
+        document.fullscreenElement === stage ? 'Exit fullscreen' : 'Fullscreen';
+    }
+  });
 
   const logLines: string[] = [];
   const refreshLogPre = () => {
@@ -124,6 +147,8 @@ export function mountApp(root: HTMLElement): void {
       stopHudTimer();
       sessionStartedAt = null;
       controlsCollapsed = false;
+      speedAvg.clear();
+      void exitStageFullscreen();
       stopBackgroundSession();
       await controller?.stop();
       controller = null;
@@ -153,12 +178,14 @@ export function mountApp(root: HTMLElement): void {
     return `${m}:${String(s).padStart(2, '0')}`;
   }
 
-  function formatSplit500m(speedMps: number | undefined): string {
-    if (speedMps == null || speedMps < 0.25) return '—';
-    const sec = 500 / speedMps;
-    const m = Math.floor(sec / 60);
-    const s = (sec % 60).toFixed(1);
-    return `${m}:${s.padStart(4, '0')}`;
+  async function exitStageFullscreen(): Promise<void> {
+    if (document.fullscreenElement) {
+      try {
+        await document.exitFullscreen();
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   function stopHudTimer(): void {
@@ -185,7 +212,23 @@ export function mountApp(root: HTMLElement): void {
     );
 
     setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
-    setHudText('[data-hud-split]', formatSplit500m(stats?.speedMps));
+
+    if (stats?.speedMps != null && stats.speedMps >= 0.15) {
+      speedAvg.push(stats.speedMps);
+    }
+    const avgMps = speedAvg.average();
+    setHudText('[data-hud-split]', formatSplit500m(avgMps));
+
+    const splitSec = splitSecFromMps(avgMps);
+    updateSpectrumRail(
+      root.querySelector('[data-rail-speed]') as HTMLElement | null,
+      splitSec != null ? splitSecToT(splitSec) : undefined,
+    );
+    const hr = stats?.lastHr;
+    updateSpectrumRail(
+      root.querySelector('[data-rail-hr]') as HTMLElement | null,
+      hr != null && hr > 0 ? hrToT(hr) : undefined,
+    );
 
     const capsizeEl = root.querySelector('[data-hud-capsize]');
     if (capsizeEl) {
@@ -267,6 +310,23 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
+  function spectrumRailsHtml(): string {
+    return `
+      <div class="spectrum-rail spectrum-rail--speed" data-rail-speed aria-label="Pace spectrum: fast 1:15 top, slow 2:30 bottom">
+        <span class="spectrum-rail__marker" data-rail-marker></span>
+        <span class="spectrum-rail__legend">Pace</span>
+        <span class="spectrum-rail__fast">1:15</span>
+        <span class="spectrum-rail__slow">2:30</span>
+      </div>
+      <div class="spectrum-rail spectrum-rail--hr" data-rail-hr aria-label="Heart rate spectrum: 200 top, 100 bottom">
+        <span class="spectrum-rail__marker" data-rail-marker></span>
+        <span class="spectrum-rail__legend">HR</span>
+        <span class="spectrum-rail__fast">200</span>
+        <span class="spectrum-rail__slow">100</span>
+      </div>
+    `;
+  }
+
   function liveHudHtml(): string {
     return `
       <section class="session-live-hud" aria-live="polite">
@@ -288,10 +348,22 @@ export function mountApp(root: HTMLElement): void {
           </div>
           <div class="session-metric">
             <span class="session-metric__value" data-hud-split>—</span>
-            <span class="session-metric__label">Pace /500m</span>
+            <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
           </div>
         </div>
+        <div class="session-live-hud__bar">
+          <button type="button" class="hub-btn hub-btn--ghost session-live-hud__fs" data-action="toggle-fullscreen">Fullscreen</button>
+        </div>
       </section>
+    `;
+  }
+
+  function wrapRecordingStage(body: string): string {
+    return `
+      <div class="session-stage" data-session-stage>
+        ${spectrumRailsHtml()}
+        <div class="session-stage__inner">${body}</div>
+      </div>
     `;
   }
 
@@ -357,7 +429,7 @@ export function mountApp(root: HTMLElement): void {
   function recordHtml(): string {
     const stats = controller?.getStats();
     const shellClass = recording ? 'ahd-recorder-shell ahd-recorder-shell--recording' : 'ahd-recorder-shell';
-    return `
+    const shell = `
       <div class="${shellClass}">
         ${hubHeader()}
         <div class="hub-stats-bar" aria-live="polite">${recordStatsBar(stats)}</div>
@@ -377,6 +449,7 @@ export function mountApp(root: HTMLElement): void {
         ${hubFooter()}
       </div>
     `;
+    return recording ? wrapRecordingStage(shell) : shell;
   }
 
   function settingsHtml(): string {
@@ -480,6 +553,7 @@ export function mountApp(root: HTMLElement): void {
       }
       sessionStartedAt = Date.now();
       controlsCollapsed = true;
+      speedAvg.clear();
 
       controller = await startRecorder(
         s,
@@ -528,6 +602,8 @@ export function mountApp(root: HTMLElement): void {
       stopHudTimer();
       sessionStartedAt = null;
       controlsCollapsed = false;
+      speedAvg.clear();
+      void exitStageFullscreen();
       stopBackgroundSession();
       await controller?.stop();
       controller = null;
@@ -542,6 +618,20 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('[data-action="toggle-drawer"]')?.addEventListener('click', () => {
       controlsCollapsed = !controlsCollapsed;
       render();
+    });
+
+    root.querySelector('[data-action="toggle-fullscreen"]')?.addEventListener('click', async () => {
+      const stage = root.querySelector('[data-session-stage]') as HTMLElement | null;
+      if (!stage) return;
+      try {
+        if (document.fullscreenElement === stage) {
+          await document.exitFullscreen();
+        } else {
+          await stage.requestFullscreen();
+        }
+      } catch {
+        pushLog('Fullscreen not supported on this device.');
+      }
     });
 
     root.querySelector('[data-action="connect-hr"]')?.addEventListener('click', () => {

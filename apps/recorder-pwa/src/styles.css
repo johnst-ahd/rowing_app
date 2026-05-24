@@ -301,6 +301,213 @@
   display: none;
 }
 
+/* Spectrum rails (pace left, HR right) */
+.session-stage {
+  position: relative;
+}
+
+.session-stage__inner {
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.spectrum-rail {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 16px;
+  z-index: 40;
+  pointer-events: none;
+  transition: background-color 0.4s ease;
+  background-color: hsl(220, 22%, 18%);
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.45);
+}
+
+.spectrum-rail::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    hsl(300, 90%, 50%) 0%,
+    hsl(240, 90%, 50%) 18%,
+    hsl(180, 90%, 50%) 36%,
+    hsl(120, 90%, 50%) 52%,
+    hsl(60, 90%, 50%) 68%,
+    hsl(30, 90%, 50%) 84%,
+    hsl(0, 90%, 50%) 100%
+  );
+  opacity: 0.22;
+}
+
+.spectrum-rail--speed {
+  left: 0;
+}
+
+.spectrum-rail--hr {
+  right: 0;
+}
+
+.spectrum-rail__marker {
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  height: 5px;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.85);
+  transform: translateY(-50%);
+  top: 50%;
+  opacity: 0;
+  transition: top 0.4s ease, opacity 0.25s ease;
+  z-index: 1;
+}
+
+.spectrum-rail__legend,
+.spectrum-rail__fast,
+.spectrum-rail__slow {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 0.5rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  z-index: 2;
+  white-space: nowrap;
+}
+
+.spectrum-rail__legend {
+  top: 50%;
+  transform: translateX(-50%) translateY(-50%) rotate(-90deg);
+  text-transform: uppercase;
+}
+
+.spectrum-rail__fast {
+  top: 6px;
+}
+
+.spectrum-rail__slow {
+  bottom: 6px;
+}
+
+.session-metric__sub {
+  display: block;
+  font-size: 0.55rem;
+  font-weight: 500;
+  opacity: 0.75;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.session-live-hud__bar {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.session-live-hud__fs {
+  font-size: 0.75rem;
+  padding: 0.35rem 0.75rem;
+}
+
+/* Fullscreen live dashboard */
+.session-stage:fullscreen,
+.session-stage--fullscreen {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-height: 100dvh;
+  overflow: auto;
+  background: #0a1628;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}
+
+.session-stage:fullscreen .hub-topbar,
+.session-stage:fullscreen .ahd-footer,
+.session-stage:fullscreen .hub-stats-bar,
+.session-stage--fullscreen .hub-topbar,
+.session-stage--fullscreen .ahd-footer,
+.session-stage--fullscreen .hub-stats-bar {
+  display: none;
+}
+
+.session-stage:fullscreen .session-stage__inner,
+.session-stage--fullscreen .session-stage__inner {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  max-width: none;
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+.session-stage:fullscreen .ahd-recorder-shell,
+.session-stage--fullscreen .ahd-recorder-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.session-stage:fullscreen .session-live-hud,
+.session-stage--fullscreen .session-live-hud {
+  position: relative;
+  top: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: none;
+  width: auto;
+  margin: 0.5rem 0;
+  padding: clamp(1rem, 3vw, 2rem);
+}
+
+.session-stage:fullscreen .session-live-hud__metrics,
+.session-stage--fullscreen .session-live-hud__metrics {
+  gap: 0.75rem 1rem;
+}
+
+.session-stage:fullscreen .session-metric__value,
+.session-stage--fullscreen .session-metric__value {
+  font-size: clamp(1.75rem, 6vw, 3rem);
+}
+
+.session-stage:fullscreen .session-drawer-toggle,
+.session-stage--fullscreen .session-drawer-toggle {
+  max-width: none;
+  width: auto;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+@media (orientation: landscape) {
+  .session-stage:fullscreen .session-live-hud__metrics,
+  .session-stage--fullscreen .session-live-hud__metrics {
+    grid-template-columns: repeat(4, 1fr);
+    max-width: min(960px, 92vw);
+    margin: 0 auto;
+  }
+
+  .session-stage:fullscreen .session-live-hud,
+  .session-stage--fullscreen .session-live-hud {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+
+  .spectrum-rail {
+    width: 20px;
+  }
+
+  .session-stage__inner {
+    padding-left: 26px;
+    padding-right: 26px;
+  }
+}
+
 @media (max-width: 400px) {
   .session-live-hud__metrics {
     grid-template-columns: repeat(2, 1fr);
