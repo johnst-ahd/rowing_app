@@ -38,6 +38,14 @@ export type RecorderController = {
   connectHr: () => Promise<void>;
 };
 
+export type RecorderHooks = {
+  /** Throttled while screen off — flush queue + upload. */
+  onBackgroundPulse?: () => void;
+};
+
+const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+const BG_UPLOAD_PULSE_MS = 12_000;
+
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
 const MAX_BATCH_SAMPLES = 40;
 /** With GPS + motion, only GPS rows are queued — ~1 Hz × batch window. */
@@ -69,6 +77,7 @@ export async function startRecorder(
   onLog: (msg: string) => void,
   onPendingChange: (n: number) => void,
   onCapsize?: (active: boolean) => void,
+  hooks?: RecorderHooks,
 ): Promise<RecorderController | null> {
   if (!settings.deviceId.trim()) {
     onLog('Set a Device ID in Settings before recording.');
@@ -100,6 +109,7 @@ export async function startRecorder(
   let capsizeActive = false;
   let pushInFlight = false;
   let lastMotionUploadAt = 0;
+  let lastBackgroundPulseAt = 0;
 
   const motionUploadMs = Math.max(
     200,
@@ -140,9 +150,26 @@ export async function startRecorder(
     }
   };
 
+  const pulseBackgroundUpload = () => {
+    if (
+      !IS_NATIVE ||
+      !settings.enableBackgroundRecording ||
+      typeof document === 'undefined' ||
+      document.visibilityState !== 'hidden'
+    ) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastBackgroundPulseAt < BG_UPLOAD_PULSE_MS) return;
+    lastBackgroundPulseAt = now;
+    void pushBatch();
+    hooks?.onBackgroundPulse?.();
+  };
+
   const queueSample = (sample: TelemetrySample) => {
     batch.push(sample);
     if (batch.length >= batchCap) void pushBatch();
+    else pulseBackgroundUpload();
   };
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
@@ -172,6 +199,9 @@ export async function startRecorder(
       },
       settings.gpsIntervalMs,
       (m) => onLog(`GPS: ${m}`),
+      {
+        enableBackground: IS_NATIVE && settings.enableBackgroundRecording,
+      },
     );
     stoppers.push(async () => {
       await Promise.resolve(gps.stop());
@@ -244,6 +274,14 @@ export async function startRecorder(
     } else {
       onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);
     }
+    if (IS_NATIVE && settings.enableBackgroundRecording) {
+      onLog('Note: stroke/capsize may pause when screen is off; GPS continues via notification.');
+    }
+  }
+  if (IS_NATIVE && settings.enableBackgroundRecording && settings.enableGps) {
+    onLog(
+      'Background GPS on — allow location Always, notifications, and set battery to Unrestricted.',
+    );
   }
 
   return {

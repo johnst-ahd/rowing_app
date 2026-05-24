@@ -15,12 +15,16 @@
     "@capacitor/core": ">=6.0.0",
     "@capacitor/geolocation": ">=6.0.0",
     "@capacitor/motion": ">=6.0.0",
-    "@capacitor-community/bluetooth-le": ">=6.0.0"
+    "@capacitor-community/bluetooth-le": ">=6.0.0",
+    "@capacitor-community/background-geolocation": ">=1.2.0",
+    "@capacitor/local-notifications": ">=6.0.0"
   },
   "peerDependenciesMeta": {
     "@capacitor/core": { "optional": true },
     "@capacitor/geolocation": { "optional": true },
     "@capacitor/motion": { "optional": true },
-    "@capacitor-community/bluetooth-le": { "optional": true }
+    "@capacitor-community/bluetooth-le": { "optional": true },
+    "@capacitor-community/background-geolocation": { "optional": true },
+    "@capacitor/local-notifications": { "optional": true }
   }
 }

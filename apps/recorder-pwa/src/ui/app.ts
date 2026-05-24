@@ -253,7 +253,7 @@ export function mountApp(root: HTMLElement): void {
             <p class="hint">Device: <strong>${esc(settings.deviceId || '(not set)')}</strong></p>
             ${
               recording
-                ? `<p class="hint hint--background">Recording in background is best-effort. Install to home screen, allow audio, and avoid force-closing the app. iOS may pause sensors when fully backgrounded.</p>`
+                ? `<p class="hint hint--background">Native app: allow <strong>Location → Always</strong>, <strong>Notifications</strong>, battery <strong>Unrestricted</strong>. A persistent notification keeps GPS when the screen is off — do not force-close the app. Stroke rate may pause in background; GPS and uploads continue.</p>`
                 : ''
             }
           </section>
@@ -313,7 +313,7 @@ export function mountApp(root: HTMLElement): void {
           ${logPanelHtml()}
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
-            <p>Add to home screen for the best background behaviour. Android works better than iOS when the screen is locked.</p>
+            <p>Native APK: background GPS uses a system notification (Android) or blue status bar (iOS). Web PWA: add to home screen — background is limited compared to the native app.</p>
             <p>iOS needs a user tap to connect BLE HR. Sensors may pause if the app is swiped away.</p>
           </section>
         </div>
@@ -374,6 +374,9 @@ export function mountApp(root: HTMLElement): void {
         (active) => {
           capsizeActive = active;
           render();
+        },
+        {
+          onBackgroundPulse: () => void runSync(false),
         },
       );
       if (!controller) return;

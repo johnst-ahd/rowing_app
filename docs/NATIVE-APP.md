@@ -115,11 +115,15 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 
 ## Android permissions
 
-`cap sync` merges permissions from Capacitor plugins. Ensure these exist in `AndroidManifest.xml` (usually automatic):
+`cap sync` merges permissions from Capacitor plugins. The app also declares:
 
 - `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`
-- `ACCESS_BACKGROUND_LOCATION` (Android 10+ — request at runtime for background GPS)
+- `ACCESS_BACKGROUND_LOCATION` (Android 10+ — choose **Allow all the time**)
+- `POST_NOTIFICATIONS` (Android 13+ — required for background GPS notification)
+- `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_LOCATION`
 - `BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` (Android 12+)
+
+`capacitor.config.ts` sets `android.useLegacyBridge: true` so location + uploads keep working with the foreground-service GPS plugin.
 
 ## Sensor adapters
 
@@ -128,7 +132,7 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 | Web PWA | `npm run build:app` | Browser geolocation, DeviceMotion, Web Bluetooth |
 | Native | `npm run build:native -w recorder-pwa` | Native GPS + BLE; motion via Capacitor Motion (DeviceMotion in WebView) |
 
-**Note:** GPS and heart rate use full native APIs and continue in background with the correct iOS/Android permissions. Accelerometer/stroke rate uses the Capacitor Motion plugin (WebView-based). For always-on background accel on iOS, a CoreMotion native plugin could be added later.
+**Background recording (v1.0.7+):** With **Allow background** enabled in Settings, GPS uses `@capacitor-community/background-geolocation` — Android shows a persistent notification and keeps tracking when the screen is off. Do **not** swipe the app away from recents; set battery to **Unrestricted** on Samsung. Accelerometer/stroke rate uses the Capacitor Motion plugin (WebView) and may pause when the screen is off; GPS and uploads continue.
 
 **Upload rate with accelerometer:** Motion is analyzed at full rate (e.g. 50 ms) on the phone, but when GPS is also enabled, upload samples are only queued on each GPS fix (~1/s) with the latest accel + stroke/capsize attached. That keeps the outbox small so uploads do not stall. Without GPS, motion uploads are throttled (default 500 ms) via **Motion upload interval** in Settings.
 
@@ -159,7 +163,9 @@ Same as PWA:
 
 | Issue | Fix |
 |-------|-----|
+| GPS stops when locked | Grant **Always** location + notifications; enable **Allow background** in app Settings; install v1.0.7+ APK; Samsung → battery **Unrestricted** |
 | GPS stops when locked (iOS) | Background Modes → Location updates; grant **Always** location |
+| App “closed” / swiped away | Android may kill the app — leave recording running and use the GPS notification to return; do not force-stop |
 | No stroke rate | Motion permission; verify native build (`Native app` in header) |
 | HR won't connect | Bluetooth permission; tap **Connect HR strap** before launching |
 | White screen after sync | Run `npm run build:web -w recorder-native` first — `webDir` must contain `index.html` |

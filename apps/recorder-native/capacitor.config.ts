@@ -13,6 +13,8 @@ const config: CapacitorConfig = {
   },
   android: {
     backgroundColor: '#0a1628',
+    /* Keeps Capacitor bridge alive with background-geolocation foreground service */
+    useLegacyBridge: true,
   },
   plugins: {
     CapacitorHttp: {

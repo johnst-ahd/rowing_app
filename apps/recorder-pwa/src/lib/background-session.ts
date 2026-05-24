@@ -9,6 +9,7 @@ import { requestOutboxBackgroundSync, saveUploadConfig } from '../session/store'
 
 const LS_ACTIVE = 'rnz_active_recording_v1';
 const LOCK_NAME = 'rnz-recording-session';
+const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 
 export type BackgroundStatus = 'foreground' | 'background' | 'limited';
 
@@ -82,9 +83,16 @@ export async function startBackgroundSession(
   }
 
   if (settings.enableBackgroundRecording) {
-    const audioOk = await startKeepaliveAudio(settings.deviceId);
-    if (audioOk) cb.onLog('Background keep-alive started (best effort).');
-    else cb.onLog('Background keep-alive blocked — allow audio or keep app open.');
+    // Native: background-geolocation foreground service keeps GPS + bridge alive.
+    if (!IS_NATIVE) {
+      const audioOk = await startKeepaliveAudio(settings.deviceId);
+      if (audioOk) cb.onLog('Background keep-alive started (best effort).');
+      else cb.onLog('Background keep-alive blocked — allow audio or keep app open.');
+    } else if (settings.enableGps) {
+      cb.onLog(
+        'Android/iOS: persistent notification while recording — do not swipe app away from recents.',
+      );
+    }
 
     if ('locks' in navigator) {
       lockAbort = new AbortController();

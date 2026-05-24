@@ -1,7 +1,13 @@
 import { Geolocation } from '@capacitor/geolocation';
 import type { GpsReading, GpsWatcher } from '../types';
+import { startBackgroundGpsWatcher } from './background-gps';
 
-export function startGpsWatcher(
+export type GpsWatcherOptions = {
+  /** Use foreground-service background GPS (native only). */
+  enableBackground?: boolean;
+};
+
+function startForegroundGpsWatcher(
   onReading: (r: GpsReading) => void,
   intervalMs: number,
   onError?: (msg: string) => void,
@@ -68,4 +74,16 @@ export function startGpsWatcher(
       if (watchId) await Geolocation.clearWatch({ id: watchId });
     },
   };
+}
+
+export function startGpsWatcher(
+  onReading: (r: GpsReading) => void,
+  intervalMs: number,
+  onError?: (msg: string) => void,
+  options?: GpsWatcherOptions,
+): GpsWatcher {
+  if (options?.enableBackground) {
+    return startBackgroundGpsWatcher(onReading, intervalMs, onError);
+  }
+  return startForegroundGpsWatcher(onReading, intervalMs, onError);
 }

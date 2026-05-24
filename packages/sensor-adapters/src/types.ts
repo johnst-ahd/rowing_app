@@ -17,6 +17,7 @@ export type SensorAdapters = {
     onReading: (r: GpsReading) => void,
     intervalMs: number,
     onError?: (msg: string) => void,
+    options?: { enableBackground?: boolean },
   ) => GpsWatcher | Promise<GpsWatcher>;
   startMotionWatcher: (
     onReading: (r: MotionReading) => void,
