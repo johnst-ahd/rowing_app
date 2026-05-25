@@ -61,9 +61,15 @@ async function initSchema() {
       hr INTEGER,
       ax DOUBLE PRECISION,
       ay DOUBLE PRECISION,
-      az DOUBLE PRECISION
+      az DOUBLE PRECISION,
+      stroke_rate DOUBLE PRECISION,
+      capsize BOOLEAN,
+      tilt_deg DOUBLE PRECISION
     )
   `;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS stroke_rate DOUBLE PRECISION`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS capsize BOOLEAN`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_unique_time
       ON rnz_samples (unique_id, t_ms DESC)
@@ -106,16 +112,17 @@ async function upsertSession(sessionId, deviceRef, uniqueId, athleteId) {
 }
 
 /**
- * @param {Array<{ t: number, gps?: object, motion?: object, hr?: object }>} samples
+ * @param {Array<{ t: number, gps?: object, motion?: object, hr?: object, derived?: object }>} samples
  */
 async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   const sql = await getSql();
   for (const s of samples) {
+    const d = s.derived || {};
     await sql`
       INSERT INTO rnz_samples (
         session_id, device_ref, unique_id, t_ms,
         latitude, longitude, accuracy, speed, course, altitude,
-        hr, ax, ay, az
+        hr, ax, ay, az, stroke_rate, capsize, tilt_deg
       ) VALUES (
         ${sessionId},
         ${deviceRef},
@@ -130,7 +137,10 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
         ${s.hr?.bpm ?? null},
         ${s.motion?.ax ?? null},
         ${s.motion?.ay ?? null},
-        ${s.motion?.az ?? null}
+        ${s.motion?.az ?? null},
+        ${d.strokeRate ?? null},
+        ${d.capsize === true ? true : d.capsize === false ? false : null},
+        ${d.tiltDeg ?? null}
       )
     `;
   }
@@ -237,7 +247,7 @@ async function fetchRecentSamplesByDevice(windowMs) {
   const rows = await sql`
     SELECT s.unique_id, s.session_id, s.t_ms,
       s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude,
-      s.hr, s.ax, s.ay, s.az,
+      s.hr, s.ax, s.ay, s.az, s.stroke_rate, s.capsize, s.tilt_deg,
       d.athlete_id
     FROM rnz_samples s
     LEFT JOIN rnz_devices d ON d.unique_id = s.unique_id
@@ -269,6 +279,17 @@ async function fetchRecentSamplesByDevice(windowMs) {
       motion:
         row.ax != null ? { ax: row.ax, ay: row.ay, az: row.az } : undefined,
     };
+    if (
+      row.stroke_rate != null ||
+      row.capsize != null ||
+      row.tilt_deg != null
+    ) {
+      sample.derived = {
+        strokeRate: row.stroke_rate != null ? Number(row.stroke_rate) : undefined,
+        capsize: row.capsize === true,
+        tiltDeg: row.tilt_deg != null ? Number(row.tilt_deg) : undefined,
+      };
+    }
     if (!entry) {
       entry = {
         deviceId: uid,
@@ -385,7 +406,8 @@ async function getSessionFromDb(sessionId) {
   `;
   if (!meta.rows[0]) return null;
   const samples = await sql`
-    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az
+    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+      stroke_rate, capsize, tilt_deg
     FROM rnz_samples
     WHERE session_id = ${sessionId}
     ORDER BY t_ms ASC
@@ -415,6 +437,15 @@ async function getSessionFromDb(sessionId) {
       motion:
         s.ax != null
           ? { ax: s.ax, ay: s.ay, az: s.az }
+          : undefined,
+      derived:
+        s.stroke_rate != null || s.capsize != null || s.tilt_deg != null
+          ? {
+              strokeRate:
+                s.stroke_rate != null ? Number(s.stroke_rate) : undefined,
+              capsize: s.capsize === true,
+              tiltDeg: s.tilt_deg != null ? Number(s.tilt_deg) : undefined,
+            }
           : undefined,
     })),
   };

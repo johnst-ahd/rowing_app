@@ -1,5 +1,17 @@
 /* Dashboard — device cards on Altitude HD hub theme */
 
+.hub-panel--map-capsize {
+  border-color: rgba(239, 68, 68, 0.85) !important;
+  box-shadow:
+    0 0 0 2px rgba(239, 68, 68, 0.45),
+    inset 0 0 48px rgba(127, 29, 29, 0.35);
+  animation: capsize-panel-pulse 1.2s ease-in-out infinite;
+}
+
+.hub-panel--map-capsize .hub-section-title {
+  color: #fecaca;
+}
+
 .fleet-map {
   width: 100%;
   height: min(420px, 55vh);
@@ -9,6 +21,14 @@
   border: 1px solid var(--ahd-border);
   background: #0c1220;
   z-index: 0;
+  transition:
+    border-color 0.35s ease,
+    box-shadow 0.35s ease;
+}
+
+.hub-panel--map-capsize .fleet-map {
+  border-color: #ef4444;
+  box-shadow: inset 0 0 36px rgba(239, 68, 68, 0.22);
 }
 
 .fleet-map.leaflet-container {
@@ -87,24 +107,44 @@
 }
 
 .map-marker--capsize {
+  width: 22px;
+  height: 22px;
   background: #ef4444;
-  border-color: #fecaca;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.45);
-  animation: capsize-marker-pulse 1s ease-in-out infinite;
+  border: 3px solid #fff;
+  animation: capsize-marker-red-orange 0.75s ease-in-out infinite;
 }
 
 .map-marker-wrap--capsize {
   z-index: 1000 !important;
 }
 
-@keyframes capsize-marker-pulse {
+@keyframes capsize-marker-red-orange {
   0%,
   100% {
+    background: #ef4444;
     transform: scale(1);
+    box-shadow:
+      0 0 0 4px rgba(239, 68, 68, 0.65),
+      0 0 14px 6px rgba(239, 68, 68, 0.85);
   }
   50% {
-    transform: scale(1.15);
+    background: #f97316;
+    transform: scale(1.2);
+    box-shadow:
+      0 0 0 6px rgba(249, 115, 22, 0.75),
+      0 0 20px 8px rgba(249, 115, 22, 0.95);
   }
+}
+
+.map-status--capsize {
+  color: #fca5a5 !important;
+  font-weight: 700;
+}
+
+.devices-grid--capsize {
+  outline: 2px solid rgba(239, 68, 68, 0.45);
+  outline-offset: 4px;
+  border-radius: 10px;
 }
 
 .hub-stats-item--danger {
@@ -150,9 +190,18 @@
 }
 
 .device-card--capsize {
-  border-left-color: #ef4444;
-  box-shadow: 0 0 0 1px rgba(239, 68, 68, 0.35);
-  animation: capsize-card-pulse 1.4s ease-in-out infinite;
+  border: 2px solid #ef4444;
+  border-left-width: 6px;
+  border-left-color: #f97316;
+  background: rgba(127, 29, 29, 0.62);
+  box-shadow:
+    0 0 0 1px rgba(249, 115, 22, 0.45),
+    0 0 24px rgba(239, 68, 68, 0.25);
+  animation: capsize-card-pulse 1.1s ease-in-out infinite;
+}
+
+.device-card--capsize .device-head h2 {
+  color: #fecaca;
 }
 
 .device-card--lost {
@@ -194,13 +243,29 @@
   color: #dc2626;
 }
 
+@keyframes capsize-panel-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgba(239, 68, 68, 0.45),
+      inset 0 0 48px rgba(127, 29, 29, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgba(249, 115, 22, 0.55),
+      inset 0 0 56px rgba(154, 52, 18, 0.42);
+  }
+}
+
 @keyframes capsize-card-pulse {
   0%,
   100% {
     opacity: 1;
+    border-color: #ef4444;
   }
   50% {
-    opacity: 0.78;
+    opacity: 0.92;
+    border-color: #f97316;
   }
 }
 

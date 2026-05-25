@@ -163,7 +163,7 @@ function gpsStatusLabel(state) {
 
 function markerIcon(state, capsize = false) {
   const visual = capsize ? 'capsize' : state;
-  const size = capsize ? 18 : 14;
+  const size = capsize ? 24 : 14;
   const half = size / 2;
   return L.divIcon({
     className: `map-marker-wrap map-marker-wrap--${visual}`,
@@ -171,6 +171,17 @@ function markerIcon(state, capsize = false) {
     iconSize: [size, size],
     iconAnchor: [half, half],
   });
+}
+
+function setCapsizeUiActive(hasCapsize) {
+  document.querySelector('.hub-panel--map')?.classList.toggle(
+    'hub-panel--map-capsize',
+    hasCapsize,
+  );
+  document.getElementById('devicesGrid')?.classList.toggle(
+    'devices-grid--capsize',
+    hasCapsize,
+  );
 }
 
 function popupHtml(p) {
@@ -237,12 +248,15 @@ function updateMap(positions) {
     else lostN++;
   }
   if (statusEl) {
-    const capPart = capsizeN ? ` · ${capsizeN} capsize` : '';
+    const capPart = capsizeN ? ` · ${capsizeN} CAPSIZE` : '';
     statusEl.textContent =
       positions.length === 0
         ? 'No GPS positions in the selected time window.'
         : `${liveN} live · ${amberN} delayed · ${lostN} last known${capPart}`;
+    statusEl.classList.toggle('map-status--capsize', capsizeN > 0);
   }
+
+  setCapsizeUiActive(capsizeN > 0);
 
   if (latlngs.length === 1 && !mapDidFit) {
     map.setView(latlngs[0], Math.max(map.getZoom(), 14));
@@ -386,6 +400,7 @@ async function poll() {
 
     updateCapsizeBanner(data.devices);
     updateRowingSummary(data.devices);
+    setCapsizeUiActive((data.devices || []).some((d) => d.rowing?.capsize));
 
     grid.innerHTML = '';
     if (!data.devices?.length) {

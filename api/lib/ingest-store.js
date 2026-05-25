@@ -52,6 +52,7 @@ function sensorStats(samples, windowMs) {
   let lastMotion = null;
   let lastHr = null;
   let lastDerived = null;
+  let capsizeInWindow = false;
 
   for (const s of recent) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
@@ -68,6 +69,7 @@ function sensorStats(samples, windowMs) {
     }
     if (s.derived) {
       lastDerived = { t: s.t, ...s.derived };
+      if (s.derived.capsize === true) capsizeInWindow = true;
     }
   }
 
@@ -76,7 +78,10 @@ function sensorStats(samples, windowMs) {
   const strokeRate =
     analyzed?.strokeRate ??
     (lastDerived?.strokeRate != null ? lastDerived.strokeRate : null);
-  const capsize = analyzed?.capsize ?? Boolean(lastDerived?.capsize);
+  const capsize =
+    capsizeInWindow ||
+    Boolean(analyzed?.capsize) ||
+    Boolean(lastDerived?.capsize);
   const tiltDeg = analyzed?.tiltDeg ?? lastDerived?.tiltDeg ?? null;
 
   const windowSec = windowMs / 1000;
