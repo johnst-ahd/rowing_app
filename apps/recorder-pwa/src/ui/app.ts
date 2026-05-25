@@ -16,7 +16,9 @@ import { testIngestConnection } from '../upload/telemetry-api';
 import {
   formatSplit500m,
   hrToT,
-  SpeedRollingAvg,
+  MetricRollingAvg,
+  SPEED_AVG_WINDOW_MS,
+  STROKE_AVG_WINDOW_MS,
   splitSecFromMps,
   splitSecToT,
   updateSpectrumRail,
@@ -42,7 +44,8 @@ export function mountApp(root: HTMLElement): void {
   let sessionStartedAt: number | null = null;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
   let controlsCollapsed = false;
-  const speedAvg = new SpeedRollingAvg();
+  const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
+  const strokeRateAvg = new MetricRollingAvg(STROKE_AVG_WINDOW_MS, 0);
   const settings = loadSettings();
 
   document.addEventListener('fullscreenchange', () => {
@@ -148,6 +151,7 @@ export function mountApp(root: HTMLElement): void {
       sessionStartedAt = null;
       controlsCollapsed = false;
       speedAvg.clear();
+      strokeRateAvg.clear();
       void exitStageFullscreen();
       stopBackgroundSession();
       await controller?.stop();
@@ -206,9 +210,11 @@ export function mountApp(root: HTMLElement): void {
     setHudText('[data-hud-timer]', formatElapsed(elapsed));
 
     const spm = stats?.strokeRate;
+    if (spm != null && spm > 0) strokeRateAvg.push(spm);
+    const avgSpm = strokeRateAvg.average();
     setHudText(
       '[data-hud-spm]',
-      spm != null && spm > 0 ? String(Math.round(spm)) : '—',
+      avgSpm != null && avgSpm > 0 ? String(Math.round(avgSpm)) : '—',
     );
 
     setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
@@ -340,7 +346,7 @@ export function mountApp(root: HTMLElement): void {
           </div>
           <div class="session-metric">
             <span class="session-metric__value" data-hud-spm>—</span>
-            <span class="session-metric__label">Stroke /min</span>
+            <span class="session-metric__label">Stroke /min <span class="session-metric__sub">15s avg</span></span>
           </div>
           <div class="session-metric">
             <span class="session-metric__value" data-hud-hr>—</span>
@@ -554,6 +560,7 @@ export function mountApp(root: HTMLElement): void {
       sessionStartedAt = Date.now();
       controlsCollapsed = true;
       speedAvg.clear();
+      strokeRateAvg.clear();
 
       controller = await startRecorder(
         s,
@@ -603,6 +610,7 @@ export function mountApp(root: HTMLElement): void {
       sessionStartedAt = null;
       controlsCollapsed = false;
       speedAvg.clear();
+      strokeRateAvg.clear();
       void exitStageFullscreen();
       stopBackgroundSession();
       await controller?.stop();

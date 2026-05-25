@@ -5,6 +5,7 @@ export const SPLIT_FAST_SEC = 60 + 15; // 1:15 /500m
 export const HR_SLOW_BPM = 100;
 export const HR_FAST_BPM = 200;
 export const SPEED_AVG_WINDOW_MS = 10_000;
+export const STROKE_AVG_WINDOW_MS = 15_000;
 
 export function clamp01(t: number): number {
   return Math.max(0, Math.min(1, t));
@@ -43,14 +44,19 @@ export function splitSecFromMps(mps: number | undefined): number | undefined {
   return 500 / mps;
 }
 
-export class SpeedRollingAvg {
-  private samples: { t: number; mps: number }[] = [];
+export class MetricRollingAvg {
+  private samples: { t: number; v: number }[] = [];
 
-  push(mps: number): void {
-    if (mps < 0.15) return;
+  constructor(
+    private windowMs: number,
+    private minValue = 0,
+  ) {}
+
+  push(value: number): void {
+    if (value <= this.minValue) return;
     const now = Date.now();
-    this.samples.push({ t: now, mps });
-    const cutoff = now - SPEED_AVG_WINDOW_MS;
+    this.samples.push({ t: now, v: value });
+    const cutoff = now - this.windowMs;
     while (this.samples.length && this.samples[0].t < cutoff) {
       this.samples.shift();
     }
@@ -59,7 +65,7 @@ export class SpeedRollingAvg {
   average(): number | undefined {
     if (!this.samples.length) return undefined;
     let sum = 0;
-    for (const s of this.samples) sum += s.mps;
+    for (const s of this.samples) sum += s.v;
     return sum / this.samples.length;
   }
 
