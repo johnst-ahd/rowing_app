@@ -540,6 +540,41 @@ async function listSessionsHistory(uniqueId) {
   }
 }
 
+async function listHistoryDevices() {
+  if (!db.hasDb()) return [];
+  try {
+    const rows = await db.listRegistryDevices();
+    return rows.map((d) => ({
+      uniqueId: d.uniqueId,
+      name: d.name,
+      lastUpdate: d.lastUpdate,
+    }));
+  } catch (err) {
+    console.error('[ingest-store] listHistoryDevices failed:', err);
+    return [];
+  }
+}
+
+async function getDashboardHistory(uniqueId, fromIso, toIso) {
+  if (!db.hasDb()) return null;
+  try {
+    return await db.getDashboardHistory(uniqueId, fromIso, toIso);
+  } catch (err) {
+    console.error('[ingest-store] getDashboardHistory failed:', err);
+    return null;
+  }
+}
+
+async function getDashboardHistoryBySession(sessionId) {
+  if (!db.hasDb()) return null;
+  try {
+    return await db.getDashboardHistoryBySession(sessionId);
+  } catch (err) {
+    console.error('[ingest-store] getDashboardHistoryBySession failed:', err);
+    return null;
+  }
+}
+
 function checkAuth(req) {
   const expected = process.env.INGEST_TOKEN || '';
   if (!expected) return true;
@@ -565,6 +600,9 @@ module.exports = {
   getMapPositions,
   getRouteHistory,
   listSessionsHistory,
+  listHistoryDevices,
+  getDashboardHistory,
+  getDashboardHistoryBySession,
   clearCapsizeAlert,
   checkAuth,
   cors,

@@ -78,6 +78,60 @@
         <div class="devices-grid" id="devicesGrid"></div>
       </section>
 
+      <section class="hub-panel hub-panel--history" id="historyPanel">
+        <h2 class="hub-section-title">Session history</h2>
+        <p class="history-intro">
+          Search stored data from the recorder apps (requires Postgres on Vercel). View GPS trace,
+          heart rate and speed over time, and capsize locations.
+        </p>
+        <div class="ahd-inline-fields history-fields">
+          <label class="ahd-field">
+            Device ID
+            <select id="historyDeviceId">
+              <option value="">— select device —</option>
+            </select>
+          </label>
+          <label class="ahd-field">
+            Session
+            <select id="historySessionId">
+              <option value="">— or pick a session —</option>
+            </select>
+          </label>
+          <label class="ahd-field">
+            From
+            <input type="datetime-local" id="historyFrom" />
+          </label>
+          <label class="ahd-field">
+            To
+            <input type="datetime-local" id="historyTo" />
+          </label>
+          <button type="button" class="hub-btn hub-btn--primary" id="historyLoadBtn">Load history</button>
+        </div>
+        <p class="poll-line" id="historyStatus">Select device and range, or choose a session.</p>
+        <div id="historyResults" class="history-results" hidden>
+          <p class="history-meta" id="historyMeta"></p>
+          <h3 class="history-subtitle">GPS trace</h3>
+          <p class="map-legend history-legend">
+            <span class="map-legend-item map-legend-item--live">● Start</span>
+            <span class="map-legend-item" style="color:#3b82f6">● End</span>
+            <span class="map-legend-item map-legend-item--capsize">● Capsize</span>
+          </p>
+          <div id="historyMap" class="history-map" role="application" aria-label="Historical GPS trace"></div>
+          <div class="history-charts">
+            <div class="history-chart-wrap">
+              <canvas id="historyChartSpeed" class="history-chart" height="160"></canvas>
+            </div>
+            <div class="history-chart-wrap">
+              <canvas id="historyChartHr" class="history-chart" height="160"></canvas>
+            </div>
+            <div class="history-chart-wrap" id="historyChartStrokeWrap">
+              <canvas id="historyChartStroke" class="history-chart" height="160"></canvas>
+            </div>
+          </div>
+          <div id="historyCapsizeList" class="history-capsize-list"></div>
+        </div>
+      </section>
+
       <section class="hub-panel ahd-controls-panel hub-panel--settings">
         <h2 class="hub-section-title">Monitor settings</h2>
         <div class="ahd-inline-fields">
@@ -132,5 +186,6 @@
       crossorigin=""
     ></script>
     <script src="/dashboard.js"></script>
+    <script src="/dashboard-history.js"></script>
   </body>
 </html>

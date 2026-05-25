@@ -6,6 +6,9 @@ const store = require('./lib/ingest-store');
  *   ?uniqueId=CREW-01&from=ISO&to=ISO
  *
  * GET /api/history?list=sessions&uniqueId=CREW-01 — session list
+ * GET /api/history?list=devices — devices with stored history
+ * GET /api/history?format=dashboard&uniqueId=&from=&to= — track + charts data
+ * GET /api/history?format=dashboard&sessionId= — load one session
  */
 module.exports = async function handler(req, res) {
   store.cors(res);
@@ -22,6 +25,15 @@ module.exports = async function handler(req, res) {
     return res.status(401).json({ ok: false, error: 'Unauthorized' });
   }
 
+  if (req.query?.list === 'devices') {
+    const devices = await store.listHistoryDevices();
+    return res.status(200).json({
+      ok: true,
+      persisted: store.hasDb(),
+      devices,
+    });
+  }
+
   if (req.query?.list === 'sessions') {
     const uniqueId = req.query?.uniqueId || null;
     const sessions = await store.listSessionsHistory(uniqueId);
@@ -32,12 +44,47 @@ module.exports = async function handler(req, res) {
     });
   }
 
+  if (req.query?.format === 'dashboard') {
+    if (!store.hasDb()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'No database — add POSTGRES_URL on Vercel to search history.',
+      });
+    }
+
+    const sessionId = req.query?.sessionId;
+    let payload = null;
+    if (sessionId) {
+      payload = await store.getDashboardHistoryBySession(String(sessionId));
+    } else {
+      const from = req.query?.from;
+      const to = req.query?.to;
+      const uniqueId = req.query?.uniqueId;
+      if (!from || !to || !uniqueId) {
+        return res.status(400).json({
+          ok: false,
+          error: 'uniqueId, from, and to required (or sessionId)',
+        });
+      }
+      payload = await store.getDashboardHistory(
+        String(uniqueId),
+        String(from),
+        String(to),
+      );
+    }
+
+    if (!payload) {
+      return res.status(404).json({ ok: false, error: 'No data for this query' });
+    }
+    return res.status(200).json({ ok: true, persisted: true, ...payload });
+  }
+
   const from = req.query?.from;
   const to = req.query?.to;
   if (!from || !to) {
     return res.status(400).json({
       ok: false,
-      error: 'from and to required (ISO 8601), or list=sessions',
+      error: 'from and to required (ISO 8601), or list=sessions / format=dashboard',
     });
   }
 

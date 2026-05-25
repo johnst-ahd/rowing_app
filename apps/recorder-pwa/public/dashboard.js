@@ -21,12 +21,16 @@ function apiBase() {
   return window.location.origin;
 }
 
+window.dashboardApiBase = apiBase;
+
 function headers() {
   const token = $('#token')?.value?.trim() || localStorage.getItem(LS_TOKEN) || '';
   const h = { Accept: 'application/json' };
   if (token) h.Authorization = `Bearer ${token}`;
   return h;
 }
+
+window.dashboardHeaders = headers;
 
 function savePrefs() {
   const token = $('#token')?.value?.trim();
@@ -458,6 +462,12 @@ async function poll() {
       }
     }
 
+    if (typeof window.mergeHistoryDevices === 'function') {
+      window.mergeHistoryDevices(
+        (data.devices || []).map((d) => d.deviceId).filter(Boolean),
+      );
+    }
+
     const t = new Date(data.polledAt || Date.now()).toLocaleTimeString();
     status.textContent = `Updated ${t} · ${data.devices?.length ?? 0} device(s)`;
     status.classList.remove('err');
@@ -495,6 +505,10 @@ function init() {
   });
 
   startPolling();
+
+  if (typeof window.initDashboardHistory === 'function') {
+    window.initDashboardHistory();
+  }
 }
 
 init();
