@@ -50,18 +50,35 @@
       <span class="hub-stats-item" id="capsizeSummary">Capsize: —</span>
     </div>
 
-    <div class="capsize-alert-bar" id="capsizeAlertBar" hidden role="alert">
-      <div class="capsize-alert-bar__main">
-        <strong>Capsize alert</strong>
-        <span id="capsizeAlertText">—</span>
-      </div>
-      <button type="button" class="hub-btn capsize-clear-btn" id="clearCapsizeBtn">
-        Clear alert
-      </button>
-    </div>
-
     <div class="ahd-app-wrap">
-      <section class="hub-panel ahd-controls-panel">
+      <div class="capsize-alert-bar" id="capsizeAlertBar" hidden role="alert" aria-hidden="true">
+        <div class="capsize-alert-bar__main">
+          <strong>Capsize alert</strong>
+          <span id="capsizeAlertText">—</span>
+        </div>
+        <button type="button" class="hub-btn capsize-clear-btn" id="clearCapsizeBtn">
+          Clear alert
+        </button>
+      </div>
+
+      <section class="hub-panel hub-panel--map">
+        <h2 class="hub-section-title">Fleet map</h2>
+        <p class="map-legend">
+          <span class="map-legend-item map-legend-item--live">● GPS live (≤30s)</span>
+          <span class="map-legend-item map-legend-item--amber">● GPS delayed (30s–5min)</span>
+          <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
+          <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
+        </p>
+        <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
+        <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+      </section>
+
+      <section class="hub-panel">
+        <h2 class="hub-section-title">Devices</h2>
+        <div class="devices-grid" id="devicesGrid"></div>
+      </section>
+
+      <section class="hub-panel ahd-controls-panel hub-panel--settings">
         <h2 class="hub-section-title">Monitor settings</h2>
         <div class="ahd-inline-fields">
           <label class="ahd-field">
@@ -101,23 +118,6 @@
         </div>
         <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
         <p class="poll-line" id="pollStatus">Connecting…</p>
-      </section>
-
-      <section class="hub-panel hub-panel--map">
-        <h2 class="hub-section-title">Fleet map</h2>
-        <p class="map-legend">
-          <span class="map-legend-item map-legend-item--live">● GPS live (≤30s)</span>
-          <span class="map-legend-item map-legend-item--amber">● GPS delayed (30s–5min)</span>
-          <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
-          <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
-        </p>
-        <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
-        <p class="poll-line map-status" id="mapStatus">Loading map…</p>
-      </section>
-
-      <section class="hub-panel">
-        <h2 class="hub-section-title">Devices</h2>
-        <div class="devices-grid" id="devicesGrid"></div>
       </section>
     </div>
 

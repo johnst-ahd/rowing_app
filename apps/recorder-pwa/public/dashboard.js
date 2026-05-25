@@ -80,11 +80,13 @@ function updateCapsizeBanner(devices) {
   const capsized = (devices || []).filter((d) => d.rowing?.capsize);
   if (!capsized.length) {
     bar.hidden = true;
-    text.textContent = '—';
+    bar.setAttribute('aria-hidden', 'true');
+    text.textContent = '';
     if (clearBtn) clearBtn.disabled = false;
     return;
   }
   bar.hidden = false;
+  bar.setAttribute('aria-hidden', 'false');
   text.textContent = capsized
     .map((d) => {
       const tilt = d.rowing?.tiltDeg != null ? ` (${d.rowing.tiltDeg}° tilt)` : '';
