@@ -6,6 +6,7 @@ import { connectHeartRate } from './heart-rate';
 
 export { startGpsWatcher, startMotionWatcher, connectHeartRate };
 export type { GpsWatcherOptions } from './gps';
+export type { MotionWatcherOptions } from './motion';
 export type * from '../types';
 
 /** Location (always), notifications (Android 13+), motion permission. */

@@ -507,7 +507,7 @@ export function mountApp(root: HTMLElement): void {
           ${logPanelHtml()}
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
-            <p>Native APK: background GPS uses a system notification (Android) or blue status bar (iOS). Web PWA: add to home screen — background is limited compared to the native app.</p>
+            <p>Native APK: background GPS uses a system notification (Android). With <strong>Allow background</strong> + <strong>GPS</strong> + accelerometer, capsize and stroke can run while the screen is off (v1.0.10+). Web PWA: background is limited.</p>
             <p>iOS needs a user tap to connect BLE HR. Sensors may pause if the app is swiped away.</p>
           </section>
         </div>

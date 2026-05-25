@@ -260,6 +260,9 @@ export async function startRecorder(
       },
       settings.motionIntervalMs,
       (m) => onLog(`Motion: ${m}`),
+      {
+        enableBackground: IS_NATIVE && settings.enableBackgroundRecording,
+      },
     );
     stoppers.push(async () => {
       await Promise.resolve(motion.stop());
@@ -278,12 +281,23 @@ export async function startRecorder(
       onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);
     }
     if (IS_NATIVE && settings.enableBackgroundRecording) {
-      onLog('Note: stroke/capsize may pause when screen is off; GPS continues via notification.');
+      onLog(
+        'Background motion: native accelerometer (capsize/stroke while screen off on Android when GPS background is on).',
+      );
     }
   }
   if (IS_NATIVE && settings.enableBackgroundRecording && settings.enableGps) {
     onLog(
       'Background GPS on — allow location Always, notifications, and set battery to Unrestricted.',
+    );
+  } else if (
+    IS_NATIVE &&
+    settings.enableBackgroundRecording &&
+    settings.enableMotion &&
+    !settings.enableGps
+  ) {
+    onLog(
+      'Tip: enable GPS + Allow background for reliable capsize detection when the screen is off.',
     );
   }
 

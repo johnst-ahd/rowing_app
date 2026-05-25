@@ -23,6 +23,7 @@ export type SensorAdapters = {
     onReading: (r: MotionReading) => void,
     intervalMs: number,
     onError?: (msg: string) => void,
+    options?: { enableBackground?: boolean },
   ) => Promise<MotionWatcher>;
   connectHeartRate: (
     onReading: (r: HrReading) => void,

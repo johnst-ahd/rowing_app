@@ -1,6 +1,12 @@
 import { Motion } from '@capacitor/motion';
 import type { PluginListenerHandle } from '@capacitor/core';
 import type { MotionReading, MotionWatcher } from '../types';
+import { startNativeAccelerometerWatcher } from './native-motion';
+
+export type MotionWatcherOptions = {
+  /** Native accelerometer API (screen-off on Android with background GPS). */
+  enableBackground?: boolean;
+};
 
 async function requestMotionPermission(): Promise<boolean> {
   const dm = DeviceMotionEvent as typeof DeviceMotionEvent & {
@@ -17,7 +23,12 @@ export async function startMotionWatcher(
   onReading: (r: MotionReading) => void,
   intervalMs: number,
   onError?: (msg: string) => void,
+  options?: MotionWatcherOptions,
 ): Promise<MotionWatcher> {
+  if (options?.enableBackground) {
+    return startNativeAccelerometerWatcher(onReading, intervalMs, onError);
+  }
+
   const ok = await requestMotionPermission();
   if (!ok) {
     onError?.('Motion permission denied');
