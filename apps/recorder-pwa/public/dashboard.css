@@ -225,18 +225,44 @@
 
 .capsize-alert-bar {
   margin: 0;
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 1rem;
   background: rgba(127, 29, 29, 0.92);
   color: #fecaca;
-  text-align: center;
   border-bottom: 1px solid rgba(248, 113, 113, 0.45);
   animation: capsize-card-pulse 1.2s ease-in-out infinite;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem 1rem;
+}
+
+.capsize-alert-bar__main {
+  text-align: center;
+  flex: 1 1 12rem;
 }
 
 .capsize-alert-bar strong {
   margin-right: 0.5rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+}
+
+.capsize-clear-btn {
+  flex-shrink: 0;
+  background: rgba(254, 252, 232, 0.95);
+  color: #7f1d1d;
+  border: 1px solid rgba(254, 202, 202, 0.9);
+  font-weight: 600;
+}
+
+.capsize-clear-btn:hover:not(:disabled) {
+  background: #fff;
+}
+
+.capsize-clear-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
 }
 
 .map-popup-capsize {

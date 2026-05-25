@@ -10,6 +10,20 @@ const RING_TRIM_TO = 3000;
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
 globalThis.__rnzIngestSessions = sessions;
 
+/** Monitor dismissed capsize per device (timestamp); ignores older capsize samples. */
+/** @type {Map<string, number>} */
+const capsizeClearAt = globalThis.__rnzCapsizeClearAt ?? new Map();
+globalThis.__rnzCapsizeClearAt = capsizeClearAt;
+
+function getCapsizeClearAt(deviceId) {
+  if (!deviceId) return null;
+  return capsizeClearAt.get(String(deviceId)) ?? null;
+}
+
+function setCapsizeClear(deviceId) {
+  capsizeClearAt.set(String(deviceId), Date.now());
+}
+
 /**
  * @typedef {{ t: number, gps?: object, motion?: object, hr?: object, derived?: object }} Sample
  * @typedef {{
@@ -39,11 +53,14 @@ function trimSampleRing(row) {
 /**
  * @param {Sample[]} samples
  * @param {number} windowMs
+ * @param {string} [deviceId]
  */
-function sensorStats(samples, windowMs) {
+function sensorStats(samples, windowMs, deviceId) {
   const now = Date.now();
   const cutoff = now - windowMs;
   const recent = samples.filter((s) => s.t >= cutoff);
+  const clearAt = getCapsizeClearAt(deviceId);
+  const afterClear = (t) => !clearAt || t > clearAt;
 
   let gpsCount = 0;
   let motionCount = 0;
@@ -69,19 +86,21 @@ function sensorStats(samples, windowMs) {
     }
     if (s.derived) {
       lastDerived = { t: s.t, ...s.derived };
-      if (s.derived.capsize === true) capsizeInWindow = true;
+      if (s.derived.capsize === true && afterClear(s.t)) capsizeInWindow = true;
     }
   }
 
-  const motionSamples = recent.filter((s) => s.motion && s.motion.ax != null);
+  const motionSamples = recent.filter(
+    (s) => s.motion && s.motion.ax != null && afterClear(s.t),
+  );
   const analyzed = motionSamples.length ? analyzeMotionWindow(motionSamples) : null;
   const strokeRate =
     analyzed?.strokeRate ??
     (lastDerived?.strokeRate != null ? lastDerived.strokeRate : null);
+  const derivedCapsize =
+    lastDerived?.capsize === true && afterClear(lastDerived.t);
   const capsize =
-    capsizeInWindow ||
-    Boolean(analyzed?.capsize) ||
-    Boolean(lastDerived?.capsize);
+    capsizeInWindow || Boolean(analyzed?.capsize) || Boolean(derivedCapsize);
   const tiltDeg = analyzed?.tiltDeg ?? lastDerived?.tiltDeg ?? null;
 
   const windowSec = windowMs / 1000;
@@ -189,7 +208,7 @@ async function getSession(sessionId) {
 }
 
 function buildDeviceEntry(entry, windowMs, onlineMs, now) {
-  const stats = sensorStats(entry.samples, windowMs);
+  const stats = sensorStats(entry.samples, windowMs, entry.deviceId);
   const lastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
   const online = now - lastSeenMs <= onlineMs;
   return {
@@ -368,10 +387,31 @@ function rowingMetricsByDevice(byDevice, windowMs) {
   /** @type {Map<string, object>} */
   const out = new Map();
   for (const [deviceId, entry] of byDevice) {
-    const stats = sensorStats(entry.samples || [], windowMs);
+    const stats = sensorStats(entry.samples || [], windowMs, deviceId);
     out.set(deviceId, stats.rowing);
   }
   return out;
+}
+
+/**
+ * Dismiss capsize alert on the monitor (per device or all currently alerting).
+ * @param {string} [deviceId]
+ */
+async function clearCapsizeAlert(deviceId) {
+  const now = Date.now();
+  if (deviceId) {
+    setCapsizeClear(deviceId);
+    return { cleared: [String(deviceId)], clearedAt: now };
+  }
+  const snapshot = await listDevices({
+    windowMs: 120000,
+    onlineMs: 24 * 60 * 60 * 1000,
+  });
+  const capsized = (snapshot.devices || [])
+    .filter((d) => d.rowing?.capsize)
+    .map((d) => d.deviceId);
+  for (const id of capsized) setCapsizeClear(id);
+  return { cleared: capsized, clearedAt: now };
 }
 
 /** Recent motion samples per device (in-memory ingest). */
@@ -525,6 +565,7 @@ module.exports = {
   getMapPositions,
   getRouteHistory,
   listSessionsHistory,
+  clearCapsizeAlert,
   checkAuth,
   cors,
   hasDb: db.hasDb,

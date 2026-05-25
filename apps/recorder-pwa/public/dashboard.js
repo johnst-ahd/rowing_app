@@ -75,11 +75,13 @@ function playCapsizeAlarm() {
 function updateCapsizeBanner(devices) {
   const bar = $('#capsizeAlertBar');
   const text = $('#capsizeAlertText');
+  const clearBtn = $('#clearCapsizeBtn');
   if (!bar || !text) return;
   const capsized = (devices || []).filter((d) => d.rowing?.capsize);
   if (!capsized.length) {
     bar.hidden = true;
     text.textContent = '—';
+    if (clearBtn) clearBtn.disabled = false;
     return;
   }
   bar.hidden = false;
@@ -89,7 +91,46 @@ function updateCapsizeBanner(devices) {
       return `${d.deviceId}${tilt}`;
     })
     .join(', ');
+  if (clearBtn) clearBtn.disabled = false;
   playCapsizeAlarm();
+}
+
+async function clearCapsizeAlert(deviceId) {
+  const btn = $('#clearCapsizeBtn');
+  if (btn) btn.disabled = true;
+  const status = $('#pollStatus');
+  try {
+    const body = deviceId ? { deviceId } : {};
+    const res = await fetch(`${apiBase()}/api/capsize-clear`, {
+      method: 'POST',
+      headers: { ...headers(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      if (res.status === 401) {
+        throw new Error('Unauthorized — ingest token must match INGEST_TOKEN.');
+      }
+      throw new Error(`${res.status} ${text.slice(0, 120)}`);
+    }
+    const data = await res.json();
+    const n = data.cleared?.length ?? 0;
+    if (status) {
+      status.textContent =
+        n > 0
+          ? `Capsize alert cleared for ${n} device(s).`
+          : 'No active capsize alerts to clear.';
+      status.classList.remove('err');
+    }
+    await poll();
+  } catch (e) {
+    if (status) {
+      status.textContent = `Clear capsize failed: ${e instanceof Error ? e.message : String(e)}`;
+      status.classList.add('err');
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function updateRowingSummary(devices) {
@@ -445,6 +486,7 @@ function init() {
   initMap();
 
   $('#refreshBtn')?.addEventListener('click', () => void poll());
+  $('#clearCapsizeBtn')?.addEventListener('click', () => void clearCapsizeAlert());
   $('#applyBtn')?.addEventListener('click', startPolling);
   ['#token', '#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
     $(sel)?.addEventListener('change', savePrefs);

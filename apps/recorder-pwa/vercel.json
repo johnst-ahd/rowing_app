@@ -11,6 +11,7 @@
     "api/snapshot.js": { "maxDuration": 20 },
     "api/history.js": { "maxDuration": 30 },
     "api/map-positions.js": { "maxDuration": 20 },
+    "api/capsize-clear.js": { "maxDuration": 10 },
     "api/ping.js": { "maxDuration": 10 }
   },
   "redirects": [
