@@ -51,15 +51,17 @@ export async function showCapsizeAlertNotification(force = false): Promise<void>
           title: 'CAPSIZE ALERT',
           body: 'Boat tipped past horizontal — check crew immediately',
           channelId: CHANNEL_ID,
-          schedule: { at: new Date(now + 50) },
           sound: 'default',
+          smallIcon: 'ic_stat_rnz_alert',
+          iconColor: '#DC2626',
+          priority: 4,
           autoCancel: true,
           extra: { type: 'capsize' },
         },
       ],
     });
-  } catch {
-    /* optional */
+  } catch (e) {
+    console.warn('Capsize notification failed', e);
   }
 }
 

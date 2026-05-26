@@ -6,10 +6,12 @@ import type {
 } from '@rowing/telemetry-types';
 import {
   connectHeartRate,
+  pollNativeAccelerometerReading,
   startGpsWatcher,
   startMotionWatcher,
   type HeartRateMonitor,
 } from '@rowing/sensor-adapters';
+import type { MotionReading } from '@rowing/sensor-adapters/types';
 import {
   clearCapsizeAlertNotification,
   ensureCapsizeAlertReady,
@@ -117,6 +119,7 @@ export async function startRecorder(
   let pushInFlight = false;
   let lastMotionUploadAt = 0;
   let lastBackgroundPulseAt = 0;
+  let lastMotionEventAt = 0;
 
   const motionUploadMs = Math.max(
     200,
@@ -181,6 +184,85 @@ export async function startRecorder(
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
 
+  const handleMotionReading = (r: MotionReading) => {
+    if (stopped || !motionAnalyzer) return;
+    lastMotionEventAt = Date.now();
+    stats.motionCount++;
+    latestMotion = { ax: r.ax, ay: r.ay, az: r.az };
+    motionAnalyzer.process(r.t, r.ax, r.ay, r.az);
+    const metrics = metricsFromAnalyzer(motionAnalyzer);
+    stats.strokeRate = metrics.strokeRate;
+    stats.tiltDeg = metrics.tiltDeg;
+    stats.capsize = metrics.capsize;
+    stats.motionCalibrated = metrics.calibrated;
+
+    latestDerived = {
+      strokeRate: metrics.strokeRate,
+      capsize: metrics.capsize,
+      tiltDeg: metrics.tiltDeg,
+    };
+
+    const backgrounded =
+      typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
+    if (metrics.capsize && !capsizeActive) {
+      capsizeActive = true;
+      triggerCapsizeAlert();
+      if (IS_NATIVE) void showCapsizeAlertNotification(true);
+      queueSample(
+        telemetrySample(r.t, {
+          motion: latestMotion,
+          hr: latestHr,
+          derived: latestDerived,
+        }),
+      );
+      void pushBatch();
+      onLog('CAPSIZE ALERT — boat tipped past horizontal');
+      onCapsize?.(true);
+    } else if (metrics.capsize && capsizeActive && backgrounded && IS_NATIVE) {
+      void showCapsizeAlertNotification();
+    } else if (!metrics.capsize && capsizeActive) {
+      capsizeActive = false;
+      if (IS_NATIVE) void clearCapsizeAlertNotification();
+      onLog('Capsize cleared — boat upright again');
+      onCapsize?.(false);
+    }
+
+    if (!settings.enableGps) {
+      const now = Date.now();
+      if (now - lastMotionUploadAt >= motionUploadMs) {
+        lastMotionUploadAt = now;
+        queueSample(
+          telemetrySample(r.t, {
+            motion: latestMotion,
+            hr: latestHr,
+            derived: latestDerived,
+          }),
+        );
+      }
+    }
+    emit();
+  };
+
+  if (settings.enableMotion) {
+    if (IS_NATIVE) {
+      void ensureCapsizeAlertReady().then((ok) => {
+        if (ok) onLog('Capsize alerts: phone notifications enabled (screen off / minimized).');
+        else onLog('Allow notifications for capsize alarms when the screen is off.');
+      });
+    }
+    motionAnalyzer = createMotionAnalyzer();
+    const motion = await startMotionWatcher(
+      handleMotionReading,
+      settings.motionIntervalMs,
+      (m) => onLog(`Motion: ${m}`),
+      { enableBackground: IS_NATIVE },
+    );
+    stoppers.push(async () => {
+      await Promise.resolve(motion.stop());
+    });
+  }
+
   if (settings.enableGps) {
     const gps = startGpsWatcher(
       (r) => {
@@ -188,6 +270,21 @@ export async function startRecorder(
         stats.gpsCount++;
         stats.lastGps = { lat: r.lat, lon: r.lon, spd: r.spd };
         if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
+
+        if (
+          IS_NATIVE &&
+          settings.enableBackgroundRecording &&
+          settings.enableMotion &&
+          motionAnalyzer &&
+          typeof document !== 'undefined' &&
+          document.visibilityState === 'hidden' &&
+          Date.now() - lastMotionEventAt > 1500
+        ) {
+          void pollNativeAccelerometerReading().then((reading) => {
+            if (reading) handleMotionReading(reading);
+          });
+        }
+
         queueSample(
           telemetrySample(r.t, {
             gps: {
@@ -213,85 +310,6 @@ export async function startRecorder(
     );
     stoppers.push(async () => {
       await Promise.resolve(gps.stop());
-    });
-  }
-
-  if (settings.enableMotion) {
-    if (IS_NATIVE) {
-      void ensureCapsizeAlertReady().then((ok) => {
-        if (ok) onLog('Capsize alerts: phone notifications enabled (screen off / minimized).');
-        else onLog('Allow notifications for capsize alarms when the screen is off.');
-      });
-    }
-    motionAnalyzer = createMotionAnalyzer();
-    const motion = await startMotionWatcher(
-      (r) => {
-        if (stopped) return;
-        stats.motionCount++;
-        latestMotion = { ax: r.ax, ay: r.ay, az: r.az };
-        motionAnalyzer!.process(r.t, r.ax, r.ay, r.az);
-        const metrics = metricsFromAnalyzer(motionAnalyzer!);
-        stats.strokeRate = metrics.strokeRate;
-        stats.tiltDeg = metrics.tiltDeg;
-        stats.capsize = metrics.capsize;
-        stats.motionCalibrated = metrics.calibrated;
-
-        latestDerived = {
-          strokeRate: metrics.strokeRate,
-          capsize: metrics.capsize,
-          tiltDeg: metrics.tiltDeg,
-        };
-
-        const backgrounded =
-          typeof document !== 'undefined' && document.visibilityState === 'hidden';
-
-        if (metrics.capsize && !capsizeActive) {
-          capsizeActive = true;
-          triggerCapsizeAlert();
-          if (IS_NATIVE) void showCapsizeAlertNotification(true);
-          queueSample(
-            telemetrySample(r.t, {
-              motion: latestMotion,
-              hr: latestHr,
-              derived: latestDerived,
-            }),
-          );
-          void pushBatch();
-          onLog('CAPSIZE ALERT — boat tipped past horizontal');
-          onCapsize?.(true);
-        } else if (metrics.capsize && capsizeActive && backgrounded && IS_NATIVE) {
-          void showCapsizeAlertNotification();
-        } else if (!metrics.capsize && capsizeActive) {
-          capsizeActive = false;
-          if (IS_NATIVE) void clearCapsizeAlertNotification();
-          onLog('Capsize cleared — boat upright again');
-          onCapsize?.(false);
-        }
-
-        // Full-rate analysis locally; upload motion on GPS fixes or throttled interval.
-        if (!settings.enableGps) {
-          const now = Date.now();
-          if (now - lastMotionUploadAt >= motionUploadMs) {
-            lastMotionUploadAt = now;
-            queueSample(
-              telemetrySample(r.t, {
-                motion: latestMotion,
-                hr: latestHr,
-                derived: latestDerived,
-              }),
-            );
-          }
-        }
-        emit();
-      },
-      settings.motionIntervalMs,
-      (m) => onLog(`Motion: ${m}`),
-      {
-        enableBackground: IS_NATIVE && settings.enableBackgroundRecording,
-      },
-    );
-    stoppers.push(async () => {
-      await Promise.resolve(motion.stop());
     });
   }
 

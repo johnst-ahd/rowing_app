@@ -28,7 +28,7 @@ export async function startNativeAccelerometerWatcher(
   try {
     const perm = await CapacitorAccelerometer.requestPermissions();
     if (perm.accelerometer === 'denied') {
-      onError?.('Accelerometer permission denied');
+      onError?.('Accelerometer access denied — enable in app settings');
       return { stop: () => {} };
     }
   } catch {
@@ -71,4 +71,20 @@ export async function startNativeAccelerometerWatcher(
       listener = null;
     },
   };
+}
+
+/** One-shot read — used when GPS wakes the app while the screen is off. */
+export async function pollNativeAccelerometerReading(): Promise<MotionReading | null> {
+  try {
+    const m = await CapacitorAccelerometer.getMeasurement();
+    if (m.x == null || m.y == null || m.z == null) return null;
+    return {
+      ax: m.x * GRAVITY_MS2,
+      ay: m.y * GRAVITY_MS2,
+      az: m.z * GRAVITY_MS2,
+      t: Date.now(),
+    };
+  } catch {
+    return null;
+  }
 }

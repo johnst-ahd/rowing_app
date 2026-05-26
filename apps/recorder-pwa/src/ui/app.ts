@@ -513,6 +513,11 @@ export function mountApp(root: HTMLElement): void {
               <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
+            ${
+              IS_NATIVE
+                ? '<button type="button" class="hub-btn" data-action="request-permissions">Request location &amp; notification access</button>'
+                : ''
+            }
             <button type="button" class="hub-btn" data-action="test-ingest">Test upload connection</button>
             <button type="button" class="hub-btn" data-action="sync">Upload queue now</button>
             <button type="button" class="hub-btn" data-action="clear-queue">Clear upload queue</button>
@@ -566,10 +571,27 @@ export function mountApp(root: HTMLElement): void {
       }
     });
 
+    root.querySelector('[data-action="request-permissions"]')?.addEventListener(
+      'click',
+      async () => {
+        if (!IS_NATIVE) {
+          pushLog('Permissions: native APK only.');
+          return;
+        }
+        const p = await requestNativePermissions();
+        pushLog(
+          `Permissions — location: ${p.location}, notifications: ${p.notifications}, accelerometer: ${p.accelerometer}`,
+        );
+      },
+    );
+
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
       if (IS_NATIVE) {
-        await requestNativePermissions();
+        const p = await requestNativePermissions();
+        if (p.notifications !== 'granted') {
+          pushLog('Allow notifications for capsize alarms when the screen is off.');
+        }
       }
       sessionStartedAt = Date.now();
       controlsCollapsed = true;
@@ -695,6 +717,15 @@ export function mountApp(root: HTMLElement): void {
     clearRecordingActive();
   }
   pushLog('RNZ Row Recorder ready. Configure settings, then start a session.');
+  if (IS_NATIVE) {
+    void requestNativePermissions().then((p) => {
+      pushLog(
+        `Permissions — location: ${p.location}, notifications: ${p.notifications}, accelerometer: ${p.accelerometer} (Android usually has no separate accel dialog)`,
+        false,
+      );
+      refreshLogPre();
+    });
+  }
 }
 
 function esc(s: string): string {

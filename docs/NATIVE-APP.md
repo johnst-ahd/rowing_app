@@ -172,7 +172,8 @@ Same as PWA:
 | App “closed” / swiped away | Android may kill the app — leave recording running and use the GPS notification to return; do not force-stop |
 | No stroke rate | Motion permission; verify native build (`Native app` in header) |
 | No capsize when screen off | Install v1.0.10+ APK; enable **Allow background**, **GPS**, and **Accelerometer**; battery **Unrestricted**; do not swipe app away |
-| No capsize *alarm* when screen off | Install v1.0.11+ APK; allow **Notifications**; same background + GPS + accel settings; alarm is a system notification (not only in-app sound) |
+| No capsize *alarm* when screen off | Install v1.0.12+ APK; Settings → **Request location & notification access**; allow **Notifications**; enable **GPS** + **Allow background**; alarm is a system notification (not in-app sound) |
+| No accelerometer permission prompt | Normal on Android — accelerometer is usually auto-granted; check Log for `accelerometer: granted`. Use **Notifications** prompt for capsize alarms |
 | HR won't connect | Bluetooth permission; tap **Connect HR strap** before launching |
 | White screen after sync | Run `npm run build:web -w recorder-native` first — `webDir` must contain `index.html` |
 
