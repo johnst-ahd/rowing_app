@@ -446,13 +446,27 @@ function buildDashboardHistoryFromRows(rows, meta = {}) {
     incidents.push(ev);
   }
 
+  const MAX_TRACK_POINTS = 4000;
+  let trackOut = track;
+  let downsampled = false;
+  if (track.length > MAX_TRACK_POINTS) {
+    const step = Math.ceil(track.length / MAX_TRACK_POINTS);
+    trackOut = [];
+    for (let i = 0; i < track.length; i += step) trackOut.push(track[i]);
+    if (trackOut[trackOut.length - 1] !== track[track.length - 1]) {
+      trackOut.push(track[track.length - 1]);
+    }
+    downsampled = true;
+  }
+
   return {
     ...meta,
-    track,
+    track: trackOut,
     capsizeEvents: incidents,
     capsizeSampleCount: capsizeEvents.length,
     pointCount: track.length,
     gpsCount,
+    downsampled,
   };
 }
 

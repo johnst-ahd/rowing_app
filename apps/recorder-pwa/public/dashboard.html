@@ -91,23 +91,50 @@
               <option value="">— select device —</option>
             </select>
           </label>
-          <label class="ahd-field">
-            Session
+          <label class="ahd-field history-field--wide">
+            Session <span class="history-field-hint">(easiest — loads that outing)</span>
             <select id="historySessionId">
-              <option value="">— or pick a session —</option>
+              <option value="">— pick a recorded session —</option>
             </select>
           </label>
-          <label class="ahd-field">
-            From
-            <input type="datetime-local" id="historyFrom" />
-          </label>
-          <label class="ahd-field">
-            To
-            <input type="datetime-local" id="historyTo" />
-          </label>
+        </div>
+        <div class="history-range-block">
+          <span class="history-range-label">Or search by date &amp; time</span>
+          <div class="history-presets" role="group" aria-label="Quick time ranges">
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="1h">Last hour</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="6h">Last 6 hours</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="today">Today</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="yesterday">Yesterday</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="7d">Last 7 days</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="device">Since last upload</button>
+          </div>
+          <div class="history-datetime-grid">
+            <fieldset class="history-datetime-group">
+              <legend>From</legend>
+              <label class="ahd-field">
+                Date
+                <input type="date" id="historyFromDate" />
+              </label>
+              <label class="ahd-field">
+                Time
+                <input type="time" id="historyFromTime" step="60" />
+              </label>
+            </fieldset>
+            <fieldset class="history-datetime-group">
+              <legend>To</legend>
+              <label class="ahd-field">
+                Date
+                <input type="date" id="historyToDate" />
+              </label>
+              <label class="ahd-field">
+                Time
+                <input type="time" id="historyToTime" step="60" />
+              </label>
+            </fieldset>
+          </div>
           <button type="button" class="hub-btn hub-btn--primary" id="historyLoadBtn">Load history</button>
         </div>
-        <p class="poll-line" id="historyStatus">Select device and range, or choose a session.</p>
+        <p class="poll-line" id="historyStatus">Select a session (recommended) or device + date range.</p>
         <div id="historyResults" class="history-results" hidden>
           <p class="history-meta" id="historyMeta"></p>
           <h3 class="history-subtitle">GPS trace</h3>

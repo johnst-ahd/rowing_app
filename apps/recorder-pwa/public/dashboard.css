@@ -428,7 +428,84 @@
 }
 
 .history-fields {
+  margin-bottom: 0.75rem;
+}
+
+.history-field--wide {
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+.history-field-hint {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--ahd-muted);
+}
+
+.history-range-block {
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--ahd-border);
+}
+
+.history-range-label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ahd-muted);
   margin-bottom: 0.5rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.history-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.history-preset.is-active {
+  border-color: var(--ahd-accent);
+  color: var(--ahd-accent);
+  background: rgba(0, 229, 255, 0.1);
+}
+
+.history-datetime-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.history-datetime-group {
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--ahd-border);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+}
+
+.history-datetime-group legend {
+  width: 100%;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ahd-text);
+  padding: 0 0.25rem;
+  margin-bottom: 0.15rem;
+}
+
+.history-datetime-group .ahd-field {
+  flex: 1 1 7rem;
+  min-width: 6rem;
+}
+
+.history-datetime-group input[type='date'],
+.history-datetime-group input[type='time'] {
+  min-width: 8.5rem;
 }
 
 .history-results {
@@ -536,5 +613,9 @@
   .ahd-inline-fields select,
   .history-fields select {
     width: 100%;
+  }
+
+  .history-datetime-grid {
+    grid-template-columns: 1fr;
   }
 }
