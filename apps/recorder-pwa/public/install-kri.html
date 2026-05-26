@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#7f1d1d" />
+    <title>Install KRI GPS · KRI Safety System</title>
+    <link rel="stylesheet" href="/ahd-hub-theme.css" />
+    <style>
+      body {
+        max-width: 520px;
+        margin: 0 auto;
+        padding: 1.25rem;
+        line-height: 1.5;
+        --ahd-accent: #dc2626;
+        --ahd-bg: #450a0a;
+      }
+      h1 {
+        font-size: 1.35rem;
+        color: #fef2f2;
+      }
+      ol {
+        padding-left: 1.2rem;
+      }
+      li {
+        margin-bottom: 0.65rem;
+      }
+      .hub-panel {
+        margin: 1rem 0;
+      }
+      a {
+        color: #fca5a5;
+      }
+      .note {
+        font-size: 0.9rem;
+        color: #fecaca;
+      }
+      .btn-dl {
+        display: inline-block;
+        margin: 0.5rem 0;
+        padding: 0.75rem 1.25rem;
+        background: #dc2626;
+        color: #fff !important;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+    </style>
+  </head>
+  <body class="hub-page" style="background: #450a0a">
+    <h1>Install KRI GPS (Android)</h1>
+    <p class="note">
+      GPS + capsize only · arm64 build (~5 MB). Separate app from RNZ Row Recorder.
+    </p>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">Download APK</h2>
+      <p class="note">Use <strong>Samsung Internet</strong> or <strong>Chrome</strong> on your phone.</p>
+      <p>
+        <a
+          class="btn-dl"
+          href="https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-kri-latest/KRI-GPS.apk"
+          ><strong>Download KRI-GPS.apk</strong></a
+        >
+      </p>
+      <p class="note">
+        <a href="https://github.com/JohnSt-AHD/rowing_app/releases/tag/android-apk-kri-latest"
+          >GitHub release page</a
+        >
+        ·
+        <a href="https://github.com/JohnSt-AHD/rowing_app/actions/workflows/android-apk-kri.yml"
+          >Build status</a
+        >
+      </p>
+    </section>
+
+    <section class="hub-panel">
+      <h2 class="hub-section-title">After install</h2>
+      <ol>
+        <li>
+          Settings → <strong>Ingest API URL</strong>:
+          <code>https://rowing-app-recorder-pwa.vercel.app/api/ingest</code>
+        </li>
+        <li>Tap <strong>Test upload connection</strong> (should say OK).</li>
+        <li>Battery → <strong>Unrestricted</strong>; Location → <strong>Allow all the time</strong>; Notifications on</li>
+        <li>Set <strong>Device ID</strong> → start session with <strong>GPS</strong> and <strong>Accelerometer</strong></li>
+      </ol>
+    </section>
+
+    <p class="note">
+      <a href="/install-native.html">RNZ Row Recorder install</a> ·
+      <a href="/dashboard.html">Monitor</a>
+    </p>
+  </body>
+</html>

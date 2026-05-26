@@ -19,11 +19,17 @@
       "source": "/downloads/RNZ-Row-Recorder.apk",
       "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk",
       "permanent": false
+    },
+    {
+      "source": "/downloads/KRI-GPS.apk",
+      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-kri-latest/KRI-GPS.apk",
+      "permanent": false
     }
   ],
   "rewrites": [
     { "source": "/dashboard", "destination": "/dashboard.html" },
     { "source": "/install-native", "destination": "/install-native.html" },
+    { "source": "/install-kri", "destination": "/install-kri.html" },
     {
       "source": "/((?!downloads/|api/).*)",
       "destination": "/index.html"

@@ -21,6 +21,7 @@ After CI builds (push to `main` touching `KRI GPS/` or `apps/kri-native/`):
 |------|-----|
 | **GitHub Release** | https://github.com/JohnSt-AHD/rowing_app/releases/tag/android-apk-kri-latest |
 | **Direct download** | https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-kri-latest/KRI-GPS.apk |
+| **Install page (Vercel)** | https://rowing-app-recorder-pwa.vercel.app/install-kri |
 | **Short link (Vercel)** | https://rowing-app-recorder-pwa.vercel.app/downloads/KRI-GPS.apk |
 
 Local build:
