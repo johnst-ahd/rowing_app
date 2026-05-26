@@ -186,6 +186,9 @@ function rowToTraccarPosition(row) {
     attrs.ay = row.ay;
     attrs.az = row.az;
   }
+  if (row.stroke_rate != null) attrs.strokeRate = Number(row.stroke_rate);
+  if (row.capsize === true) attrs.capsize = true;
+  if (row.tilt_deg != null) attrs.tiltDeg = Number(row.tilt_deg);
   return {
     id: Number(row.id),
     deviceId: Number(row.device_ref),
@@ -208,7 +211,8 @@ async function getRoutePositions(deviceRef, fromIso, toIso) {
   const fromMs = new Date(fromIso).getTime();
   const toMs = new Date(toIso).getTime();
   const rows = await sql`
-    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az
+    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+      stroke_rate, capsize, tilt_deg
     FROM rnz_samples
     WHERE device_ref = ${deviceRef}
       AND t_ms >= ${fromMs}
@@ -372,13 +376,37 @@ async function listRegistryDevices() {
   }));
 }
 
+/** Devices with sample time range (for dashboard history — not limited to live poll). */
+async function listHistoryDevicesDetailed() {
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT d.unique_id, d.name, d.last_seen_at,
+      MIN(s.t_ms)::bigint AS first_sample_ms,
+      MAX(s.t_ms)::bigint AS last_sample_ms,
+      COUNT(s.id)::int AS sample_count
+    FROM rnz_devices d
+    INNER JOIN rnz_samples s ON s.unique_id = d.unique_id
+    GROUP BY d.id, d.unique_id, d.name, d.last_seen_at
+    ORDER BY MAX(s.t_ms) DESC
+  `;
+  return rows.rows.map((r) => ({
+    uniqueId: String(r.unique_id),
+    name: r.name || r.unique_id,
+    lastUpdate: r.last_seen_at,
+    firstSampleMs: Number(r.first_sample_ms),
+    lastSampleMs: Number(r.last_sample_ms),
+    sampleCount: Number(r.sample_count),
+  }));
+}
+
 async function getTraccarSnapshot(onlineMs = 120000) {
   const devices = await listRegistryDevices();
   const positions = await getLatestTraccarPositions(onlineMs);
   return { devices, positions, geofences: [], groups: [] };
 }
 
-async function listSessions(uniqueId, limit = 50) {
+async function listSessions(uniqueId, limit = 100) {
   const sql = await getSql();
   const rows = uniqueId
     ? await sql`
@@ -397,6 +425,133 @@ async function listSessions(uniqueId, limit = 50) {
         LIMIT ${limit}
       `;
   return rows.rows;
+}
+
+/**
+ * @param {import('@vercel/postgres').QueryResultRow[]} rows
+ */
+function buildDashboardHistoryFromRows(rows, meta = {}) {
+  /** @type {object[]} */
+  const track = [];
+  /** @type {object[]} */
+  const capsizeEvents = [];
+  let gpsCount = 0;
+
+  for (const row of rows) {
+    const t = Number(row.t_ms);
+    const hasGps = row.latitude != null && row.longitude != null;
+    if (hasGps) gpsCount++;
+    track.push({
+      t,
+      lat: hasGps ? row.latitude : null,
+      lon: hasGps ? row.longitude : null,
+      speed: row.speed != null ? Number(row.speed) : null,
+      hr: row.hr != null ? Number(row.hr) : null,
+      strokeRate:
+        row.stroke_rate != null ? Number(row.stroke_rate) : null,
+      capsize: row.capsize === true,
+      tiltDeg: row.tilt_deg != null ? Number(row.tilt_deg) : null,
+    });
+    if (row.capsize === true && hasGps) {
+      capsizeEvents.push({
+        t,
+        lat: row.latitude,
+        lon: row.longitude,
+        tiltDeg: row.tilt_deg != null ? Number(row.tilt_deg) : null,
+      });
+    }
+  }
+
+  /** Collapse rapid capsize samples into incidents (~60s). */
+  const incidents = [];
+  for (const ev of capsizeEvents) {
+    const prev = incidents[incidents.length - 1];
+    if (prev && ev.t - prev.t < 60000) continue;
+    incidents.push(ev);
+  }
+
+  const MAX_TRACK_POINTS = 4000;
+  let trackOut = track;
+  let downsampled = false;
+  if (track.length > MAX_TRACK_POINTS) {
+    const step = Math.ceil(track.length / MAX_TRACK_POINTS);
+    trackOut = [];
+    for (let i = 0; i < track.length; i += step) trackOut.push(track[i]);
+    if (trackOut[trackOut.length - 1] !== track[track.length - 1]) {
+      trackOut.push(track[track.length - 1]);
+    }
+    downsampled = true;
+  }
+
+  return {
+    ...meta,
+    track: trackOut,
+    capsizeEvents: incidents,
+    capsizeSampleCount: capsizeEvents.length,
+    pointCount: track.length,
+    gpsCount,
+    downsampled,
+  };
+}
+
+async function getDashboardHistory(uniqueId, fromIso, toIso) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const fromMs = new Date(fromIso).getTime();
+  const toMs = new Date(toIso).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) return null;
+
+  const rows = await sql`
+    SELECT t_ms, latitude, longitude, speed, hr, stroke_rate, capsize, tilt_deg
+    FROM rnz_samples
+    WHERE unique_id = ${String(uniqueId)}
+      AND t_ms >= ${fromMs}
+      AND t_ms <= ${toMs}
+    ORDER BY t_ms ASC
+    LIMIT 50000
+  `;
+
+  return buildDashboardHistoryFromRows(rows.rows, {
+    uniqueId: String(uniqueId),
+    from: new Date(fromMs).toISOString(),
+    to: new Date(toMs).toISOString(),
+  });
+}
+
+async function getDashboardHistoryBySession(sessionId) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const meta = await sql`
+    SELECT session_id, unique_id, athlete_id, started_at, ended_at
+    FROM rnz_sessions
+    WHERE session_id = ${String(sessionId)}
+    LIMIT 1
+  `;
+  if (!meta.rows[0]) return null;
+  const row = meta.rows[0];
+  const samples = await sql`
+    SELECT t_ms, latitude, longitude, speed, hr, stroke_rate, capsize, tilt_deg
+    FROM rnz_samples
+    WHERE session_id = ${String(sessionId)}
+    ORDER BY t_ms ASC
+    LIMIT 50000
+  `;
+  const fromMs = samples.rows.length
+    ? Number(samples.rows[0].t_ms)
+    : new Date(row.started_at).getTime();
+  const toMs = samples.rows.length
+    ? Number(samples.rows[samples.rows.length - 1].t_ms)
+    : new Date(row.ended_at || row.started_at).getTime();
+
+  return buildDashboardHistoryFromRows(samples.rows, {
+    sessionId: row.session_id,
+    uniqueId: row.unique_id,
+    athleteId: row.athlete_id || null,
+    from: new Date(fromMs).toISOString(),
+    to: new Date(toMs).toISOString(),
+  });
 }
 
 async function getSessionFromDb(sessionId) {
@@ -461,6 +616,9 @@ module.exports = {
   getRoutePositions,
   resolveDevice,
   listRegistryDevices,
+  listHistoryDevicesDetailed,
   listSessions,
   getSessionFromDb,
+  getDashboardHistory,
+  getDashboardHistoryBySession,
 };

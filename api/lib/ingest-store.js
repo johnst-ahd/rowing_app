@@ -367,16 +367,94 @@ function getPositionsSnapshot(onlineMs = 30000) {
   };
 }
 
+function attachRowingToMapPositions(positions, rowingByDevice) {
+  for (const p of positions) {
+    const rowing = rowingByDevice.get(p.deviceId);
+    if (!rowing) continue;
+    p.strokeRate = rowing.strokeRate;
+    p.strokeRateValid = rowing.strokeRateValid;
+    p.capsize = rowing.capsize;
+    p.tiltDeg = rowing.tiltDeg;
+  }
+  return positions;
+}
+
+/**
+ * @param {Map<string, { samples: Sample[] }>} byDevice
+ * @param {number} windowMs
+ */
+function rowingMetricsByDevice(byDevice, windowMs) {
+  /** @type {Map<string, object>} */
+  const out = new Map();
+  for (const [deviceId, entry] of byDevice) {
+    const stats = sensorStats(entry.samples || [], windowMs, deviceId);
+    out.set(deviceId, stats.rowing);
+  }
+  return out;
+}
+
+/**
+ * Dismiss capsize alert on the monitor (per device or all currently alerting).
+ * @param {string} [deviceId]
+ */
+async function clearCapsizeAlert(deviceId) {
+  const now = Date.now();
+  if (deviceId) {
+    setCapsizeClear(deviceId);
+    return { cleared: [String(deviceId)], clearedAt: now };
+  }
+  const snapshot = await listDevices({
+    windowMs: 120000,
+    onlineMs: 24 * 60 * 60 * 1000,
+  });
+  const capsized = (snapshot.devices || [])
+    .filter((d) => d.rowing?.capsize)
+    .map((d) => d.deviceId);
+  for (const id of capsized) setCapsizeClear(id);
+  return { cleared: capsized, clearedAt: now };
+}
+
+/** Recent motion samples per device (in-memory ingest). */
+function samplesByDeviceForWindow(windowMs) {
+  const now = Date.now();
+  const cutoff = now - windowMs;
+  /** @type {Map<string, { samples: Sample[] }>} */
+  const byDevice = new Map();
+  for (const row of sessions.values()) {
+    const samples = row.samples.filter((s) => s.t >= cutoff);
+    if (!samples.length) continue;
+    const prev = byDevice.get(row.deviceId);
+    if (!prev || row.updatedAt > prev.lastSeenMs) {
+      byDevice.set(row.deviceId, { samples, lastSeenMs: row.updatedAt });
+    }
+  }
+  return byDevice;
+}
+
 async function getMapPositions(onlineMs, staleMs) {
+  const rowingWindowMs = Math.min(staleMs, 120000);
+  const now = Date.now();
+
   if (db.hasDb()) {
     try {
-      return await db.getMapPositions(onlineMs, staleMs);
+      const positions = await db.getMapPositions(onlineMs, staleMs);
+      const byDevice = await db.fetchRecentSamplesByDevice(rowingWindowMs);
+      attachRowingToMapPositions(
+        positions,
+        rowingMetricsByDevice(byDevice, rowingWindowMs),
+      );
+      return positions;
     } catch (err) {
       console.error('[ingest-store] getMapPositions DB failed:', err);
     }
   }
-  const now = Date.now();
+
   const mem = getPositionsSnapshot(onlineMs);
+  const rowingByDevice = rowingMetricsByDevice(
+    samplesByDeviceForWindow(rowingWindowMs),
+    rowingWindowMs,
+  );
+
   return mem.positions
     .filter((p) => {
       const fixMs = new Date(p.fixTime).getTime();
@@ -390,6 +468,7 @@ async function getMapPositions(onlineMs, staleMs) {
     .map((p) => {
       const fixMs = new Date(p.fixTime).getTime();
       const lastSeenMs = p.lastUpdate || fixMs;
+      const rowing = rowingByDevice.get(String(p.uniqueId)) || {};
       return {
         deviceId: String(p.uniqueId),
         athleteId: p.athleteId || null,
@@ -401,6 +480,10 @@ async function getMapPositions(onlineMs, staleMs) {
         lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
         online: Boolean(p.online),
         hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
+        strokeRate: rowing.strokeRate ?? null,
+        strokeRateValid: Boolean(rowing.strokeRateValid),
+        capsize: Boolean(rowing.capsize),
+        tiltDeg: rowing.tiltDeg ?? null,
       };
     });
 }
@@ -457,25 +540,34 @@ async function listSessionsHistory(uniqueId) {
   }
 }
 
-/**
- * Dismiss capsize alert on the monitor (per device or all currently alerting).
- * @param {string} [deviceId]
- */
-async function clearCapsizeAlert(deviceId) {
-  const now = Date.now();
-  if (deviceId) {
-    setCapsizeClear(deviceId);
-    return { cleared: [String(deviceId)], clearedAt: now };
+async function listHistoryDevices() {
+  if (!db.hasDb()) return [];
+  try {
+    return await db.listHistoryDevicesDetailed();
+  } catch (err) {
+    console.error('[ingest-store] listHistoryDevices failed:', err);
+    return [];
   }
-  const snapshot = await listDevices({
-    windowMs: 120000,
-    onlineMs: 24 * 60 * 60 * 1000,
-  });
-  const capsized = (snapshot.devices || [])
-    .filter((d) => d.rowing?.capsize)
-    .map((d) => d.deviceId);
-  for (const id of capsized) setCapsizeClear(id);
-  return { cleared: capsized, clearedAt: now };
+}
+
+async function getDashboardHistory(uniqueId, fromIso, toIso) {
+  if (!db.hasDb()) return null;
+  try {
+    return await db.getDashboardHistory(uniqueId, fromIso, toIso);
+  } catch (err) {
+    console.error('[ingest-store] getDashboardHistory failed:', err);
+    return null;
+  }
+}
+
+async function getDashboardHistoryBySession(sessionId) {
+  if (!db.hasDb()) return null;
+  try {
+    return await db.getDashboardHistoryBySession(sessionId);
+  } catch (err) {
+    console.error('[ingest-store] getDashboardHistoryBySession failed:', err);
+    return null;
+  }
 }
 
 function checkAuth(req) {
@@ -503,6 +595,9 @@ module.exports = {
   getMapPositions,
   getRouteHistory,
   listSessionsHistory,
+  listHistoryDevices,
+  getDashboardHistory,
+  getDashboardHistoryBySession,
   clearCapsizeAlert,
   checkAuth,
   cors,

@@ -8,7 +8,25 @@
     "api/ingest.js": { "maxDuration": 30 },
     "api/devices.js": { "maxDuration": 15 },
     "api/positions.js": { "maxDuration": 15 },
+    "api/snapshot.js": { "maxDuration": 20 },
+    "api/history.js": { "maxDuration": 60 },
+    "api/map-positions.js": { "maxDuration": 20 },
+    "api/capsize-clear.js": { "maxDuration": 10 },
     "api/ping.js": { "maxDuration": 10 }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "redirects": [
+    {
+      "source": "/downloads/RNZ-Row-Recorder.apk",
+      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk",
+      "permanent": false
+    }
+  ],
+  "rewrites": [
+    { "source": "/dashboard", "destination": "/dashboard.html" },
+    { "source": "/install-native", "destination": "/install-native.html" },
+    {
+      "source": "/((?!api/|downloads/).*)",
+      "destination": "/index.html"
+    }
+  ]
 }

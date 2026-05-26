@@ -27,6 +27,13 @@ if (!fs.existsSync(path.join(appDist, 'index.html'))) {
 fs.rmSync(rootDist, { recursive: true, force: true });
 fs.cpSync(appDist, rootDist, { recursive: true });
 
+const appApi = path.join(root, 'apps', 'recorder-pwa', 'api');
+const rootApi = path.join(root, 'api');
+if (fs.existsSync(appApi) && fs.existsSync(rootApi)) {
+  fs.cpSync(appApi, rootApi, { recursive: true });
+  console.log('[vercel-build] Synced apps/recorder-pwa/api → api/');
+}
+
 if (!fs.existsSync(path.join(rootDist, 'index.html'))) {
   console.error('[vercel-build] Failed to create dist/index.html');
   process.exit(1);

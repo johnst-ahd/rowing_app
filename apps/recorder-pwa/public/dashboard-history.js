@@ -409,7 +409,22 @@
     const opts = [];
     deviceBounds.clear();
 
-    const data = await fetchJson(`${window.dashboardApiBase()}/api/history?list=devices`);
+    let data;
+    try {
+      data = await fetchJson(`${window.dashboardApiBase()}/api/history?list=devices`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      sel.innerHTML = '<option value="">— could not load devices —</option>';
+      throw new Error(
+        `Device list failed (${msg}). Enter the ingest token in Monitor settings (below) if Vercel uses INGEST_TOKEN, then click Refresh lists.`,
+      );
+    }
+
+    if (!data.persisted) {
+      sel.innerHTML = '<option value="">— no database —</option>';
+      throw new Error('Postgres not configured on server — add POSTGRES_URL on Vercel.');
+    }
+
     for (const d of data.devices || []) {
       if (!d.uniqueId || seen.has(d.uniqueId)) continue;
       seen.add(d.uniqueId);
@@ -426,12 +441,31 @@
     }
 
     const saved = localStorage.getItem(LS_HISTORY_DEVICE) || '';
+    if (!opts.length) {
+      sel.innerHTML = '<option value="">— no devices in database yet —</option>';
+      return opts;
+    }
     sel.innerHTML =
       '<option value="">— select device —</option>' +
       opts.map((o) => `<option value="${o.id}">${o.label}</option>`).join('');
     if (saved && seen.has(saved)) sel.value = saved;
     return opts;
   }
+
+  async function reloadHistoryLists() {
+    setHistoryStatus('Refreshing device and session lists…');
+    try {
+      await loadDeviceOptions();
+      await loadRecentSessions();
+      await smokeTestHistoryApi();
+      const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
+      if (deviceId) applyDeviceStoredRange(deviceId);
+    } catch (e) {
+      setHistoryStatus(e instanceof Error ? e.message : String(e), true);
+    }
+  }
+
+  window.reloadDashboardHistory = reloadHistoryLists;
 
   /** Recent sessions from DB (all devices) — available as soon as the page opens. */
   async function loadRecentSessions() {
@@ -589,20 +623,11 @@
     }
 
     initHistoryMap();
-    void (async () => {
-      try {
-        await loadDeviceOptions();
-        await loadRecentSessions();
-        await smokeTestHistoryApi();
-        const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
-        if (deviceId) applyDeviceStoredRange(deviceId);
-      } catch (e) {
-        setHistoryStatus(
-          `History setup failed: ${e instanceof Error ? e.message : String(e)}`,
-          true,
-        );
-      }
-    })();
+    void reloadHistoryLists();
+
+    document.getElementById('historyRefreshListsBtn')?.addEventListener('click', () => {
+      void reloadHistoryLists();
+    });
 
     document.getElementById('historyDeviceId')?.addEventListener('change', () => {
       document.querySelectorAll('.history-preset').forEach((b) => b.classList.remove('is-active'));

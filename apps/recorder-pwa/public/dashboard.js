@@ -499,8 +499,19 @@ function init() {
 
   $('#refreshBtn')?.addEventListener('click', () => void poll());
   $('#clearCapsizeBtn')?.addEventListener('click', () => void clearCapsizeAlert());
-  $('#applyBtn')?.addEventListener('click', startPolling);
-  ['#token', '#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
+  $('#applyBtn')?.addEventListener('click', () => {
+    startPolling();
+    if (typeof window.reloadDashboardHistory === 'function') {
+      void window.reloadDashboardHistory();
+    }
+  });
+  $('#token')?.addEventListener('change', () => {
+    savePrefs();
+    if (typeof window.reloadDashboardHistory === 'function') {
+      void window.reloadDashboardHistory();
+    }
+  });
+  ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
     $(sel)?.addEventListener('change', savePrefs);
   });
 
