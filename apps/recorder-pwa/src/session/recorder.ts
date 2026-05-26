@@ -19,6 +19,11 @@ import {
   showCapsizeAlertNotification,
 } from '../lib/capsize-notification';
 import {
+  startNativeCapsizeMonitor,
+  stopNativeCapsizeMonitor,
+  syncNativeCapsizeUpright,
+} from '../lib/native-capsize-monitor';
+import {
   createMotionAnalyzer,
   metricsFromAnalyzer,
   triggerCapsizeAlert,
@@ -121,6 +126,8 @@ export async function startRecorder(
   let lastMotionUploadAt = 0;
   let lastBackgroundPulseAt = 0;
   let bgMotionPollTimer: ReturnType<typeof setInterval> | null = null;
+  let nativeCapsizeMonitorOn = false;
+  let motionWasCalibrated = false;
 
   const motionUploadMs = Math.max(
     200,
@@ -202,6 +209,21 @@ export async function startRecorder(
     stats.tiltDeg = metrics.tiltDeg;
     stats.capsize = metrics.capsize;
     stats.motionCalibrated = metrics.calibrated;
+
+    if (
+      metrics.calibrated &&
+      !motionWasCalibrated &&
+      nativeCapsizeMonitorOn &&
+      motionAnalyzer
+    ) {
+      motionWasCalibrated = true;
+      const grav = motionAnalyzer as typeof motionAnalyzer & {
+        gx: number;
+        gy: number;
+        gz: number;
+      };
+      void syncNativeCapsizeUpright(grav.gx, grav.gy, grav.gz);
+    }
 
     latestDerived = {
       strokeRate: metrics.strokeRate,
@@ -382,6 +404,28 @@ export async function startRecorder(
       );
     }
   }
+  if (
+    IS_NATIVE &&
+    settings.enableMotion &&
+    settings.enableBackgroundRecording
+  ) {
+    const started = await startNativeCapsizeMonitor({
+      sessionId,
+      deviceId: settings.deviceId,
+      ingestUrl: settings.ingestUrl,
+      ingestToken: settings.ingestToken,
+      athleteId: settings.athleteId,
+    });
+    nativeCapsizeMonitorOn = started;
+    if (started) {
+      onLog(
+        'Native capsize monitor on — posts to dashboard with screen off (separate from WebView).',
+      );
+    } else {
+      onLog('Native capsize monitor failed to start — check notifications permission.');
+    }
+  }
+
   if (IS_NATIVE && settings.enableBackgroundRecording && settings.enableGps) {
     onLog(
       'Background GPS on — allow location Always, notifications, and set battery to Unrestricted.',
@@ -427,6 +471,10 @@ export async function startRecorder(
     },
     async stop() {
       stopped = true;
+      if (nativeCapsizeMonitorOn) {
+        await stopNativeCapsizeMonitor();
+        nativeCapsizeMonitorOn = false;
+      }
       if (batchTimer) clearInterval(batchTimer);
       await pushBatch();
       for (const s of stoppers) await s();

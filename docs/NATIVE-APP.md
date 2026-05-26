@@ -138,6 +138,8 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 
 **Capsize alarm when minimized (v1.0.11+):** On capsize, the app posts a **high-priority notification** (sound + vibration) so you are alerted when the screen is off or another app is in front. Allow **Notifications** for RNZ Row Recorder. In-app beeps still play when the app is visible.
 
+**Native capsize monitor (v1.0.14+):** With **Allow background** + **Accelerometer**, a separate **Android foreground service** watches the accelerometer and **POSTs capsize directly to ingest** (for the fleet monitor) even when the WebView is paused. You will see a second notification: “RNZ capsize monitor active”. Hold the boat still ~3s at session start to calibrate (or let the native service self-calibrate).
+
 **Upload rate with accelerometer:** Motion is analyzed at full rate (e.g. 50 ms) on the phone, but when GPS is also enabled, upload samples are only queued on each GPS fix (~1/s) with the latest accel + stroke/capsize attached. That keeps the outbox small so uploads do not stall. Without GPS, motion uploads are throttled (default 500 ms) via **Motion upload interval** in Settings.
 
 Vite `--mode native` sets `VITE_PLATFORM=native` and aliases `@rowing/sensor-adapters` to the Capacitor implementation.
@@ -173,7 +175,8 @@ Same as PWA:
 | No stroke rate | Motion permission; verify native build (`Native app` in header) |
 | No capsize when screen off | Install v1.0.10+ APK; enable **Allow background**, **GPS**, and **Accelerometer**; battery **Unrestricted**; do not swipe app away |
 | No capsize *alarm* when screen off | Install v1.0.13+ APK; Settings → **Request location & notification access**; allow **Notifications**; enable **GPS** + **Allow background**; alarm is a system notification (not in-app sound) |
-| No capsize *detection* when screen off | v1.0.13+ polls accelerometer while hidden; hold boat still ~3s at session start to calibrate; check Log for `Screen off — capsize uses accelerometer poll` |
+| No capsize *detection* when screen off | Install v1.0.14+; enable **Allow background** + **Accelerometer**; check Log for `Native capsize monitor on`; hold boat still ~3s at start |
+| Monitor no capsize when phone minimized | v1.0.14+ native service uploads capsize to ingest without WebView; same ingest URL/token in Settings |
 | No accelerometer permission prompt | Normal on Android — accelerometer is usually auto-granted; check Log for `accelerometer: granted`. Use **Notifications** prompt for capsize alarms |
 | HR won't connect | Bluetooth permission; tap **Connect HR strap** before launching |
 | White screen after sync | Run `npm run build:web -w recorder-native` first — `webDir` must contain `index.html` |
