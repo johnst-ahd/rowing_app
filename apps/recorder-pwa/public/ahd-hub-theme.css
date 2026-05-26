@@ -303,6 +303,17 @@
   color: var(--ahd-accent);
 }
 
+.ahd-footer__line {
+  margin: 0;
+}
+
+.ahd-footer__version {
+  margin: 0.35rem 0 0;
+  font-size: 11px;
+  color: rgba(148, 163, 184, 0.85);
+  letter-spacing: 0.02em;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));

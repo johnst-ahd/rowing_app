@@ -2,6 +2,8 @@
 
 interface ImportMetaEnv {
   readonly VITE_PLATFORM: 'web' | 'native';
+  readonly VITE_APP_VERSION: string;
+  readonly VITE_APP_VERSION_CODE: string;
 }
 
 interface ImportMeta {

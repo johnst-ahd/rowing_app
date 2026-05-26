@@ -1,9 +1,30 @@
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import fs from 'node:fs';
 import path from 'node:path';
+
+function readNativeAppVersion(): { version: string; versionCode: string } {
+  const gradlePath = path.resolve(
+    __dirname,
+    '../recorder-native/android/app/build.gradle',
+  );
+  const text = fs.readFileSync(gradlePath, 'utf8');
+  const version = text.match(/versionName\s+"([^"]+)"/)?.[1] ?? '';
+  const versionCode = text.match(/versionCode\s+(\d+)/)?.[1] ?? '';
+  return { version, versionCode };
+}
+
+function readWebAppVersion(): string {
+  const pkgPath = path.resolve(__dirname, 'package.json');
+  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { version?: string };
+  return pkg.version ?? '';
+}
 
 export default defineConfig(({ mode }) => {
   const isNative = mode === 'native';
+  const nativeVersion = isNative ? readNativeAppVersion() : null;
+  const appVersion = nativeVersion?.version ?? readWebAppVersion();
+  const appVersionCode = nativeVersion?.versionCode ?? '';
 
   return {
     base: isNative ? './' : '/',
@@ -16,6 +37,8 @@ export default defineConfig(({ mode }) => {
     },
     define: {
       'import.meta.env.VITE_PLATFORM': JSON.stringify(isNative ? 'native' : 'web'),
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
+      'import.meta.env.VITE_APP_VERSION_CODE': JSON.stringify(appVersionCode),
     },
     resolve: {
       alias: {

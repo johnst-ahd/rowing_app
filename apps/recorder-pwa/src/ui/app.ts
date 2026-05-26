@@ -27,6 +27,16 @@ import {
 type View = 'record' | 'settings';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION;
+const APP_VERSION_CODE = import.meta.env.VITE_APP_VERSION_CODE;
+
+function buildVersionLabel(): string {
+  if (!APP_VERSION) return '';
+  if (IS_NATIVE && APP_VERSION_CODE) {
+    return `Build v${APP_VERSION} (${APP_VERSION_CODE})`;
+  }
+  return `Build v${APP_VERSION}`;
+}
 
 /** Resolve static assets for web (/) and Capacitor (./). */
 function asset(path: string): string {
@@ -276,12 +286,16 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function hubFooter(): string {
+    const version = buildVersionLabel();
     return `
       <footer class="ahd-footer">
-        Altitude HD · RNZ Row Recorder ·
-        <a href="${asset('dashboard.html')}">Monitor</a> ·
-        <a href="${asset('install-native.html')}">Install Android app</a> ·
-        <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
+        <p class="ahd-footer__line">
+          Altitude HD · RNZ Row Recorder ·
+          <a href="${asset('dashboard.html')}">Monitor</a> ·
+          <a href="${asset('install-native.html')}">Install Android app</a> ·
+          <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
+        </p>
+        ${version ? `<p class="ahd-footer__version">${esc(version)}</p>` : ''}
       </footer>
     `;
   }
