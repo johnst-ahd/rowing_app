@@ -376,13 +376,37 @@ async function listRegistryDevices() {
   }));
 }
 
+/** Devices with sample time range (for dashboard history — not limited to live poll). */
+async function listHistoryDevicesDetailed() {
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT d.unique_id, d.name, d.last_seen_at,
+      MIN(s.t_ms)::bigint AS first_sample_ms,
+      MAX(s.t_ms)::bigint AS last_sample_ms,
+      COUNT(s.id)::int AS sample_count
+    FROM rnz_devices d
+    INNER JOIN rnz_samples s ON s.unique_id = d.unique_id
+    GROUP BY d.id, d.unique_id, d.name, d.last_seen_at
+    ORDER BY MAX(s.t_ms) DESC
+  `;
+  return rows.rows.map((r) => ({
+    uniqueId: String(r.unique_id),
+    name: r.name || r.unique_id,
+    lastUpdate: r.last_seen_at,
+    firstSampleMs: Number(r.first_sample_ms),
+    lastSampleMs: Number(r.last_sample_ms),
+    sampleCount: Number(r.sample_count),
+  }));
+}
+
 async function getTraccarSnapshot(onlineMs = 120000) {
   const devices = await listRegistryDevices();
   const positions = await getLatestTraccarPositions(onlineMs);
   return { devices, positions, geofences: [], groups: [] };
 }
 
-async function listSessions(uniqueId, limit = 50) {
+async function listSessions(uniqueId, limit = 100) {
   const sql = await getSql();
   const rows = uniqueId
     ? await sql`
@@ -592,6 +616,7 @@ module.exports = {
   getRoutePositions,
   resolveDevice,
   listRegistryDevices,
+  listHistoryDevicesDetailed,
   listSessions,
   getSessionFromDb,
   getDashboardHistory,

@@ -543,12 +543,7 @@ async function listSessionsHistory(uniqueId) {
 async function listHistoryDevices() {
   if (!db.hasDb()) return [];
   try {
-    const rows = await db.listRegistryDevices();
-    return rows.map((d) => ({
-      uniqueId: d.uniqueId,
-      name: d.name,
-      lastUpdate: d.lastUpdate,
-    }));
+    return await db.listHistoryDevicesDetailed();
   } catch (err) {
     console.error('[ingest-store] listHistoryDevices failed:', err);
     return [];

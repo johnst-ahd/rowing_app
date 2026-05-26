@@ -81,8 +81,9 @@
       <section class="hub-panel hub-panel--history" id="historyPanel">
         <h2 class="hub-section-title">Session history</h2>
         <p class="history-intro">
-          Search stored data from the recorder apps (requires Postgres on Vercel). View GPS trace,
-          heart rate and speed over time, and capsize locations.
+          Searches the <strong>database</strong> (all uploads from the apps, not just this browser session).
+          Pick a <strong>session</strong> for one outing, or a device + date range. Use <strong>All stored for device</strong>
+          if a short range shows no data.
         </p>
         <div class="ahd-inline-fields history-fields">
           <label class="ahd-field">
@@ -105,8 +106,8 @@
             <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="6h">Last 6 hours</button>
             <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="today">Today</button>
             <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="yesterday">Yesterday</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="7d">Last 7 days</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="device">Since last upload</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="30d">Last 30 days</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="all">All stored for device</button>
           </div>
           <div class="history-datetime-grid">
             <fieldset class="history-datetime-group">

@@ -10,6 +10,8 @@
   let historyMarkers = null;
   /** @type {Map<string, string>} deviceId → last ISO upload time */
   const deviceLastSeen = new Map();
+  /** @type {Map<string, { firstSampleMs: number, lastSampleMs: number, sampleCount: number }>} */
+  const deviceBounds = new Map();
 
   function pad2(n) {
     return String(n).padStart(2, '0');
@@ -71,18 +73,20 @@
       toMs = d.getTime();
       d.setDate(d.getDate() - 1);
       fromMs = d.getTime();
-    } else if (preset === '7d') {
-      fromMs = now - 7 * 24 * 60 * 60 * 1000;
-    } else if (preset === 'device') {
+    } else if (preset === '30d') {
+      fromMs = now - 30 * 24 * 60 * 60 * 1000;
+    } else if (preset === 'all') {
       const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
-      const last = deviceId ? deviceLastSeen.get(deviceId) : null;
-      if (!last) {
-        setHistoryStatus('Pick a device first, or no stored uploads for that device.', true);
+      const bounds = deviceId ? deviceBounds.get(deviceId) : null;
+      if (!bounds?.firstSampleMs || !bounds?.lastSampleMs) {
+        setHistoryStatus(
+          'Pick a device with stored samples first, or choose a session from the list.',
+          true,
+        );
         return;
       }
-      const lastMs = new Date(last).getTime();
-      fromMs = lastMs - 2 * 60 * 60 * 1000;
-      toMs = Math.max(now, lastMs + 15 * 60 * 1000);
+      fromMs = bounds.firstSampleMs;
+      toMs = bounds.lastSampleMs + 60 * 1000;
     } else {
       return;
     }
@@ -368,22 +372,57 @@
     }
   }
 
+  function applyDeviceStoredRange(deviceId) {
+    const bounds = deviceId ? deviceBounds.get(deviceId) : null;
+    if (!bounds?.firstSampleMs || !bounds?.lastSampleMs) return false;
+    setRangeInputs(bounds.firstSampleMs, bounds.lastSampleMs + 60 * 1000);
+    return true;
+  }
+
+  function appendSessionOption(sel, s) {
+    const startMs = new Date(s.started_at).getTime();
+    const endMs = s.updated_at
+      ? new Date(s.updated_at).getTime()
+      : s.ended_at
+        ? new Date(s.ended_at).getTime()
+        : Date.now();
+    const start = new Date(startMs).toLocaleString(undefined, {
+      dateStyle: 'short',
+      timeStyle: 'short',
+    });
+    const mins = Math.max(1, Math.round((endMs - startMs) / 60000));
+    const dev = s.unique_id ? `${s.unique_id} · ` : '';
+    const label = `${dev}${start} · ${mins} min · ${s.sample_count ?? 0} samples`;
+    const opt = document.createElement('option');
+    opt.value = s.session_id;
+    opt.textContent = label;
+    opt.dataset.startedAt = s.started_at;
+    opt.dataset.endedAt = new Date(endMs).toISOString();
+    opt.dataset.deviceId = s.unique_id || '';
+    sel.appendChild(opt);
+  }
+
   async function loadDeviceOptions() {
     const sel = document.getElementById('historyDeviceId');
-    if (!sel) return;
+    if (!sel) return [];
     const seen = new Set();
     const opts = [];
+    deviceBounds.clear();
 
-    try {
-      const data = await fetchJson(`${window.dashboardApiBase()}/api/history?list=devices`);
-      for (const d of data.devices || []) {
-        if (!d.uniqueId || seen.has(d.uniqueId)) continue;
-        seen.add(d.uniqueId);
-        if (d.lastUpdate) deviceLastSeen.set(d.uniqueId, d.lastUpdate);
-        opts.push({ id: d.uniqueId, label: d.uniqueId });
+    const data = await fetchJson(`${window.dashboardApiBase()}/api/history?list=devices`);
+    for (const d of data.devices || []) {
+      if (!d.uniqueId || seen.has(d.uniqueId)) continue;
+      seen.add(d.uniqueId);
+      if (d.lastUpdate) deviceLastSeen.set(d.uniqueId, d.lastUpdate);
+      if (d.firstSampleMs != null && d.lastSampleMs != null) {
+        deviceBounds.set(d.uniqueId, {
+          firstSampleMs: Number(d.firstSampleMs),
+          lastSampleMs: Number(d.lastSampleMs),
+          sampleCount: Number(d.sampleCount) || 0,
+        });
       }
-    } catch {
-      /* optional */
+      const cnt = d.sampleCount ? ` (${d.sampleCount} samples)` : '';
+      opts.push({ id: d.uniqueId, label: `${d.uniqueId}${cnt}` });
     }
 
     const saved = localStorage.getItem(LS_HISTORY_DEVICE) || '';
@@ -391,6 +430,29 @@
       '<option value="">— select device —</option>' +
       opts.map((o) => `<option value="${o.id}">${o.label}</option>`).join('');
     if (saved && seen.has(saved)) sel.value = saved;
+    return opts;
+  }
+
+  /** Recent sessions from DB (all devices) — available as soon as the page opens. */
+  async function loadRecentSessions() {
+    const sel = document.getElementById('historySessionId');
+    if (!sel) return;
+    sel.innerHTML = '<option value="">— pick a recorded session —</option>';
+
+    try {
+      const data = await fetchJson(`${window.dashboardApiBase()}/api/history?list=sessions`);
+      for (const s of data.sessions || []) {
+        appendSessionOption(sel, s);
+      }
+      if (!data.sessions?.length) {
+        setHistoryStatus(
+          'No sessions in database yet — record on a phone and wait for upload.',
+          true,
+        );
+      }
+    } catch (e) {
+      setHistoryStatus(`Sessions: ${e instanceof Error ? e.message : String(e)}`, true);
+    }
   }
 
   window.mergeHistoryDevices = mergeDeviceIds;
@@ -399,31 +461,27 @@
     const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
     const sel = document.getElementById('historySessionId');
     if (!sel) return;
-    sel.innerHTML = '<option value="">— or pick a session —</option>';
-    if (!deviceId) return;
 
+    if (!deviceId) {
+      await loadRecentSessions();
+      return;
+    }
+
+    sel.innerHTML = '<option value="">— pick a recorded session —</option>';
     try {
       const url = `${window.dashboardApiBase()}/api/history?list=sessions&uniqueId=${encodeURIComponent(deviceId)}`;
       const data = await fetchJson(url);
       for (const s of data.sessions || []) {
-        const startMs = new Date(s.started_at).getTime();
-        const endMs = s.updated_at
-          ? new Date(s.updated_at).getTime()
-          : s.ended_at
-            ? new Date(s.ended_at).getTime()
-            : Date.now();
-        const start = new Date(startMs).toLocaleString(undefined, {
-          dateStyle: 'short',
-          timeStyle: 'short',
-        });
-        const mins = Math.max(1, Math.round((endMs - startMs) / 60000));
-        const label = `${start} · ${mins} min · ${s.sample_count ?? 0} samples`;
-        const opt = document.createElement('option');
-        opt.value = s.session_id;
-        opt.textContent = label;
-        opt.dataset.startedAt = s.started_at;
-        opt.dataset.endedAt = new Date(endMs).toISOString();
-        sel.appendChild(opt);
+        appendSessionOption(sel, s);
+      }
+      if (!data.sessions?.length) {
+        setHistoryStatus(`No sessions stored for ${deviceId}.`, true);
+      } else {
+        const bounds = deviceBounds.get(deviceId);
+        const hint = bounds
+          ? `Stored ${bounds.sampleCount} samples · ${fmtTime(bounds.firstSampleMs)} – ${fmtTime(bounds.lastSampleMs)}`
+          : `${data.sessions.length} session(s) for ${deviceId}`;
+        setHistoryStatus(`${hint} — pick a session or Load history.`);
       }
     } catch (e) {
       setHistoryStatus(`Sessions: ${e instanceof Error ? e.message : String(e)}`, true);
@@ -461,7 +519,15 @@
     try {
       const data = await fetchJson(url);
       if (!data.track?.length) {
-        setHistoryStatus('No samples found for this query.', true);
+        const bounds = deviceId ? deviceBounds.get(deviceId) : null;
+        let hint =
+          'No samples in this date/time range (data is in the database — range may be too narrow).';
+        if (bounds?.firstSampleMs) {
+          hint += ` Stored for ${deviceId || data.uniqueId}: ${fmtTime(bounds.firstSampleMs)} – ${fmtTime(bounds.lastSampleMs)} — try All stored for device or pick a session.`;
+        } else if (!sessionId) {
+          hint += ' Pick a session from the list (recommended).';
+        }
+        setHistoryStatus(hint, true);
         return;
       }
 
@@ -501,8 +567,12 @@
         return;
       }
       const n = devices.devices?.length ?? 0;
+      const totalSamples = (devices.devices || []).reduce(
+        (sum, d) => sum + (Number(d.sampleCount) || 0),
+        0,
+      );
       setHistoryStatus(
-        `History ready — ${n} device(s) in database. Pick a session or use a quick range below.`,
+        `History ready — ${n} device(s), ${totalSamples.toLocaleString()} stored samples (full database, not this browser). Pick a session above.`,
       );
     } catch (e) {
       setHistoryStatus(
@@ -515,14 +585,32 @@
   window.initDashboardHistory = function initDashboardHistory() {
     const now = Date.now();
     if (!document.getElementById('historyFromDate')?.value) {
-      setRangeInputs(now - 24 * 60 * 60 * 1000, now);
+      setRangeInputs(now - 30 * 24 * 60 * 60 * 1000, now);
     }
 
     initHistoryMap();
-    void loadDeviceOptions().then(() => smokeTestHistoryApi());
+    void (async () => {
+      try {
+        await loadDeviceOptions();
+        await loadRecentSessions();
+        await smokeTestHistoryApi();
+        const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
+        if (deviceId) applyDeviceStoredRange(deviceId);
+      } catch (e) {
+        setHistoryStatus(
+          `History setup failed: ${e instanceof Error ? e.message : String(e)}`,
+          true,
+        );
+      }
+    })();
 
     document.getElementById('historyDeviceId')?.addEventListener('change', () => {
       document.querySelectorAll('.history-preset').forEach((b) => b.classList.remove('is-active'));
+      const deviceId = document.getElementById('historyDeviceId')?.value?.trim();
+      if (deviceId) {
+        applyDeviceStoredRange(deviceId);
+        localStorage.setItem(LS_HISTORY_DEVICE, deviceId);
+      }
       void loadSessionOptions();
     });
 
@@ -540,6 +628,11 @@
       const sid = sel?.value;
       if (!sid || !opt) return;
       document.querySelectorAll('.history-preset').forEach((b) => b.classList.remove('is-active'));
+      const dev = opt.dataset.deviceId;
+      if (dev) {
+        const devSel = document.getElementById('historyDeviceId');
+        if (devSel) devSel.value = dev;
+      }
       const started = opt.dataset.startedAt;
       const ended = opt.dataset.endedAt;
       if (started && ended) {
