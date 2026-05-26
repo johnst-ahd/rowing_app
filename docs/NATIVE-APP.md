@@ -136,6 +136,8 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 
 **Capsize / stroke with screen off (v1.0.10+):** When **Allow background** and **GPS** are both on, motion uses the native accelerometer (`@capgo/capacitor-accelerometer`) so capsize and stroke rate can keep running while the screen is locked (Android, with the GPS notification active). Enable **Accelerometer** in session settings. Without GPS background, motion may still pause when the screen is off — keep GPS on for reliable capsize alerts.
 
+**Capsize alarm when minimized (v1.0.11+):** On capsize, the app posts a **high-priority notification** (sound + vibration) so you are alerted when the screen is off or another app is in front. Allow **Notifications** for RNZ Row Recorder. In-app beeps still play when the app is visible.
+
 **Upload rate with accelerometer:** Motion is analyzed at full rate (e.g. 50 ms) on the phone, but when GPS is also enabled, upload samples are only queued on each GPS fix (~1/s) with the latest accel + stroke/capsize attached. That keeps the outbox small so uploads do not stall. Without GPS, motion uploads are throttled (default 500 ms) via **Motion upload interval** in Settings.
 
 Vite `--mode native` sets `VITE_PLATFORM=native` and aliases `@rowing/sensor-adapters` to the Capacitor implementation.
@@ -170,6 +172,7 @@ Same as PWA:
 | App “closed” / swiped away | Android may kill the app — leave recording running and use the GPS notification to return; do not force-stop |
 | No stroke rate | Motion permission; verify native build (`Native app` in header) |
 | No capsize when screen off | Install v1.0.10+ APK; enable **Allow background**, **GPS**, and **Accelerometer**; battery **Unrestricted**; do not swipe app away |
+| No capsize *alarm* when screen off | Install v1.0.11+ APK; allow **Notifications**; same background + GPS + accel settings; alarm is a system notification (not only in-app sound) |
 | HR won't connect | Bluetooth permission; tap **Connect HR strap** before launching |
 | White screen after sync | Run `npm run build:web -w recorder-native` first — `webDir` must contain `index.html` |
 

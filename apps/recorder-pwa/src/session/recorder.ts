@@ -11,6 +11,11 @@ import {
   type HeartRateMonitor,
 } from '@rowing/sensor-adapters';
 import {
+  clearCapsizeAlertNotification,
+  ensureCapsizeAlertReady,
+  showCapsizeAlertNotification,
+} from '../lib/capsize-notification';
+import {
   createMotionAnalyzer,
   metricsFromAnalyzer,
   triggerCapsizeAlert,
@@ -212,6 +217,12 @@ export async function startRecorder(
   }
 
   if (settings.enableMotion) {
+    if (IS_NATIVE) {
+      void ensureCapsizeAlertReady().then((ok) => {
+        if (ok) onLog('Capsize alerts: phone notifications enabled (screen off / minimized).');
+        else onLog('Allow notifications for capsize alarms when the screen is off.');
+      });
+    }
     motionAnalyzer = createMotionAnalyzer();
     const motion = await startMotionWatcher(
       (r) => {
@@ -231,13 +242,28 @@ export async function startRecorder(
           tiltDeg: metrics.tiltDeg,
         };
 
+        const backgrounded =
+          typeof document !== 'undefined' && document.visibilityState === 'hidden';
+
         if (metrics.capsize && !capsizeActive) {
           capsizeActive = true;
           triggerCapsizeAlert();
+          if (IS_NATIVE) void showCapsizeAlertNotification(true);
+          queueSample(
+            telemetrySample(r.t, {
+              motion: latestMotion,
+              hr: latestHr,
+              derived: latestDerived,
+            }),
+          );
+          void pushBatch();
           onLog('CAPSIZE ALERT — boat tipped past horizontal');
           onCapsize?.(true);
+        } else if (metrics.capsize && capsizeActive && backgrounded && IS_NATIVE) {
+          void showCapsizeAlertNotification();
         } else if (!metrics.capsize && capsizeActive) {
           capsizeActive = false;
+          if (IS_NATIVE) void clearCapsizeAlertNotification();
           onLog('Capsize cleared — boat upright again');
           onCapsize?.(false);
         }
