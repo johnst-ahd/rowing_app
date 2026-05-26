@@ -1,0 +1,5 @@
+ios/
+.capacitor/
+install/*.apk
+*.keystore
+local.properties

@@ -5,7 +5,7 @@ import path from 'node:path';
 function readNativeAppVersion(): { version: string; versionCode: string } {
   const gradlePath = path.resolve(
     __dirname,
-    '../apps/recorder-native/android/app/build.gradle',
+    '../apps/kri-native/android/app/build.gradle',
   );
   const text = fs.readFileSync(gradlePath, 'utf8');
   const version = text.match(/versionName\s+"([^"]+)"/)?.[1] ?? '';

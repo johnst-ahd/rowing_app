@@ -1,0 +1,29 @@
+{
+  "name": "kri-native",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capacitor native shell for KRI GPS (GPS + capsize)",
+  "scripts": {
+    "build:web": "npm run build:native -w kri-gps",
+    "sync": "npm run build:web && npx cap sync",
+    "sync:android": "npm run build:web && npx cap sync android",
+    "open:android": "npx cap open android",
+    "run:android": "npm run sync:android && npx cap run android",
+    "apk": "node ../../scripts/build-android-apk-kri.mjs"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.2.0",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/geolocation": "^7.1.1",
+    "@capacitor/motion": "^7.0.0",
+    "@capgo/capacitor-accelerometer": "^7.0.0",
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/local-notifications": "^7.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.2.0"
+  },
+  "capacitor": {
+    "platforms": ["android"]
+  }
+}

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">KRI GPS</string>
+    <string name="title_activity_main">KRI GPS</string>
+    <string name="package_name">nz.org.kri.gps</string>
+    <string name="custom_url_scheme">nz.org.kri.gps</string>
+    <string name="capacitor_background_geolocation_notification_channel_name">KRI safety session</string>
+</resources>
