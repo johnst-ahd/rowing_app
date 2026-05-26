@@ -664,7 +664,11 @@
     }
   }
 
+  let historyInitDone = false;
+
   window.initDashboardHistory = function initDashboardHistory() {
+    if (historyInitDone) return;
+    historyInitDone = true;
     const now = Date.now();
     if (!document.getElementById('historyFromDate')?.value) {
       setRangeInputs(now - 30 * 24 * 60 * 60 * 1000, now);
@@ -721,4 +725,16 @@
       });
     });
   };
+
+  // Fallback: if dashboard.js ran before this file, initialize now.
+  if (document.readyState !== 'loading') {
+    window.initDashboardHistory?.();
+  } else {
+    document.addEventListener('DOMContentLoaded', () => window.initDashboardHistory?.(), {
+      once: true,
+    });
+  }
 })();
+
+
+
