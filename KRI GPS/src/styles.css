@@ -2,8 +2,8 @@
 
 /* KRI theme overrides + Android WebView paint safety. */
 .kri-theme-page.hub-page {
-  background-color: #f4f9ff;
-  background-image: linear-gradient(180deg, #f7fbff 0%, #eaf3ff 100%);
+  background-color: #ffffff;
+  background-image: none;
   background-attachment: scroll;
 }
 
@@ -27,8 +27,8 @@
 }
 
 .kri-theme-page {
-  --ahd-bg: #f1f7ff;
-  --ahd-bg-card: rgba(255, 255, 255, 0.98);
+  --ahd-bg: #ffffff;
+  --ahd-bg-card: #ffffff;
   --ahd-border: rgba(37, 99, 235, 0.25);
   --ahd-accent: #1d4ed8;
   --ahd-accent-dim: #2563eb;
@@ -39,10 +39,14 @@
 }
 
 .kri-theme-page .hub-topbar {
-  background-color: #dbeafe;
-  background-image: linear-gradient(180deg, rgba(219, 234, 254, 0.98), rgba(191, 219, 254, 0.94));
-  border-bottom-color: rgba(37, 99, 235, 0.26);
+  background-color: #ffffff;
+  background-image: none;
+  border-bottom: 1px solid rgba(37, 99, 235, 0.2);
   background-attachment: scroll;
+}
+
+.kri-theme-page .hub-topbar::after {
+  display: none;
 }
 
 .kri-theme-page .hub-topbar-brands--kri {
@@ -63,16 +67,25 @@
   font-size: 0.75rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--ahd-muted);
+  color: #1d4ed8;
+  font-weight: 700;
 }
 
 .kri-theme-page .hub-kri-titles .hub-tagline {
   margin: 0.15rem 0 0;
   font-size: 0.95rem;
+  color: #0f172a;
+}
+
+.kri-theme-page .ahd-recorder-shell,
+.kri-theme-page .ahd-recorder-main,
+.kri-theme-page .session-stage,
+.kri-theme-page .session-stage__inner {
+  background-color: #ffffff;
 }
 
 .kri-theme-page .hub-stats-bar {
-  background: rgba(255, 255, 255, 0.92);
+  background: #ffffff;
 }
 
 .kri-theme-page .hub-panel {
@@ -133,6 +146,21 @@
 .kri-theme-page .session-live-hud__metrics .session-metric:nth-child(3),
 .kri-theme-page .spectrum-rail--hr {
   display: none !important;
+}
+
+.kri-theme-page .session-live-hud {
+  background: #ffffff;
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08);
+}
+
+.kri-theme-page .session-metric--timer .session-metric__value {
+  color: #1d4ed8;
+}
+
+.kri-theme-page .session-stage:fullscreen,
+.kri-theme-page .session-stage--fullscreen {
+  background: #ffffff;
 }
 
 .kri-theme-page .session-metric--capsize .session-metric__value,
