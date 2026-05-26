@@ -1,8 +1,9 @@
 import './styles.css';
-import { Capacitor } from '@capacitor/core';
 import { DEFAULT_SETTINGS } from '@rowing/telemetry-types';
 import { loadSettings, saveSettings } from '../../apps/recorder-pwa/src/lib/settings';
 import { mountApp } from '../../apps/recorder-pwa/src/ui/app';
+
+const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 
 function enforceKriProfile(): void {
   const s = loadSettings();
@@ -32,9 +33,12 @@ function applyKriBranding(root: HTMLElement): void {
     }
   };
 
-  const obs = new MutationObserver(update);
-  obs.observe(root, { childList: true, subtree: true });
   update();
+  const obs = new MutationObserver(() => {
+    update();
+    if (root.querySelector('.ahd-recorder-shell')) obs.disconnect();
+  });
+  obs.observe(root, { childList: true, subtree: true });
 }
 
 function showBootError(root: HTMLElement, err: unknown): void {
@@ -48,18 +52,13 @@ function showBootError(root: HTMLElement, err: unknown): void {
   `;
 }
 
-async function waitForNativeBridge(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
+/** Short delay so Capacitor native bridge is ready (avoid WebView crash on plugin access). */
+async function delayForNativeBridge(): Promise<void> {
+  if (!IS_NATIVE) return;
   await new Promise<void>((resolve) => {
-    if (document.readyState === 'complete') {
-      requestAnimationFrame(() => resolve());
-      return;
-    }
-    window.addEventListener(
-      'load',
-      () => requestAnimationFrame(() => resolve()),
-      { once: true },
-    );
+    const finish = () => setTimeout(resolve, 150);
+    if (document.readyState === 'complete') finish();
+    else window.addEventListener('load', () => finish(), { once: true });
   });
 }
 
@@ -77,8 +76,7 @@ window.addEventListener('unhandledrejection', (ev) => {
 
 void (async () => {
   try {
-    await waitForNativeBridge();
-    document.body.classList.add('kri-native-boot');
+    await delayForNativeBridge();
     enforceKriProfile();
     mountApp(root);
     applyKriBranding(root);

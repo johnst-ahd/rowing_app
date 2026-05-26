@@ -8,7 +8,6 @@ import {
   type BackgroundStatus,
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
-import { ensureCapsizeAlertReady } from '../lib/capsize-notification';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
@@ -604,9 +603,17 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
       if (IS_NATIVE) {
-        const p = await requestNativePermissions();
-        if (p.notifications !== 'granted') {
-          pushLog('Allow notifications for capsize alarms when the screen is off.');
+        try {
+          const p = await requestNativePermissions();
+          if (p.notifications !== 'granted') {
+            pushLog('Allow notifications for capsize alarms when the screen is off.');
+          }
+          if (p.location !== 'granted') {
+            pushLog('Allow location (Always) for GPS while recording.');
+          }
+        } catch (e) {
+          pushLog(`Permissions error: ${e instanceof Error ? e.message : String(e)}`);
+          return;
         }
       }
       sessionStartedAt = Date.now();
@@ -732,21 +739,33 @@ export function mountApp(root: HTMLElement): void {
     );
     clearRecordingActive();
   }
-  pushLog(IS_KRI ? 'KRI GPS ready. Configure settings, then start a session.' : 'RNZ Row Recorder ready. Configure settings, then start a session.');
-  if (IS_NATIVE) {
-    void (async () => {
-      /* Let WebView paint the shell before system permission dialogs (Android). */
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-      await ensureCapsizeAlertReady();
-      const p = await requestNativePermissions();
-      pushLog(
-        `Permissions — notifications: ${p.notifications}, location: ${p.location}, accelerometer: ${p.accelerometer}`,
-        false,
-      );
-      refreshLogPre();
-    })();
+  if (IS_KRI) {
+    pushLog(
+      'KRI GPS ready. Open Settings → "Request location & notification access", or tap Start session (permissions run then).',
+    );
+  } else {
+    pushLog('RNZ Row Recorder ready. Configure settings, then start a session.');
+    if (IS_NATIVE) {
+      void (async () => {
+        await new Promise<void>((resolve) => {
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+        });
+        try {
+          const p = await requestNativePermissions();
+          pushLog(
+            `Permissions — notifications: ${p.notifications}, location: ${p.location}, accelerometer: ${p.accelerometer}`,
+            false,
+          );
+          refreshLogPre();
+        } catch (e) {
+          pushLog(
+            `Permission setup error: ${e instanceof Error ? e.message : String(e)}`,
+            false,
+          );
+          refreshLogPre();
+        }
+      })();
+    }
   }
 }
 

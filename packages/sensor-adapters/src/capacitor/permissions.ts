@@ -1,6 +1,28 @@
+import { Capacitor } from '@capacitor/core';
 import { CapacitorAccelerometer } from '@capgo/capacitor-accelerometer';
 import { Geolocation } from '@capacitor/geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
+
+const CAPSIZE_CHANNEL_ID = 'rnz-capsize';
+let capsizeChannelReady = false;
+
+async function ensureCapsizeNotificationChannel(): Promise<void> {
+  if (capsizeChannelReady) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: CAPSIZE_CHANNEL_ID,
+      name: 'Capsize alerts',
+      description: 'Urgent capsize alarms while recording',
+      importance: 5,
+      visibility: 1,
+      vibration: true,
+      sound: 'default',
+    });
+    capsizeChannelReady = true;
+  } catch {
+    /* channel may already exist */
+  }
+}
 
 export type NativePermissionStatus = {
   location: string;
@@ -33,6 +55,9 @@ export async function requestNativePermissions(): Promise<NativePermissionStatus
     } else {
       status.notifications = 'granted';
     }
+    if (status.notifications === 'granted') {
+      await ensureCapsizeNotificationChannel();
+    }
   } catch {
     status.notifications = 'error';
   }
@@ -50,6 +75,9 @@ export async function requestNativePermissions(): Promise<NativePermissionStatus
     const avail = await CapacitorAccelerometer.isAvailable();
     if (!avail.isAvailable) {
       status.accelerometer = 'unavailable';
+    } else if (Capacitor.getPlatform() === 'android') {
+      /* Avoid requestPermissions() here — can crash WebView on some Samsung builds. */
+      status.accelerometer = 'granted';
     } else {
       const accel = await CapacitorAccelerometer.requestPermissions();
       status.accelerometer = permLabel(accel.accelerometer);

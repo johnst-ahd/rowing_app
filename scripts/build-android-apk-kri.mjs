@@ -23,7 +23,7 @@ run('node scripts/sync-brand-assets.mjs');
 run(
   'node scripts/generate-launcher-icon.mjs "KRI GPS/public/assets/kri/kri-logo.png" apps/kri-native/assets/icon-source.png --bg=white --scale=0.75',
 );
-run('npm run build:native -w kri-gps');
+run('node scripts/smoke-kri-build.mjs');
 run(
   'node scripts/apply-android-launcher-icon.mjs apps/kri-native/android/app apps/kri-native/assets/icon-source.png',
 );
