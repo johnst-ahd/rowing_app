@@ -9,6 +9,8 @@ on:
       - 'apps/recorder-pwa/**'
       - 'apps/recorder-native/**'
       - 'packages/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/android-apk.yml'
 
 permissions:
