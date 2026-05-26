@@ -1,0 +1,26 @@
+{
+  "name": "kri-gps",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:native": "vite build --mode native",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@rowing/telemetry-types": "*",
+    "@rowing/motion-analysis": "*",
+    "@rowing/sensor-adapters": "*",
+    "@capacitor/core": "^7.2.0",
+    "@capacitor/geolocation": "^7.1.1",
+    "@capacitor/motion": "^7.0.0",
+    "@capacitor-community/background-geolocation": "^1.2.26",
+    "@capacitor/local-notifications": "^7.0.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}

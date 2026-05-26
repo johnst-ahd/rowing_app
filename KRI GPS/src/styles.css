@@ -1,0 +1,31 @@
+@import url('../../apps/recorder-pwa/src/styles.css');
+
+.kri-theme-page {
+  --ahd-bg: #23090d;
+  --ahd-bg-card: rgba(53, 16, 23, 0.92);
+  --ahd-border: rgba(251, 113, 133, 0.35);
+  --ahd-accent: #fb7185;
+  --ahd-accent-dim: #e11d48;
+  --ahd-text: #fff1f2;
+  --ahd-muted: #fecdd3;
+  --ahd-safety: #4ade80;
+  --ahd-danger: #f43f5e;
+}
+
+.kri-theme-page .hub-topbar {
+  background-color: #2a0f13;
+  background-image: linear-gradient(180deg, rgba(42, 15, 19, 0.86), rgba(20, 8, 10, 0.9));
+}
+
+.kri-theme-page .hub-rnz-logo,
+.kri-theme-page .hub-logo,
+.kri-theme-page [data-action='connect-hr'],
+.kri-theme-page [name='enableHr'] {
+  display: none !important;
+}
+
+.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(2),
+.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(3),
+.kri-theme-page .spectrum-rail--hr {
+  display: none !important;
+}

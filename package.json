@@ -6,20 +6,24 @@
   "workspaces": [
     "apps/recorder-pwa",
     "apps/recorder-native",
+    "KRI GPS",
     "packages/telemetry-types",
     "packages/motion-analysis",
     "packages/sensor-adapters"
   ],
   "scripts": {
     "dev": "npm run dev -w recorder-pwa",
+    "dev:kri": "npm run dev --workspace=\"KRI GPS\"",
     "build": "node scripts/vercel-build.mjs",
     "build:app": "npm run build -w recorder-pwa",
+    "build:kri": "npm run build --workspace=\"KRI GPS\"",
     "build:native": "npm run build:native -w recorder-pwa",
     "native:sync": "npm run sync -w recorder-native",
     "native:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-android-apk.ps1",
     "native:android": "npm run open:android -w recorder-native",
     "native:ios": "npm run open:ios -w recorder-native",
     "preview": "npm run preview -w recorder-pwa",
+    "preview:kri": "npm run preview --workspace=\"KRI GPS\"",
     "doc:summary": "python scripts/create_summary_doc.py"
   },
   "engines": {
