@@ -1,5 +1,14 @@
 @import url('../../apps/recorder-pwa/src/styles.css');
 
+/* Native WebView: skip missing RNZ background assets (absolute /assets/rnz/… URLs). */
+.kri-theme-page.hub-page {
+  background-image: linear-gradient(180deg, rgba(35, 9, 13, 0.96) 0%, rgba(20, 8, 10, 0.98) 100%);
+}
+
+.kri-theme-page.hub-page::before {
+  display: none;
+}
+
 .kri-theme-page {
   --ahd-bg: #23090d;
   --ahd-bg-card: rgba(53, 16, 23, 0.92);

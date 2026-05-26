@@ -2,6 +2,7 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import fs from 'node:fs';
 import path from 'node:path';
+import { capacitorNativeHtml } from '../../packages/vite-plugins/capacitor-html.ts';
 
 function readNativeAppVersion(): { version: string; versionCode: string } {
   const gradlePath = path.resolve(
@@ -31,6 +32,7 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      modulePreload: false,
       commonjsOptions: {
         defaultIsModuleExports: true,
       },
@@ -60,7 +62,7 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [
       ...(isNative
-        ? []
+        ? [capacitorNativeHtml()]
         : [
             VitePWA({
               registerType: 'autoUpdate',

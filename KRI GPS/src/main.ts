@@ -1,4 +1,5 @@
 import './styles.css';
+import { Capacitor } from '@capacitor/core';
 import { DEFAULT_SETTINGS } from '@rowing/telemetry-types';
 import { loadSettings, saveSettings } from '../../apps/recorder-pwa/src/lib/settings';
 import { mountApp } from '../../apps/recorder-pwa/src/ui/app';
@@ -47,6 +48,21 @@ function showBootError(root: HTMLElement, err: unknown): void {
   `;
 }
 
+async function waitForNativeBridge(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  await new Promise<void>((resolve) => {
+    if (document.readyState === 'complete') {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    window.addEventListener(
+      'load',
+      () => requestAnimationFrame(() => resolve()),
+      { once: true },
+    );
+  });
+}
+
 const root = document.getElementById('app');
 if (!root) throw new Error('#app not found');
 
@@ -59,10 +75,13 @@ window.addEventListener('unhandledrejection', (ev) => {
   showBootError(root, ev.reason);
 });
 
-try {
-  enforceKriProfile();
-  mountApp(root);
-  applyKriBranding(root);
-} catch (err) {
-  showBootError(root, err);
-}
+void (async () => {
+  try {
+    await waitForNativeBridge();
+    enforceKriProfile();
+    mountApp(root);
+    applyKriBranding(root);
+  } catch (err) {
+    showBootError(root, err);
+  }
+})();

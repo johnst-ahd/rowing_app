@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import fs from 'node:fs';
 import path from 'node:path';
+import { capacitorNativeHtml } from '../packages/vite-plugins/capacitor-html.ts';
 
 function readNativeAppVersion(): { version: string; versionCode: string } {
   const gradlePath = path.resolve(
@@ -31,7 +32,9 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: isNative ? nativeOutDir : 'dist',
       emptyOutDir: true,
+      modulePreload: false,
     },
+    plugins: isNative ? [capacitorNativeHtml()] : [],
     define: {
       'import.meta.env.VITE_PLATFORM': JSON.stringify(isNative ? 'native' : 'web'),
       'import.meta.env.VITE_APP_BRAND': JSON.stringify('kri'),
@@ -54,6 +57,14 @@ export default defineConfig(({ mode }) => {
             ? '../packages/sensor-adapters/src/capacitor/index.ts'
             : '../packages/sensor-adapters/src/web/index.ts',
         ),
+        ...(isNative
+          ? {
+              '@capacitor-community/bluetooth-le': path.resolve(
+                __dirname,
+                'src/stubs/bluetooth-le.ts',
+              ),
+            }
+          : {}),
       },
     },
     server: {
