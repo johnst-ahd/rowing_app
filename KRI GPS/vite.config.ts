@@ -24,15 +24,17 @@ export default defineConfig(({ mode }) => {
   const nativeVersion = isNative ? readNativeAppVersion() : null;
   const appVersion = nativeVersion?.version ?? readWebAppVersion();
   const appVersionCode = nativeVersion?.versionCode ?? '';
+  const nativeOutDir = path.resolve(__dirname, '../apps/kri-native/www');
 
   return {
     base: isNative ? './' : '/',
     build: {
-      outDir: 'dist',
+      outDir: isNative ? nativeOutDir : 'dist',
       emptyOutDir: true,
     },
     define: {
       'import.meta.env.VITE_PLATFORM': JSON.stringify(isNative ? 'native' : 'web'),
+      'import.meta.env.VITE_APP_BRAND': JSON.stringify('kri'),
       'import.meta.env.VITE_APP_VERSION': JSON.stringify(appVersion),
       'import.meta.env.VITE_APP_VERSION_CODE': JSON.stringify(appVersionCode),
     },

@@ -1,4 +1,5 @@
 ios/
+www/
 .capacitor/
 install/*.apk
 *.keystore

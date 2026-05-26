@@ -14,11 +14,6 @@ function enforceKriProfile(): void {
 
 function applyKriBranding(root: HTMLElement): void {
   const update = () => {
-    const tagline = root.querySelector('.hub-tagline');
-    if (tagline) {
-      tagline.textContent = `KRI Safety System · GPS + Capsize${import.meta.env.VITE_PLATFORM === 'native' ? ' · Native app' : ''}`;
-    }
-
     const footerLine = root.querySelector('.ahd-footer__line');
     if (footerLine) {
       footerLine.textContent = 'KRI Safety System · KRI GPS';
@@ -41,9 +36,33 @@ function applyKriBranding(root: HTMLElement): void {
   update();
 }
 
+function showBootError(root: HTMLElement, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  root.innerHTML = `
+    <section class="hub-panel" style="margin:1rem">
+      <h2>KRI GPS failed to start</h2>
+      <p class="hint">${msg.replace(/</g, '&lt;')}</p>
+      <p class="hint">Try reinstalling the latest APK from the install page.</p>
+    </section>
+  `;
+}
+
 const root = document.getElementById('app');
 if (!root) throw new Error('#app not found');
 
-enforceKriProfile();
-mountApp(root);
-applyKriBranding(root);
+window.addEventListener('error', (ev) => {
+  if (root.querySelector('.ahd-recorder-shell')) return;
+  showBootError(root, ev.error ?? ev.message);
+});
+window.addEventListener('unhandledrejection', (ev) => {
+  if (root.querySelector('.ahd-recorder-shell')) return;
+  showBootError(root, ev.reason);
+});
+
+try {
+  enforceKriProfile();
+  mountApp(root);
+  applyKriBranding(root);
+} catch (err) {
+  showBootError(root, err);
+}

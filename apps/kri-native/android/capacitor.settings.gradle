@@ -5,8 +5,8 @@ project(':capacitor-android').projectDir = new File('../../../node_modules/@capa
 include ':capacitor-geolocation'
 project(':capacitor-geolocation').projectDir = new File('../../../node_modules/@capacitor/geolocation/android')
 
-include ':capacitor-community-bluetooth-le'
-project(':capacitor-community-bluetooth-le').projectDir = new File('../../../node_modules/@capacitor-community/bluetooth-le/android')
+include ':capgo-capacitor-accelerometer'
+project(':capgo-capacitor-accelerometer').projectDir = new File('../../../node_modules/@capgo/capacitor-accelerometer/android')
 
 include ':capacitor-community-background-geolocation'
 project(':capacitor-community-background-geolocation').projectDir = new File('../../../node_modules/@capacitor-community/background-geolocation/android')

@@ -1,8 +1,4 @@
-import { BleClient, numberToUUID } from '@capacitor-community/bluetooth-le';
 import type { HeartRateMonitor, HrReading } from '../types';
-
-const HR_SERVICE = numberToUUID(0x180d);
-const HR_MEASUREMENT = numberToUUID(0x2a37);
 
 function parseHr(data: DataView): HrReading {
   const flags = data.getUint8(0);
@@ -19,18 +15,20 @@ function parseHr(data: DataView): HrReading {
 
 let bleInitialized = false;
 
-async function ensureBle(): Promise<void> {
-  if (bleInitialized) return;
-  await BleClient.initialize({ androidNeverForLocation: false });
-  bleInitialized = true;
-}
-
 export async function connectHeartRate(
   onReading: (r: HrReading) => void,
   onError?: (msg: string) => void,
 ): Promise<HeartRateMonitor | null> {
   try {
-    await ensureBle();
+    const { BleClient, numberToUUID } = await import('@capacitor-community/bluetooth-le');
+    const HR_SERVICE = numberToUUID(0x180d);
+    const HR_MEASUREMENT = numberToUUID(0x2a37);
+
+    if (!bleInitialized) {
+      await BleClient.initialize({ androidNeverForLocation: false });
+      bleInitialized = true;
+    }
+
     const device = await BleClient.requestDevice({
       services: [HR_SERVICE],
       optionalServices: [HR_SERVICE],

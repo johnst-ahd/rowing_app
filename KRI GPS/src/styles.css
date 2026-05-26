@@ -17,8 +17,32 @@
   background-image: linear-gradient(180deg, rgba(42, 15, 19, 0.86), rgba(20, 8, 10, 0.9));
 }
 
-.kri-theme-page .hub-rnz-logo,
-.kri-theme-page .hub-logo,
+.kri-theme-page .hub-topbar-brands--kri {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.kri-theme-page .hub-kri-logo {
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.kri-theme-page .hub-kri-titles .hub-kicker {
+  margin: 0;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ahd-muted);
+}
+
+.kri-theme-page .hub-kri-titles .hub-tagline {
+  margin: 0.15rem 0 0;
+  font-size: 0.95rem;
+}
+
 .kri-theme-page [data-action='connect-hr'],
 .kri-theme-page [name='enableHr'] {
   display: none !important;

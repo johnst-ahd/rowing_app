@@ -19,7 +19,11 @@ function run(cmd, cwd = root) {
   execSync(cmd, { cwd, stdio: 'inherit', env: process.env });
 }
 
+run('node scripts/sync-brand-assets.mjs');
 run('npm run build:native -w kri-gps');
+run(
+  'node scripts/apply-android-launcher-icon.mjs apps/kri-native/android/app apps/kri-native/assets/icon-source.png',
+);
 run('npx cap sync android', native);
 
 if (!fs.existsSync(path.join(android, isWin ? 'gradlew.bat' : 'gradlew'))) {

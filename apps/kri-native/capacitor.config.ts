@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'nz.org.kri.gps',
   appName: 'KRI GPS',
-  webDir: '../../KRI GPS/dist',
+  webDir: 'www',
   server: {
     androidScheme: 'https',
   },

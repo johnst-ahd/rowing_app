@@ -22,6 +22,7 @@
     "build:native": "npm run build:native -w recorder-pwa",
     "kri:sync": "npm run sync:android -w kri-native",
     "kri:apk": "node scripts/build-android-apk-kri.mjs",
+    "sync:brand-assets": "node scripts/sync-brand-assets.mjs",
     "native:sync": "npm run sync -w recorder-native",
     "native:apk": "powershell -ExecutionPolicy Bypass -File scripts/build-android-apk.ps1",
     "native:android": "npm run open:android -w recorder-native",

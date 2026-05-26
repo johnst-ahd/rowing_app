@@ -47,9 +47,11 @@ jobs:
       - name: Accept Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
-      - name: Build web + sync
+      - name: Sync brand assets + build web
         run: |
+          node scripts/sync-brand-assets.mjs
           npm run build:native -w kri-gps
+          node scripts/apply-android-launcher-icon.mjs apps/kri-native/android/app apps/kri-native/assets/icon-source.png
           cd apps/kri-native && npx cap sync android
 
       - name: Assemble debug APK

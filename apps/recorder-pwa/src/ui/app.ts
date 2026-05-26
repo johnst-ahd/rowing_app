@@ -27,6 +27,7 @@ import {
 type View = 'record' | 'settings';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION;
 const APP_VERSION_CODE = import.meta.env.VITE_APP_VERSION_CODE;
 
@@ -272,11 +273,25 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function hubHeader(): string {
+    if (IS_KRI) {
+      return `
+      <header class="hub-topbar">
+        <div class="hub-topbar-inner">
+          <div class="hub-topbar-brands hub-topbar-brands--kri">
+            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="56" height="56" />
+            <div class="hub-kri-titles">
+              <p class="hub-kicker">KRI Safety System</p>
+              <p class="hub-tagline">GPS + capsize monitor${IS_NATIVE ? ' · Native app' : ''}</p>
+            </div>
+          </div>
+        </div>
+      </header>
+    `;
+    }
     return `
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="${asset('altitude-hd-logo.png')}" alt="Altitude HD" class="hub-logo" width="320" height="120" />
             <img src="${asset('assets/rnz/rnz-logo-white.png')}" alt="Rowing New Zealand" class="hub-rnz-logo" width="200" height="80" />
           </div>
           <p class="hub-tagline">GPS, heart rate and accelerometer recorder for RNZ ingest${IS_NATIVE ? ' · Native app' : ''}</p>
@@ -716,7 +731,7 @@ export function mountApp(root: HTMLElement): void {
     );
     clearRecordingActive();
   }
-  pushLog('RNZ Row Recorder ready. Configure settings, then start a session.');
+  pushLog(IS_KRI ? 'KRI GPS ready. Configure settings, then start a session.' : 'RNZ Row Recorder ready. Configure settings, then start a session.');
   if (IS_NATIVE) {
     void requestNativePermissions().then((p) => {
       pushLog(
