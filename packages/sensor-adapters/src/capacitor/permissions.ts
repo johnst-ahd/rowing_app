@@ -17,22 +17,13 @@ function permLabel(
   return state;
 }
 
-/** Location, notifications (Android 13+), and accelerometer (native sensor). */
+/** Notifications, location, and accelerometer (native sensor). Notifications first so Android shows the prompt before GPS. */
 export async function requestNativePermissions(): Promise<NativePermissionStatus> {
   const status: NativePermissionStatus = {
     location: 'unknown',
     notifications: 'unknown',
     accelerometer: 'unknown',
   };
-
-  try {
-    const loc = await Geolocation.requestPermissions({
-      permissions: ['location', 'coarseLocation'],
-    });
-    status.location = permLabel(loc.location ?? loc.coarseLocation);
-  } catch {
-    status.location = 'error';
-  }
 
   try {
     const notif = await LocalNotifications.checkPermissions();
@@ -44,6 +35,15 @@ export async function requestNativePermissions(): Promise<NativePermissionStatus
     }
   } catch {
     status.notifications = 'error';
+  }
+
+  try {
+    const loc = await Geolocation.requestPermissions({
+      permissions: ['location', 'coarseLocation'],
+    });
+    status.location = permLabel(loc.location ?? loc.coarseLocation);
+  } catch {
+    status.location = 'error';
   }
 
   try {

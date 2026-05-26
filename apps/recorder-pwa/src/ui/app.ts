@@ -8,6 +8,7 @@ import {
   type BackgroundStatus,
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
+import { ensureCapsizeAlertReady } from '../lib/capsize-notification';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
@@ -733,13 +734,19 @@ export function mountApp(root: HTMLElement): void {
   }
   pushLog(IS_KRI ? 'KRI GPS ready. Configure settings, then start a session.' : 'RNZ Row Recorder ready. Configure settings, then start a session.');
   if (IS_NATIVE) {
-    void requestNativePermissions().then((p) => {
+    void (async () => {
+      /* Let WebView paint the shell before system permission dialogs (Android). */
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      await ensureCapsizeAlertReady();
+      const p = await requestNativePermissions();
       pushLog(
-        `Permissions — location: ${p.location}, notifications: ${p.notifications}, accelerometer: ${p.accelerometer} (Android usually has no separate accel dialog)`,
+        `Permissions — notifications: ${p.notifications}, location: ${p.location}, accelerometer: ${p.accelerometer}`,
         false,
       );
       refreshLogPre();
-    });
+    })();
   }
 }
 

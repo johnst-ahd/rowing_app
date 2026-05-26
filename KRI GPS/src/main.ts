@@ -78,6 +78,7 @@ window.addEventListener('unhandledrejection', (ev) => {
 void (async () => {
   try {
     await waitForNativeBridge();
+    document.body.classList.add('kri-native-boot');
     enforceKriProfile();
     mountApp(root);
     applyKriBranding(root);

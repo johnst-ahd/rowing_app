@@ -1,12 +1,31 @@
 @import url('../../apps/recorder-pwa/src/styles.css');
 
-/* Native WebView: skip missing RNZ background assets (absolute /assets/rnz/… URLs). */
+/*
+ * Android WebView: background-attachment:fixed (from hub theme) breaks painting —
+ * UI disappears after permission dialogs, leaving only the red splash colour.
+ */
 .kri-theme-page.hub-page {
   background-image: linear-gradient(180deg, rgba(35, 9, 13, 0.96) 0%, rgba(20, 8, 10, 0.98) 100%);
+  background-attachment: scroll;
 }
 
 .kri-theme-page.hub-page::before {
   display: none;
+}
+
+.kri-theme-page #app {
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+}
+
+.kri-theme-page .ahd-recorder-shell,
+.kri-theme-page .hub-topbar,
+.kri-theme-page .hub-stats-bar,
+.kri-theme-page .ahd-recorder-main,
+.kri-theme-page .ahd-footer {
+  position: relative;
+  z-index: 1;
 }
 
 .kri-theme-page {
@@ -24,6 +43,7 @@
 .kri-theme-page .hub-topbar {
   background-color: #2a0f13;
   background-image: linear-gradient(180deg, rgba(42, 15, 19, 0.86), rgba(20, 8, 10, 0.9));
+  background-attachment: scroll;
 }
 
 .kri-theme-page .hub-topbar-brands--kri {
