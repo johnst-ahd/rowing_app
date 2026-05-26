@@ -1,11 +1,9 @@
 @import url('../../apps/recorder-pwa/src/styles.css');
 
-/*
- * Android WebView: background-attachment:fixed (from hub theme) breaks painting —
- * UI disappears after permission dialogs, leaving only the red splash colour.
- */
+/* KRI theme overrides + Android WebView paint safety. */
 .kri-theme-page.hub-page {
-  background-image: linear-gradient(180deg, rgba(35, 9, 13, 0.96) 0%, rgba(20, 8, 10, 0.98) 100%);
+  background-color: #f4f9ff;
+  background-image: linear-gradient(180deg, #f7fbff 0%, #eaf3ff 100%);
   background-attachment: scroll;
 }
 
@@ -29,20 +27,21 @@
 }
 
 .kri-theme-page {
-  --ahd-bg: #23090d;
-  --ahd-bg-card: rgba(53, 16, 23, 0.92);
-  --ahd-border: rgba(251, 113, 133, 0.35);
-  --ahd-accent: #fb7185;
-  --ahd-accent-dim: #e11d48;
-  --ahd-text: #fff1f2;
-  --ahd-muted: #fecdd3;
+  --ahd-bg: #f1f7ff;
+  --ahd-bg-card: rgba(255, 255, 255, 0.98);
+  --ahd-border: rgba(37, 99, 235, 0.25);
+  --ahd-accent: #1d4ed8;
+  --ahd-accent-dim: #2563eb;
+  --ahd-text: #0f172a;
+  --ahd-muted: #475569;
   --ahd-safety: #4ade80;
-  --ahd-danger: #f43f5e;
+  --ahd-danger: #dc2626;
 }
 
 .kri-theme-page .hub-topbar {
-  background-color: #2a0f13;
-  background-image: linear-gradient(180deg, rgba(42, 15, 19, 0.86), rgba(20, 8, 10, 0.9));
+  background-color: #dbeafe;
+  background-image: linear-gradient(180deg, rgba(219, 234, 254, 0.98), rgba(191, 219, 254, 0.94));
+  border-bottom-color: rgba(37, 99, 235, 0.26);
   background-attachment: scroll;
 }
 
@@ -72,6 +71,59 @@
   font-size: 0.95rem;
 }
 
+.kri-theme-page .hub-stats-bar {
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.kri-theme-page .hub-panel {
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.kri-theme-page .form input[type='text'],
+.kri-theme-page .form input[type='url'],
+.kri-theme-page .form input[type='password'],
+.kri-theme-page .form input[type='number'],
+.kri-theme-page .hub-btn {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.kri-theme-page .ahd-toolbar h1,
+.kri-theme-page .hub-section-title {
+  color: var(--ahd-accent-dim);
+}
+
+.kri-theme-page .hub-btn {
+  background: rgba(37, 99, 235, 0.1);
+}
+
+.kri-theme-page .hub-btn--primary {
+  background: #2563eb;
+  border-color: #1d4ed8;
+  color: #fff;
+}
+
+.kri-theme-page .hub-btn--primary:hover {
+  background: #1d4ed8;
+}
+
+.kri-theme-page .hub-btn--danger {
+  background: rgba(220, 38, 38, 0.12);
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #b91c1c;
+}
+
+.kri-theme-page .ahd-footer {
+  background: rgba(255, 255, 255, 0.9);
+  border-top: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.kri-theme-page .ahd-footer a {
+  color: #1d4ed8;
+}
+
 .kri-theme-page [data-action='connect-hr'],
 .kri-theme-page [name='enableHr'] {
   display: none !important;
@@ -81,4 +133,36 @@
 .kri-theme-page .session-live-hud__metrics .session-metric:nth-child(3),
 .kri-theme-page .spectrum-rail--hr {
   display: none !important;
+}
+
+.kri-theme-page .session-metric--capsize .session-metric__value,
+.kri-theme-page .hub-stats-item--danger {
+  color: #b91c1c;
+}
+
+@media (max-width: 420px) {
+  .kri-theme-page .ahd-recorder-main {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .kri-theme-page .session-live-hud,
+  .kri-theme-page .session-drawer-toggle,
+  .kri-theme-page .session-drawer {
+    width: calc(100% - 20px);
+  }
+
+  .kri-theme-page .ahd-toolbar-actions {
+    width: 100%;
+  }
+
+  .kri-theme-page .ahd-toolbar-actions .hub-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .kri-theme-page .hint,
+  .kri-theme-page .hub-stats-item {
+    overflow-wrap: anywhere;
+  }
 }

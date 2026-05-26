@@ -281,7 +281,7 @@ export function mountApp(root: HTMLElement): void {
             <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="56" height="56" />
             <div class="hub-kri-titles">
               <p class="hub-kicker">KRI Safety System</p>
-              <p class="hub-tagline">GPS + capsize monitor${IS_NATIVE ? ' · Native app' : ''}</p>
+              <p class="hub-tagline">GPS + capsize safety${IS_NATIVE ? ' · Native app' : ''}</p>
             </div>
           </div>
         </div>
@@ -302,12 +302,17 @@ export function mountApp(root: HTMLElement): void {
 
   function hubFooter(): string {
     const version = buildVersionLabel();
+    const appName = IS_KRI ? 'KRI GPS' : 'RNZ Row Recorder';
+    const monitorLink = IS_KRI ? '' : `<a href="${asset('dashboard.html')}">Monitor</a> ·`;
+    const installLink = IS_KRI
+      ? `<a href="${asset('install-kri.html')}">Install Android app</a> ·`
+      : `<a href="${asset('install-native.html')}">Install Android app</a> ·`;
     return `
       <footer class="ahd-footer">
         <p class="ahd-footer__line">
-          Altitude HD · RNZ Row Recorder ·
-          <a href="${asset('dashboard.html')}">Monitor</a> ·
-          <a href="${asset('install-native.html')}">Install Android app</a> ·
+          Altitude HD · ${appName} ·
+          ${monitorLink}
+          ${installLink}
           <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
         </p>
         ${version ? `<p class="ahd-footer__version">${esc(version)}</p>` : ''}
@@ -407,7 +412,7 @@ export function mountApp(root: HTMLElement): void {
       <div class="ahd-toolbar">
         <h1>Session</h1>
         <div class="ahd-toolbar-actions">
-          <a class="hub-btn hub-btn--ghost" href="${asset('dashboard.html')}">Monitor</a>
+          ${IS_KRI ? '' : `<a class="hub-btn hub-btn--ghost" href="${asset('dashboard.html')}">Monitor</a>`}
           <button type="button" class="hub-btn" data-nav="settings">Settings</button>
         </div>
       </div>
