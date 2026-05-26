@@ -201,9 +201,19 @@
     ctx.fillText(opts.title || '', pad.l, 14);
   }
 
+  function destroyHistoryMap() {
+    if (historyMap) {
+      historyMap.remove();
+      historyMap = null;
+      historyLayer = null;
+      historyMarkers = null;
+    }
+  }
+
   function initHistoryMap() {
     const el = document.getElementById('historyMap');
-    if (!el || historyMap || typeof L === 'undefined') return;
+    if (!el || typeof L === 'undefined') return;
+    if (historyMap) destroyHistoryMap();
     historyMap = L.map(el, { zoomControl: true }).setView([-37.9305, 175.5485], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -213,8 +223,30 @@
     historyMarkers = L.layerGroup().addTo(historyMap);
   }
 
+  function showHistoryResults() {
+    const results = document.getElementById('historyResults');
+    if (!results) return;
+    results.hidden = false;
+    results.setAttribute('aria-hidden', 'false');
+    results.classList.add('history-results--visible');
+    results.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function hideHistoryResults() {
+    const results = document.getElementById('historyResults');
+    if (!results) return;
+    results.hidden = true;
+    results.setAttribute('aria-hidden', 'true');
+    results.classList.remove('history-results--visible');
+  }
+
   function renderHistoryMap(track, capsizeEvents) {
-    initHistoryMap();
+    const mapEl = document.getElementById('historyMap');
+    if (!mapEl || typeof L === 'undefined') return;
+    if (!historyMap || mapEl.offsetHeight < 10) {
+      destroyHistoryMap();
+      initHistoryMap();
+    }
     if (!historyMap || !historyLayer) return;
     historyLayer.clearLayers();
     historyMarkers.clearLayers();
@@ -267,7 +299,15 @@
       historyMarkers.addLayer(m);
     }
 
-    setTimeout(() => historyMap?.invalidateSize(), 80);
+    setTimeout(() => {
+      historyMap?.invalidateSize(true);
+      if (latlngs.length >= 2) {
+        const line = historyLayer?.getLayers()?.[0];
+        if (line?.getBounds) {
+          historyMap.fitBounds(line.getBounds(), { padding: [32, 32], maxZoom: 16 });
+        }
+      }
+    }, 120);
   }
 
   function renderCharts(track) {
@@ -547,8 +587,7 @@
     }
 
     setHistoryStatus('Loading history…');
-    const results = document.getElementById('historyResults');
-    if (results) results.hidden = true;
+    hideHistoryResults();
 
     try {
       const data = await fetchJson(url);
@@ -573,19 +612,28 @@
       const dsNote = data.downsampled
         ? ` (map/charts use ${data.track.length} of ${data.pointCount} points)`
         : '';
+      const gpsNote =
+        data.gpsCount === 0
+          ? ' · no GPS in this session (map empty)'
+          : '';
       setHistoryStatus(
-        `${data.pointCount} samples · ${data.gpsCount} GPS · ${hrPts} HR · max ${fmtSpeedMps(maxSpd)} (${fmtPace(maxSpd)}) · ${data.capsizeEvents?.length ?? 0} capsize${dsNote}`,
+        `Loaded — scroll down for map and charts. ${data.pointCount} samples · ${data.gpsCount} GPS · ${hrPts} HR · max ${fmtSpeedMps(maxSpd)} (${fmtPace(maxSpd)}) · ${data.capsizeEvents?.length ?? 0} capsize${dsNote}${gpsNote}`,
       );
-
-      renderHistoryMap(data.track, data.capsizeEvents || []);
-      renderCharts(data.track);
-      renderCapsizeList(data.capsizeEvents || [], data.capsizeSampleCount || 0);
 
       const meta = document.getElementById('historyMeta');
       if (meta) {
         meta.textContent = `${data.uniqueId || deviceId}${data.sessionId ? ` · session ${data.sessionId.slice(0, 8)}…` : ''} · ${fmtTime(new Date(data.from).getTime())} – ${fmtTime(new Date(data.to).getTime())}`;
       }
-      if (results) results.hidden = false;
+
+      showHistoryResults();
+
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          renderHistoryMap(data.track, data.capsizeEvents || []);
+          renderCharts(data.track);
+          renderCapsizeList(data.capsizeEvents || [], data.capsizeSampleCount || 0);
+        });
+      });
     } catch (e) {
       setHistoryStatus(`History error: ${e instanceof Error ? e.message : String(e)}`, true);
     }
@@ -622,7 +670,6 @@
       setRangeInputs(now - 30 * 24 * 60 * 60 * 1000, now);
     }
 
-    initHistoryMap();
     void reloadHistoryLists();
 
     document.getElementById('historyRefreshListsBtn')?.addEventListener('click', () => {
