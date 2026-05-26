@@ -6,6 +6,7 @@ import type {
 } from '@rowing/telemetry-types';
 import {
   connectHeartRate,
+  kickNativeAccelerometer,
   pollNativeAccelerometerReading,
   startGpsWatcher,
   startMotionWatcher,
@@ -119,7 +120,7 @@ export async function startRecorder(
   let pushInFlight = false;
   let lastMotionUploadAt = 0;
   let lastBackgroundPulseAt = 0;
-  let lastMotionEventAt = 0;
+  let bgMotionPollTimer: ReturnType<typeof setInterval> | null = null;
 
   const motionUploadMs = Math.max(
     200,
@@ -184,9 +185,15 @@ export async function startRecorder(
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
 
+  const pollMotionWhileBackgrounded = () => {
+    if (stopped || !motionAnalyzer || !IS_NATIVE) return;
+    void pollNativeAccelerometerReading().then((reading) => {
+      if (reading) handleMotionReading(reading);
+    });
+  };
+
   const handleMotionReading = (r: MotionReading) => {
     if (stopped || !motionAnalyzer) return;
-    lastMotionEventAt = Date.now();
     stats.motionCount++;
     latestMotion = { ax: r.ax, ay: r.ay, az: r.az };
     motionAnalyzer.process(r.t, r.ax, r.ay, r.az);
@@ -252,8 +259,57 @@ export async function startRecorder(
       });
     }
     motionAnalyzer = createMotionAnalyzer();
+
+    const handleMotionFromStream = (r: MotionReading) => {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      ) {
+        return;
+      }
+      handleMotionReading(r);
+    };
+
+    const syncBackgroundMotionPoll = () => {
+      if (bgMotionPollTimer) {
+        clearInterval(bgMotionPollTimer);
+        bgMotionPollTimer = null;
+      }
+      if (
+        stopped ||
+        !IS_NATIVE ||
+        typeof document === 'undefined' ||
+        document.visibilityState !== 'hidden'
+      ) {
+        return;
+      }
+      void kickNativeAccelerometer();
+      const pollMs = Math.max(200, settings.motionIntervalMs);
+      bgMotionPollTimer = setInterval(pollMotionWhileBackgrounded, pollMs);
+      pollMotionWhileBackgrounded();
+      onLog(`Screen off — capsize uses accelerometer poll every ${pollMs}ms`);
+    };
+
+    const onVisibilityForMotion = () => {
+      if (document.visibilityState === 'hidden') {
+        syncBackgroundMotionPoll();
+      } else if (bgMotionPollTimer) {
+        clearInterval(bgMotionPollTimer);
+        bgMotionPollTimer = null;
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityForMotion);
+    stoppers.push(() => {
+      document.removeEventListener('visibilitychange', onVisibilityForMotion);
+      if (bgMotionPollTimer) clearInterval(bgMotionPollTimer);
+      bgMotionPollTimer = null;
+    });
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      syncBackgroundMotionPoll();
+    }
+
     const motion = await startMotionWatcher(
-      handleMotionReading,
+      handleMotionFromStream,
       settings.motionIntervalMs,
       (m) => onLog(`Motion: ${m}`),
       { enableBackground: IS_NATIVE },
@@ -273,16 +329,12 @@ export async function startRecorder(
 
         if (
           IS_NATIVE &&
-          settings.enableBackgroundRecording &&
           settings.enableMotion &&
           motionAnalyzer &&
           typeof document !== 'undefined' &&
-          document.visibilityState === 'hidden' &&
-          Date.now() - lastMotionEventAt > 1500
+          document.visibilityState === 'hidden'
         ) {
-          void pollNativeAccelerometerReading().then((reading) => {
-            if (reading) handleMotionReading(reading);
-          });
+          pollMotionWhileBackgrounded();
         }
 
         queueSample(
@@ -324,9 +376,9 @@ export async function startRecorder(
     } else {
       onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);
     }
-    if (IS_NATIVE && settings.enableBackgroundRecording) {
+    if (IS_NATIVE && settings.enableGps) {
       onLog(
-        'Background motion: native accelerometer (capsize/stroke while screen off on Android when GPS background is on).',
+        'Screen off: capsize polled on GPS + timer (hold boat still ~3s at start to calibrate).',
       );
     }
   }

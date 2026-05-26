@@ -73,9 +73,19 @@ export async function startNativeAccelerometerWatcher(
   };
 }
 
+/** Re-start sensor delivery after screen off (listener may pause on some devices). */
+export async function kickNativeAccelerometer(): Promise<void> {
+  try {
+    await CapacitorAccelerometer.startMeasurementUpdates();
+  } catch {
+    /* optional */
+  }
+}
+
 /** One-shot read — used when GPS wakes the app while the screen is off. */
 export async function pollNativeAccelerometerReading(): Promise<MotionReading | null> {
   try {
+    await kickNativeAccelerometer();
     const m = await CapacitorAccelerometer.getMeasurement();
     if (m.x == null || m.y == null || m.z == null) return null;
     return {

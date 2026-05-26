@@ -6,7 +6,10 @@ import {
   type NativePermissionStatus,
 } from './permissions';
 
-export { pollNativeAccelerometerReading } from './native-motion';
+export {
+  kickNativeAccelerometer,
+  pollNativeAccelerometerReading,
+} from './native-motion';
 export { startGpsWatcher, startMotionWatcher, connectHeartRate, requestNativePermissions };
 export type { GpsWatcherOptions } from './gps';
 export type { MotionWatcherOptions } from './motion';

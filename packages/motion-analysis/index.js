@@ -10,7 +10,10 @@ const MAX_PEAK_INTERVAL_MS = 60000 / MIN_SPM;
 const DEFAULTS = {
   bufferMs: 8000,
   gravityAlpha: 0.04,
-  calibrateSamples: 40,
+  /** Min samples in calibrateWindowMs while still (works at ~1 Hz when screen off). */
+  calibrateMinSamples: 5,
+  /** Upright calibration window — time-based so GPS-poll motion still calibrates. */
+  calibrateWindowMs: 2500,
   stillVarianceMax: 0.35,
   /** Dot product with upright gravity below this = capsize (0 ≈ 90° tilt). */
   capsizeDotThreshold: 0,
@@ -135,8 +138,12 @@ class MotionAnalyzer {
   }
 
   _calibrateUpright() {
-    if (this.calibrated || this.sampleCount < this.opts.calibrateSamples) return;
-    const recent = this.buffer.slice(-this.opts.calibrateSamples);
+    if (this.calibrated || !this.lastSample) return;
+    const newest = this.lastSample.t;
+    const recent = this.buffer.filter(
+      (s) => s.t >= newest - this.opts.calibrateWindowMs,
+    );
+    if (recent.length < this.opts.calibrateMinSamples) return;
     const vx = stdDev(recent.map((s) => s.ax));
     const vy = stdDev(recent.map((s) => s.ay));
     const vz = stdDev(recent.map((s) => s.az));

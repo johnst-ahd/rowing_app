@@ -12,6 +12,8 @@ export async function pollNativeAccelerometerReading(): Promise<MotionReading | 
   return null;
 }
 
+export async function kickNativeAccelerometer(): Promise<void> {}
+
 export async function requestNativePermissions(): Promise<NativePermissionStatus> {
   return {
     location: 'n/a',
