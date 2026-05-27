@@ -236,6 +236,17 @@ export function mountApp(root: HTMLElement): void {
     const avgMps = speedAvg.average();
     setHudText('[data-hud-split]', formatSplit500m(avgMps));
 
+    if (IS_KRI) {
+      setHudText('[data-hud-device]', settings.deviceId || '(device not set)');
+      const lastGpsMs = stats?.lastGps?.t ?? 0;
+      const gpsActive = lastGpsMs > 0 && Date.now() - lastGpsMs <= 30_000;
+      const gpsEl = root.querySelector('[data-hud-gps-status]');
+      if (gpsEl) {
+        gpsEl.textContent = gpsActive ? 'GPS active (last 30s)' : 'GPS waiting…';
+        gpsEl.setAttribute('data-gps-active', gpsActive ? 'true' : 'false');
+      }
+    }
+
     const splitSec = splitSecFromMps(avgMps);
     updateSpectrumRail(
       root.querySelector('[data-rail-speed]') as HTMLElement | null,
@@ -303,7 +314,6 @@ export function mountApp(root: HTMLElement): void {
   function hubFooter(): string {
     const version = buildVersionLabel();
     const appName = IS_KRI ? 'KRI GPS' : 'RNZ Row Recorder';
-    const monitorLink = IS_KRI ? '' : `<a href="${asset('dashboard.html')}">Monitor</a> ·`;
     const installLink = IS_KRI
       ? `<a href="${asset('install-kri.html')}">Install Android app</a> ·`
       : `<a href="${asset('install-native.html')}">Install Android app</a> ·`;
@@ -311,7 +321,6 @@ export function mountApp(root: HTMLElement): void {
       <footer class="ahd-footer">
         <p class="ahd-footer__line">
           Altitude HD · ${appName} ·
-          ${monitorLink}
           ${installLink}
           <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
         </p>
@@ -370,6 +379,18 @@ export function mountApp(root: HTMLElement): void {
   function liveHudHtml(): string {
     return `
       <section class="session-live-hud" aria-live="polite">
+        ${
+          IS_KRI
+            ? `
+        <div class="session-live-hud__kri">
+          <div class="session-live-hud__device" data-hud-device>${esc(settings.deviceId || '(device not set)')}</div>
+          <div class="session-live-hud__gps-status" data-hud-gps-status data-gps-active="false">
+            GPS waiting…
+          </div>
+        </div>
+        `
+            : ''
+        }
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
         </div>
@@ -412,7 +433,6 @@ export function mountApp(root: HTMLElement): void {
       <div class="ahd-toolbar">
         <h1>Session</h1>
         <div class="ahd-toolbar-actions">
-          ${IS_KRI ? '' : `<a class="hub-btn hub-btn--ghost" href="${asset('dashboard.html')}">Monitor</a>`}
           <button type="button" class="hub-btn" data-nav="settings">Settings</button>
         </div>
       </div>
@@ -529,7 +549,7 @@ export function mountApp(root: HTMLElement): void {
             </fieldset>
             <fieldset class="fieldset checks">
               <legend>Background recording</legend>
-              <label class="check"><input type="checkbox" name="enableBackgroundRecording" ${s.enableBackgroundRecording !== false ? 'checked' : ''} /> Allow background (best effort)</label>
+              <label class="check"><input type="checkbox" name="enableBackgroundRecording" ${s.enableBackgroundRecording !== false ? 'checked' : ''} ${IS_NATIVE ? 'disabled' : ''} /> ${IS_NATIVE ? 'Always on in native app' : 'Allow background (best effort)'}</label>
               <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>

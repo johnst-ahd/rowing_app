@@ -49,6 +49,10 @@ function withOriginDefaults(s: RecorderSettings): RecorderSettings {
     }
   }
   s.ingestUrl = normalizeIngestUrl(s.ingestUrl);
+  if (IS_NATIVE_APP) {
+    // Native APKs are expected to keep recording when minimized/screen-off.
+    s.enableBackgroundRecording = true;
+  }
   return s;
 }
 
@@ -82,7 +86,7 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     const v = Number(fd.get(name));
     return Number.isFinite(v) && v > 0 ? v : fallback;
   };
-  return withOriginDefaults({
+  const settings = withOriginDefaults({
     deviceId: String(fd.get('deviceId') ?? '').trim(),
     athleteId: String(fd.get('athleteId') ?? '').trim(),
     ingestUrl: String(fd.get('ingestUrl') ?? DEFAULT_INGEST_URL).trim(),
@@ -100,4 +104,6 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     enableBackgroundRecording: fd.get('enableBackgroundRecording') === 'on',
     keepScreenOn: fd.get('keepScreenOn') === 'on',
   });
+  if (IS_NATIVE_APP) settings.enableBackgroundRecording = true;
+  return settings;
 }

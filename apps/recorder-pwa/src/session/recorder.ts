@@ -35,7 +35,7 @@ export type RecorderStats = {
   motionCount: number;
   hrCount: number;
   lastHr?: number;
-  lastGps?: { lat: number; lon: number; spd?: number };
+  lastGps?: { t: number; lat: number; lon: number; spd?: number };
   /** Latest GPS speed (m/s) for pace display. */
   speedMps?: number;
   pendingOutbox: number;
@@ -171,7 +171,6 @@ export async function startRecorder(
   const pulseBackgroundUpload = () => {
     if (
       !IS_NATIVE ||
-      !settings.enableBackgroundRecording ||
       typeof document === 'undefined' ||
       document.visibilityState !== 'hidden'
     ) {
@@ -346,7 +345,7 @@ export async function startRecorder(
       (r) => {
         if (stopped) return;
         stats.gpsCount++;
-        stats.lastGps = { lat: r.lat, lon: r.lon, spd: r.spd };
+        stats.lastGps = { t: r.t, lat: r.lat, lon: r.lon, spd: r.spd };
         if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
 
         if (
@@ -379,7 +378,7 @@ export async function startRecorder(
       settings.gpsIntervalMs,
       (m) => onLog(`GPS: ${m}`),
       {
-        enableBackground: IS_NATIVE && settings.enableBackgroundRecording,
+        enableBackground: IS_NATIVE || settings.enableBackgroundRecording,
       },
     );
     stoppers.push(async () => {
@@ -407,7 +406,7 @@ export async function startRecorder(
   if (
     IS_NATIVE &&
     settings.enableMotion &&
-    settings.enableBackgroundRecording
+    (IS_NATIVE || settings.enableBackgroundRecording)
   ) {
     const started = await startNativeCapsizeMonitor({
       sessionId,
@@ -426,15 +425,12 @@ export async function startRecorder(
     }
   }
 
-  if (IS_NATIVE && settings.enableBackgroundRecording && settings.enableGps) {
+  if (IS_NATIVE && settings.enableGps) {
     onLog(
       'Background GPS on — allow location Always, notifications, and set battery to Unrestricted.',
     );
   } else if (
-    IS_NATIVE &&
-    settings.enableBackgroundRecording &&
-    settings.enableMotion &&
-    !settings.enableGps
+    IS_NATIVE && settings.enableMotion && !settings.enableGps
   ) {
     onLog(
       'Tip: enable GPS + Allow background for reliable capsize detection when the screen is off.',

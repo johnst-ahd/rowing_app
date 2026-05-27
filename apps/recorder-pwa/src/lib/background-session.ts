@@ -82,7 +82,9 @@ export async function startBackgroundSession(
     cleanups.push(bindWakeLockVisibility());
   }
 
-  if (settings.enableBackgroundRecording) {
+  const backgroundEnabled = IS_NATIVE || settings.enableBackgroundRecording;
+
+  if (backgroundEnabled) {
     // Native: background-geolocation foreground service keeps GPS + bridge alive.
     if (!IS_NATIVE) {
       const audioOk = await startKeepaliveAudio(settings.deviceId);

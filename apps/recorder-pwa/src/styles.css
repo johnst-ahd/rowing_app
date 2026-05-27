@@ -121,6 +121,8 @@
 .form input[type='number'] {
   display: block;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
   margin-top: 0.35rem;
   padding: 8px 12px;
   border: 1px solid var(--ahd-border);
@@ -142,6 +144,8 @@
   border-radius: 8px;
   padding: 0.75rem 1rem;
   margin: 1rem 0;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .fieldset legend {
@@ -162,6 +166,22 @@
   width: auto;
   margin: 0;
   accent-color: var(--ahd-accent);
+}
+
+.ahd-recorder-main .hub-panel,
+.ahd-toolbar,
+.ahd-toolbar-actions,
+.form label,
+.form .fieldset,
+.form .hub-btn {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ahd-toolbar-actions .hub-btn {
+  white-space: normal;
+  text-align: center;
 }
 
 .hub-stats-item--muted {
@@ -237,6 +257,45 @@
 
 .session-live-hud__alert[hidden] {
   display: none;
+}
+
+.session-live-hud__kri {
+  margin: 0 0 0.55rem;
+}
+
+.session-live-hud__device {
+  font-size: clamp(1.1rem, 5.2vw, 1.65rem);
+  font-weight: 900;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+}
+
+.session-live-hud__gps-status {
+  margin-top: 0.35rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ahd-muted);
+}
+
+.session-live-hud__gps-status::before {
+  content: '';
+  width: 0.52rem;
+  height: 0.52rem;
+  border-radius: 999px;
+  background: #94a3b8;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35);
+}
+
+.session-live-hud__gps-status[data-gps-active='true'] {
+  color: #16a34a;
+}
+
+.session-live-hud__gps-status[data-gps-active='true']::before {
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.75);
 }
 
 .session-live-hud__metrics {
@@ -515,5 +574,18 @@
 
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ahd-recorder-main {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .form {
+    overflow: hidden;
+  }
+
+  .ahd-toolbar-actions .hub-btn {
+    width: 100%;
   }
 }

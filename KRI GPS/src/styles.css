@@ -158,6 +158,14 @@
   color: #1d4ed8;
 }
 
+.kri-theme-page .session-live-hud__device {
+  color: #0f172a;
+}
+
+.kri-theme-page .session-live-hud__gps-status {
+  color: #334155;
+}
+
 .kri-theme-page .session-stage:fullscreen,
 .kri-theme-page .session-stage--fullscreen {
   background: #ffffff;
