@@ -142,7 +142,7 @@
   async function refreshSummary() {
     setStatus('Loading storage summary…');
     try {
-      const res = await fetch(`${apiBase()}/api/data-manage`, { headers: headers() });
+      const res = await fetch(`${apiBase()}/api/history?storage=stats`, { headers: headers() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         throw new Error(data.error || `HTTP ${res.status}`);
@@ -165,10 +165,10 @@
     if (!confirm(confirmMsg)) return;
     setStatus('Deleting…');
     try {
-      const res = await fetch(`${apiBase()}/api/data-manage`, {
+      const res = await fetch(`${apiBase()}/api/history`, {
         method: 'POST',
         headers: { ...headers(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ manage: true, ...body }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);

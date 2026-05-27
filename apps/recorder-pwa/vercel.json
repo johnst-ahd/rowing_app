@@ -12,7 +12,6 @@
     "api/history.js": { "maxDuration": 60 },
     "api/map-positions.js": { "maxDuration": 20 },
     "api/capsize-clear.js": { "maxDuration": 10 },
-    "api/data-manage.js": { "maxDuration": 60 },
     "api/ping.js": { "maxDuration": 10 }
   },
   "redirects": [

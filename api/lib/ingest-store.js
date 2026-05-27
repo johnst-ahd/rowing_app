@@ -570,6 +570,91 @@ async function getDashboardHistoryBySession(sessionId) {
   }
 }
 
+function purgeMemorySession(sessionId) {
+  sessions.delete(String(sessionId));
+}
+
+function purgeMemoryDevice(deviceId) {
+  const id = String(deviceId);
+  for (const [key, row] of sessions.entries()) {
+    if (row.deviceId === id) sessions.delete(key);
+  }
+}
+
+function purgeAllMemory() {
+  sessions.clear();
+  capsizeClearAt.clear();
+}
+
+async function getStorageStats() {
+  if (!db.hasDb()) return null;
+  try {
+    return await db.getStorageStats();
+  } catch (err) {
+    console.error('[ingest-store] getStorageStats failed:', err);
+    return null;
+  }
+}
+
+async function deleteStoredSession(sessionId) {
+  if (!db.hasDb()) return null;
+  const result = await db.deleteSession(sessionId);
+  purgeMemorySession(sessionId);
+  return result;
+}
+
+async function deleteStoredDevice(uniqueId) {
+  if (!db.hasDb()) return null;
+  const result = await db.deleteDeviceData(uniqueId);
+  purgeMemoryDevice(uniqueId);
+  capsizeClearAt.delete(String(uniqueId));
+  return result;
+}
+
+async function deleteStoredRange(uniqueId, fromIso, toIso) {
+  if (!db.hasDb()) return null;
+  const fromMs = new Date(fromIso).getTime();
+  const toMs = new Date(toIso).getTime();
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs)) {
+    throw new Error('Invalid from/to dates');
+  }
+  return db.deleteSamplesInRange(uniqueId, fromMs, toMs);
+}
+
+async function deleteAllStoredData() {
+  if (!db.hasDb()) return null;
+  const result = await db.deleteAllStoredData();
+  purgeAllMemory();
+  return result;
+}
+
+function getDataSecurityInfo() {
+  const tokenRequired = Boolean(process.env.INGEST_TOKEN);
+  return {
+    provider: 'Vercel Postgres (Neon)',
+    transport: 'HTTPS (TLS) between phones, dashboard, and API',
+    atRest:
+      'Encrypted at rest by the cloud provider (Neon/Vercel managed Postgres)',
+    accessControl: tokenRequired
+      ? 'Writes and deletes require INGEST_TOKEN (Bearer) — same token as phones and this dashboard'
+      : 'WARNING: INGEST_TOKEN is not set on Vercel — anyone who knows the API URL can upload or delete data',
+    dashboardAccess:
+      'This page stores your token in browser localStorage on this computer only',
+    retention:
+      'No automatic expiry — data stays until you delete it here or in the Neon SQL editor',
+    irreversible: 'Deletes are permanent and cannot be undone',
+    liveCache:
+      'The monitor also keeps short-lived in-memory samples for live maps; deletes clear matching live cache',
+    recommendations: [
+      'Set a long random INGEST_TOKEN in Vercel project settings',
+      'Only share the token with trusted coaches and admins',
+      'Use device-specific deletes when possible instead of delete all',
+      'Review Neon/Vercel project access (who can open the database console)',
+    ],
+    tokenRequired,
+  };
+}
+
 function checkAuth(req) {
   const expected = process.env.INGEST_TOKEN || '';
   if (!expected) return true;
@@ -599,6 +684,12 @@ module.exports = {
   getDashboardHistory,
   getDashboardHistoryBySession,
   clearCapsizeAlert,
+  getStorageStats,
+  deleteStoredSession,
+  deleteStoredDevice,
+  deleteStoredRange,
+  deleteAllStoredData,
+  getDataSecurityInfo,
   checkAuth,
   cors,
   hasDb: db.hasDb,
