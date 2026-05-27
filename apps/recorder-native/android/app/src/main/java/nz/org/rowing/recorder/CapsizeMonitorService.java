@@ -1,5 +1,6 @@
 package nz.org.rowing.recorder;
 
+import android.Manifest;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -8,17 +9,23 @@ import android.app.Service;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.util.Log;
 import androidx.core.app.NotificationCompat;
+import androidx.core.content.ContextCompat;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -29,13 +36,12 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 /**
- * Native capsize monitor — runs with screen off (no WebView). Posts capsize samples to ingest
- * and shows a high-priority notification.
+ * Native session recorder — GPS + capsize run outside the WebView with a foreground service.
  */
-public class CapsizeMonitorService extends Service implements SensorEventListener {
+public class CapsizeMonitorService extends Service implements SensorEventListener, LocationListener {
 
-    private static final String TAG = "CapsizeMonitor";
-    private static final String PREFS = "rnz_capsize_monitor";
+    private static final String TAG = "SessionRecorder";
+    public static final String PREFS = "rnz_capsize_monitor";
     private static final String CHANNEL_ID = "rnz_capsize_native";
     private static final int NOTIF_ID_FOREGROUND = 9101;
     private static final int NOTIF_ID_ALERT = 9102;
@@ -44,13 +50,18 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final int CALIBRATE_MIN_SAMPLES = 8;
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
-    private static final long UPLOAD_MIN_INTERVAL_MS = 4000L;
+    private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
+    private LocationManager locationManager;
     private PowerManager.WakeLock wakeLock;
     private ExecutorService uploadExecutor;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private boolean enableGps;
+    private boolean enableMotion = true;
+    private long gpsIntervalMs = 1000L;
 
     private float gx;
     private float gy;
@@ -61,8 +72,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private boolean calibrated;
     private boolean capsizeActive;
     private long capsizeSinceMs;
-    private long lastUploadMs;
+    private long lastCapsizeUploadMs;
+    private long lastGpsPostMs;
+    private int nativeGpsCount;
     private int sampleCount;
+    private float lastAx;
+    private float lastAy;
+    private float lastAz;
     private final float[] recentAx = new float[64];
     private final float[] recentAy = new float[64];
     private final float[] recentAz = new float[64];
@@ -76,6 +92,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) {
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         }
+        locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         uploadExecutor = Executors.newSingleThreadExecutor();
         createNotificationChannel();
         loadUprightFromPrefs();
@@ -86,15 +103,30 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (intent != null) {
             saveConfigFromIntent(intent);
         }
+        loadSessionFlagsFromPrefs();
         startForeground(NOTIF_ID_FOREGROUND, buildForegroundNotification());
         acquireWakeLock();
-        registerSensor();
+        if (enableMotion) {
+            registerSensor();
+        }
+        if (enableGps) {
+            registerLocation();
+        }
+        Log.i(
+            TAG,
+            "Native session service started gps="
+                + enableGps
+                + " motion="
+                + enableMotion
+                + " intervalMs="
+                + gpsIntervalMs);
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         unregisterSensor();
+        unregisterLocation();
         releaseWakeLock();
         if (uploadExecutor != null) {
             uploadExecutor.shutdownNow();
@@ -114,6 +146,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         float ay = event.values[1];
         float az = event.values[2];
         long t = System.currentTimeMillis();
+        lastAx = ax;
+        lastAy = ay;
+        lastAz = az;
 
         gx = GRAVITY_ALPHA * ax + (1f - GRAVITY_ALPHA) * gx;
         gy = GRAVITY_ALPHA * ay + (1f - GRAVITY_ALPHA) * gy;
@@ -128,6 +163,29 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+
+    @Override
+    public void onLocationChanged(Location location) {
+        if (!enableGps || location == null) return;
+        long t = System.currentTimeMillis();
+        if (t - lastGpsPostMs < gpsIntervalMs) return;
+        lastGpsPostMs = t;
+        nativeGpsCount++;
+        saveLastGpsToPrefs(location, t, nativeGpsCount);
+        final Location loc = location;
+        uploadExecutor.execute(() -> postGpsToIngest(loc, t));
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {}
+
+    @Override
+    public void onProviderDisabled(String provider) {
+        Log.w(TAG, "Location provider disabled: " + provider);
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {}
 
     private void pushRecent(long t, float ax, float ay, float az) {
         if (recentCount < recentAx.length) {
@@ -152,14 +210,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void tryCalibrate(long t) {
         if (calibrated || recentCount < CALIBRATE_MIN_SAMPLES) return;
         int n = 0;
-        float sx = 0, sy = 0, sz = 0;
         for (int i = 0; i < recentCount; i++) {
-            if (recentT[i] >= t - CALIBRATE_WINDOW_MS) {
-                sx += recentAx[i];
-                sy += recentAy[i];
-                sz += recentAz[i];
-                n++;
-            }
+            if (recentT[i] >= t - CALIBRATE_WINDOW_MS) n++;
         }
         if (n < CALIBRATE_MIN_SAMPLES) return;
         float vx = stdDevWindow(recentAx, t);
@@ -228,9 +280,54 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void onCapsizeTriggered(long t, float ax, float ay, float az, int tiltDeg) {
         Log.w(TAG, "CAPSIZE detected (native)");
         showAlertNotification();
-        if (t - lastUploadMs < UPLOAD_MIN_INTERVAL_MS) return;
-        lastUploadMs = t;
+        if (t - lastCapsizeUploadMs < CAPSIZE_UPLOAD_MIN_INTERVAL_MS) return;
+        lastCapsizeUploadMs = t;
         uploadExecutor.execute(() -> postCapsizeToIngest(t, ax, ay, az, tiltDeg));
+    }
+
+    private void postGpsToIngest(Location location, long t) {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String ingestUrl = p.getString("ingestUrl", "");
+        String deviceId = p.getString("deviceId", "");
+        String sessionId = p.getString("sessionId", "");
+        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
+            Log.e(TAG, "Missing ingest config for GPS");
+            return;
+        }
+        try {
+            JSONObject gps = new JSONObject();
+            gps.put("lat", location.getLatitude());
+            gps.put("lon", location.getLongitude());
+            if (location.hasAccuracy()) gps.put("acc", location.getAccuracy());
+            if (location.hasSpeed() && location.getSpeed() >= 0f) {
+                gps.put("spd", Math.round(location.getSpeed() * 100) / 100.0);
+            }
+            if (location.hasBearing() && location.getBearing() >= 0f) {
+                gps.put("hdg", Math.round(location.getBearing() * 10) / 10.0);
+            }
+            if (location.hasAltitude()) {
+                gps.put("alt", Math.round(location.getAltitude() * 10) / 10.0);
+            }
+
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("gps", gps);
+
+            if (enableMotion && (lastAx != 0f || lastAy != 0f || lastAz != 0f)) {
+                JSONObject motion = new JSONObject();
+                motion.put("ax", Math.round(lastAx * 100) / 100.0);
+                motion.put("ay", Math.round(lastAy * 100) / 100.0);
+                motion.put("az", Math.round(lastAz * 100) / 100.0);
+                sample.put("motion", motion);
+            }
+
+            JSONArray samples = new JSONArray();
+            samples.put(sample);
+            postBatch(p, sessionId, deviceId, samples);
+            Log.d(TAG, "GPS ingest OK");
+        } catch (Exception e) {
+            Log.e(TAG, "GPS ingest failed", e);
+        }
     }
 
     private void postCapsizeToIngest(long t, float ax, float ay, float az, int tiltDeg) {
@@ -256,34 +353,57 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             sample.put("derived", derived);
             JSONArray samples = new JSONArray();
             samples.put(sample);
-            JSONObject batch = new JSONObject();
-            batch.put("sessionId", sessionId);
-            batch.put("deviceId", deviceId);
-            String athleteId = p.getString("athleteId", "");
-            if (!athleteId.isEmpty()) batch.put("athleteId", athleteId);
-            batch.put("samples", samples);
-
-            String body = batch.toString();
-            URL url = new URL(ingestUrl);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            conn.setConnectTimeout(20000);
-            conn.setReadTimeout(20000);
-            conn.setRequestMethod("POST");
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
-            String token = p.getString("ingestToken", "");
-            if (!token.isEmpty()) {
-                conn.setRequestProperty("Authorization", "Bearer " + token);
-            }
-            try (OutputStream os = conn.getOutputStream()) {
-                os.write(body.getBytes(StandardCharsets.UTF_8));
-            }
-            int code = conn.getResponseCode();
-            conn.disconnect();
-            Log.i(TAG, "Capsize ingest HTTP " + code);
+            postBatch(p, sessionId, deviceId, samples);
+            Log.i(TAG, "Capsize ingest sent");
         } catch (Exception e) {
             Log.e(TAG, "Capsize ingest failed", e);
         }
+    }
+
+    private void postBatch(
+            SharedPreferences p, String sessionId, String deviceId, JSONArray samples)
+            throws Exception {
+        String ingestUrl = p.getString("ingestUrl", "");
+        JSONObject batch = new JSONObject();
+        batch.put("sessionId", sessionId);
+        batch.put("deviceId", deviceId);
+        String athleteId = p.getString("athleteId", "");
+        if (!athleteId.isEmpty()) batch.put("athleteId", athleteId);
+        batch.put("samples", samples);
+
+        String body = batch.toString();
+        URL url = new URL(ingestUrl);
+        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+        conn.setConnectTimeout(20000);
+        conn.setReadTimeout(20000);
+        conn.setRequestMethod("POST");
+        conn.setDoOutput(true);
+        conn.setRequestProperty("Content-Type", "application/json");
+        String token = p.getString("ingestToken", "");
+        if (!token.isEmpty()) {
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+        }
+        try (OutputStream os = conn.getOutputStream()) {
+            os.write(body.getBytes(StandardCharsets.UTF_8));
+        }
+        int code = conn.getResponseCode();
+        conn.disconnect();
+        if (code < 200 || code >= 300) {
+            Log.w(TAG, "Ingest HTTP " + code);
+        }
+    }
+
+    private void saveLastGpsToPrefs(Location location, long t, int count) {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putLong("lastGpsT", t)
+            .putFloat("lastGpsLat", (float) location.getLatitude())
+            .putFloat("lastGpsLon", (float) location.getLongitude())
+            .putFloat(
+                "lastGpsSpd",
+                location.hasSpeed() && location.getSpeed() >= 0f ? location.getSpeed() : -1f)
+            .putInt("nativeGpsCount", count)
+            .apply();
     }
 
     private void saveConfigFromIntent(Intent intent) {
@@ -294,7 +414,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putString("ingestUrl", intent.getStringExtra("ingestUrl"))
             .putString("ingestToken", intent.getStringExtra("ingestToken"))
             .putString("athleteId", intent.getStringExtra("athleteId"))
+            .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
+            .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
+            .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
             .apply();
+    }
+
+    private void loadSessionFlagsFromPrefs() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        enableGps = p.getBoolean("enableGps", false);
+        enableMotion = p.getBoolean("enableMotion", true);
+        gpsIntervalMs = Math.max(500L, p.getLong("gpsIntervalMs", 1000L));
     }
 
     private void loadUprightFromPrefs() {
@@ -346,10 +476,52 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) sensorManager.unregisterListener(this);
     }
 
+    private void registerLocation() {
+        if (locationManager == null) {
+            Log.e(TAG, "No LocationManager");
+            return;
+        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "ACCESS_FINE_LOCATION not granted — native GPS disabled");
+            return;
+        }
+        long minTime = Math.max(500L, gpsIntervalMs);
+        try {
+            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
+            }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
+            }
+            Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (last == null) {
+                last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            }
+            if (last != null) {
+                onLocationChanged(last);
+            }
+            Log.i(TAG, "Native location updates registered (" + minTime + "ms)");
+        } catch (SecurityException e) {
+            Log.e(TAG, "Location permission error", e);
+        }
+    }
+
+    private void unregisterLocation() {
+        if (locationManager != null) {
+            try {
+                locationManager.removeUpdates(this);
+            } catch (SecurityException ignored) {
+            }
+        }
+    }
+
     private void acquireWakeLock() {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm == null) return;
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RNZ::CapsizeMonitor");
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RNZ::SessionRecorder");
         wakeLock.acquire(4 * 60 * 60 * 1000L);
     }
 
@@ -363,12 +535,19 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         NotificationChannel ch =
             new NotificationChannel(
                 CHANNEL_ID,
-                "Capsize alerts (native)",
-                NotificationManager.IMPORTANCE_HIGH);
-        ch.setDescription("Native capsize detection while recording");
-        ch.enableVibration(true);
+                "Session recording (native)",
+                NotificationManager.IMPORTANCE_LOW);
+        ch.setDescription("GPS and capsize monitoring while recording");
         NotificationManager nm = getSystemService(NotificationManager.class);
         if (nm != null) nm.createNotificationChannel(ch);
+
+        NotificationChannel alertCh =
+            new NotificationChannel(
+                CHANNEL_ID + "_alert",
+                "Capsize alerts",
+                NotificationManager.IMPORTANCE_HIGH);
+        alertCh.enableVibration(true);
+        if (nm != null) nm.createNotificationChannel(alertCh);
     }
 
     private Notification buildForegroundNotification() {
@@ -376,9 +555,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         PendingIntent pi =
             PendingIntent.getActivity(
                 this, 0, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        String detail;
+        if (enableGps && enableMotion) {
+            detail = "GPS + capsize — runs with screen off";
+        } else if (enableGps) {
+            detail = "GPS tracking — runs with screen off";
+        } else {
+            detail = "Capsize monitoring — runs with screen off";
+        }
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("RNZ capsize monitor active")
-            .setContentText("Watching for capsize while recording")
+            .setContentTitle("RNZ session recording")
+            .setContentText(detail)
             .setSmallIcon(R.drawable.ic_stat_rnz_alert)
             .setContentIntent(pi)
             .setOngoing(true)
@@ -394,7 +581,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             PendingIntent.getActivity(
                 this, 1, launch, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification n =
-            new NotificationCompat.Builder(this, CHANNEL_ID)
+            new NotificationCompat.Builder(this, CHANNEL_ID + "_alert")
                 .setContentTitle("CAPSIZE ALERT")
                 .setContentText("Boat tipped — check crew immediately")
                 .setSmallIcon(R.drawable.ic_stat_rnz_alert)

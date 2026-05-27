@@ -8,12 +8,21 @@ export type NativeCapsizeMonitorConfig = {
   ingestUrl: string;
   ingestToken?: string;
   athleteId?: string;
+  enableGps?: boolean;
+  enableMotion?: boolean;
+  gpsIntervalMs?: number;
+};
+
+export type NativeRecordingPulse = {
+  lastGps?: { t: number; lat: number; lon: number; spd?: number };
+  nativeGpsCount?: number;
 };
 
 export interface NativeCapsizeMonitorPlugin {
   start(config: NativeCapsizeMonitorConfig): Promise<void>;
   stop(): Promise<void>;
   setUpright(options: { x: number; y: number; z: number }): Promise<void>;
+  getPulse(): Promise<NativeRecordingPulse>;
 }
 
 const CapsizeMonitor = registerPlugin<NativeCapsizeMonitorPlugin>('CapsizeMonitor');
@@ -29,10 +38,22 @@ export async function startNativeCapsizeMonitor(
       ingestUrl: config.ingestUrl,
       ingestToken: config.ingestToken ?? '',
       athleteId: config.athleteId ?? '',
+      enableGps: config.enableGps ?? false,
+      enableMotion: config.enableMotion ?? true,
+      gpsIntervalMs: config.gpsIntervalMs ?? 1000,
     });
     return true;
   } catch {
     return false;
+  }
+}
+
+export async function getNativeRecordingPulse(): Promise<NativeRecordingPulse | null> {
+  if (!IS_NATIVE) return null;
+  try {
+    return await CapsizeMonitor.getPulse();
+  } catch {
+    return null;
   }
 }
 

@@ -37,7 +37,7 @@
         <service
             android:name=".CapsizeMonitorService"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="location|specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="KRI capsize safety monitoring during active GPS sessions" />

@@ -19,6 +19,7 @@ import {
   showCapsizeAlertNotification,
 } from '../lib/capsize-notification';
 import {
+  getNativeRecordingPulse,
   startNativeCapsizeMonitor,
   stopNativeCapsizeMonitor,
   syncNativeCapsizeUpright,
@@ -191,6 +192,34 @@ export async function startRecorder(
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
 
+  if (IS_NATIVE && (settings.enableGps || settings.enableMotion)) {
+    const started = await startNativeCapsizeMonitor({
+      sessionId,
+      deviceId: settings.deviceId,
+      ingestUrl: settings.ingestUrl,
+      ingestToken: settings.ingestToken,
+      athleteId: settings.athleteId,
+      enableGps: settings.enableGps,
+      enableMotion: settings.enableMotion,
+      gpsIntervalMs: settings.gpsIntervalMs,
+    });
+    nativeCapsizeMonitorOn = started;
+    if (started) {
+      if (settings.enableGps) {
+        onLog(
+          'Native GPS on — posts to dashboard with screen off (Android foreground service).',
+        );
+      }
+      if (settings.enableMotion) {
+        onLog('Native capsize on — accelerometer runs outside the WebView.');
+      }
+    } else {
+      onLog(
+        'Native session service failed — allow notifications, location Always, and retry.',
+      );
+    }
+  }
+
   const pollMotionWhileBackgrounded = () => {
     if (stopped || !motionAnalyzer || !IS_NATIVE) return;
     void pollNativeAccelerometerReading().then((reading) => {
@@ -341,49 +370,72 @@ export async function startRecorder(
   }
 
   if (settings.enableGps) {
-    const gps = startGpsWatcher(
-      (r) => {
+    if (IS_NATIVE && nativeCapsizeMonitorOn) {
+      const pulseMs = Math.max(500, settings.gpsIntervalMs);
+      const nativeGpsUiTimer = setInterval(() => {
         if (stopped) return;
-        stats.gpsCount++;
-        stats.lastGps = { t: r.t, lat: r.lat, lon: r.lon, spd: r.spd };
-        if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
+        void getNativeRecordingPulse().then((pulse) => {
+          if (!pulse?.lastGps) return;
+          const g = pulse.lastGps;
+          if (pulse.nativeGpsCount != null) {
+            stats.gpsCount = pulse.nativeGpsCount;
+          }
+          stats.lastGps = {
+            t: g.t,
+            lat: g.lat,
+            lon: g.lon,
+            spd: g.spd,
+          };
+          if (g.spd != null && g.spd >= 0) stats.speedMps = g.spd;
+          emit();
+        });
+      }, pulseMs);
+      stoppers.push(() => clearInterval(nativeGpsUiTimer));
+    } else {
+      const gps = startGpsWatcher(
+        (r) => {
+          if (stopped) return;
+          stats.gpsCount++;
+          stats.lastGps = { t: r.t, lat: r.lat, lon: r.lon, spd: r.spd };
+          if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
 
-        if (
-          IS_NATIVE &&
-          settings.enableMotion &&
-          motionAnalyzer &&
-          typeof document !== 'undefined' &&
-          document.visibilityState === 'hidden'
-        ) {
-          pollMotionWhileBackgrounded();
-        }
+          if (
+            IS_NATIVE &&
+            settings.enableMotion &&
+            motionAnalyzer &&
+            typeof document !== 'undefined' &&
+            document.visibilityState === 'hidden'
+          ) {
+            pollMotionWhileBackgrounded();
+          }
 
-        queueSample(
-          telemetrySample(r.t, {
-            gps: {
-              lat: r.lat,
-              lon: r.lon,
-              acc: r.acc,
-              spd: r.spd,
-              hdg: r.hdg,
-              alt: r.alt,
-            },
-            hr: latestHr,
-            motion: latestMotion,
-            derived: latestDerived,
-          }),
-        );
-        emit();
-      },
-      settings.gpsIntervalMs,
-      (m) => onLog(`GPS: ${m}`),
-      {
-        enableBackground: IS_NATIVE || settings.enableBackgroundRecording,
-      },
-    );
-    stoppers.push(async () => {
-      await Promise.resolve(gps.stop());
-    });
+          queueSample(
+            telemetrySample(r.t, {
+              gps: {
+                lat: r.lat,
+                lon: r.lon,
+                acc: r.acc,
+                spd: r.spd,
+                hdg: r.hdg,
+                alt: r.alt,
+              },
+              hr: latestHr,
+              motion: latestMotion,
+              derived: latestDerived,
+            }),
+          );
+          emit();
+        },
+        settings.gpsIntervalMs,
+        (m) => onLog(`GPS: ${m}`),
+        {
+          enableBackground: IS_NATIVE || settings.enableBackgroundRecording,
+        },
+      );
+      stoppers.push(async () => {
+        await Promise.resolve(gps.stop());
+      });
+    }
   }
 
   emit();
@@ -397,43 +449,16 @@ export async function startRecorder(
     } else {
       onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);
     }
-    if (IS_NATIVE && settings.enableGps) {
+    if (IS_NATIVE && settings.enableGps && !nativeCapsizeMonitorOn) {
       onLog(
         'Screen off: capsize polled on GPS + timer (hold boat still ~3s at start to calibrate).',
       );
     }
   }
-  if (
-    IS_NATIVE &&
-    settings.enableMotion &&
-    (IS_NATIVE || settings.enableBackgroundRecording)
-  ) {
-    const started = await startNativeCapsizeMonitor({
-      sessionId,
-      deviceId: settings.deviceId,
-      ingestUrl: settings.ingestUrl,
-      ingestToken: settings.ingestToken,
-      athleteId: settings.athleteId,
-    });
-    nativeCapsizeMonitorOn = started;
-    if (started) {
-      onLog(
-        'Native capsize monitor on — posts to dashboard with screen off (separate from WebView).',
-      );
-    } else {
-      onLog('Native capsize monitor failed to start — check notifications permission.');
-    }
-  }
 
-  if (IS_NATIVE && settings.enableGps) {
+  if (IS_NATIVE && (settings.enableGps || settings.enableMotion)) {
     onLog(
-      'Background GPS on — allow location Always, notifications, and set battery to Unrestricted.',
-    );
-  } else if (
-    IS_NATIVE && settings.enableMotion && !settings.enableGps
-  ) {
-    onLog(
-      'Tip: enable GPS + Allow background for reliable capsize detection when the screen is off.',
+      'For screen-off recording: Location → Always, Notifications on, Battery → Unrestricted.',
     );
   }
 
