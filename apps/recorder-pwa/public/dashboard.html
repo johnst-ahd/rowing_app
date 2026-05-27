@@ -203,6 +203,126 @@
         <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
         <p class="poll-line" id="pollStatus">Connecting…</p>
       </section>
+
+      <section class="hub-panel hub-panel--data-manage" id="dataManagePanel">
+        <h2 class="hub-section-title">Stored data (Vercel / Neon)</h2>
+        <p class="data-manage-intro">
+          Uploaded GPS, motion, and capsize history lives in your project&apos;s
+          <strong>Postgres</strong> database when <code>POSTGRES_URL</code> is set on Vercel.
+          Use this section to review what is stored and delete data permanently.
+        </p>
+
+        <div class="data-manage-stats" id="dataManageStats" aria-live="polite">
+          <p class="poll-line">Loading storage summary…</p>
+        </div>
+
+        <details class="data-manage-security" id="dataManageSecurity" open>
+          <summary>How safe is this data?</summary>
+          <div class="data-manage-security-body" id="dataManageSecurityBody">
+            <p class="poll-line">Loading security details…</p>
+          </div>
+        </details>
+
+        <div class="data-manage-actions">
+          <h3 class="data-manage-subtitle">Delete stored data</h3>
+          <p class="data-manage-hint">
+            Requires the same <strong>ingest token</strong> as above. Deletes are
+            <strong>permanent</strong> and cannot be undone.
+          </p>
+
+          <div class="data-manage-block">
+            <h4 class="data-manage-label">Delete one session</h4>
+            <div class="ahd-inline-fields">
+              <label class="ahd-field data-manage-field--wide">
+                Session
+                <select id="dataDeleteSessionId">
+                  <option value="">— select session —</option>
+                </select>
+              </label>
+              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteSessionBtn">
+                Delete session
+              </button>
+            </div>
+          </div>
+
+          <div class="data-manage-block">
+            <h4 class="data-manage-label">Delete all data for a device</h4>
+            <div class="ahd-inline-fields">
+              <label class="ahd-field">
+                Device ID
+                <select id="dataDeleteDeviceId">
+                  <option value="">— select device —</option>
+                </select>
+              </label>
+              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteDeviceBtn">
+                Delete device data
+              </button>
+            </div>
+          </div>
+
+          <div class="data-manage-block">
+            <h4 class="data-manage-label">Delete samples in a date range</h4>
+            <div class="ahd-inline-fields">
+              <label class="ahd-field">
+                Device ID
+                <select id="dataDeleteRangeDeviceId">
+                  <option value="">— select device —</option>
+                </select>
+              </label>
+            </div>
+            <div class="history-datetime-grid data-manage-datetime">
+              <fieldset class="history-datetime-group">
+                <legend>From</legend>
+                <label class="ahd-field">
+                  Date
+                  <input type="date" id="dataDeleteFromDate" />
+                </label>
+                <label class="ahd-field">
+                  Time
+                  <input type="time" id="dataDeleteFromTime" step="60" />
+                </label>
+              </fieldset>
+              <fieldset class="history-datetime-group">
+                <legend>To</legend>
+                <label class="ahd-field">
+                  Date
+                  <input type="date" id="dataDeleteToDate" />
+                </label>
+                <label class="ahd-field">
+                  Time
+                  <input type="time" id="dataDeleteToTime" step="60" />
+                </label>
+              </fieldset>
+            </div>
+            <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteRangeBtn">
+              Delete range
+            </button>
+          </div>
+
+          <div class="data-manage-block data-manage-block--danger">
+            <h4 class="data-manage-label">Delete everything in the database</h4>
+            <p class="data-manage-hint">
+              Removes all devices, sessions, and samples. Type
+              <code>DELETE ALL RNZ DATA</code> to confirm.
+            </p>
+            <label class="ahd-field">
+              Confirmation
+              <input
+                type="text"
+                id="dataDeleteAllConfirm"
+                placeholder="DELETE ALL RNZ DATA"
+                autocomplete="off"
+              />
+            </label>
+            <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteAllBtn">
+              Delete all stored data
+            </button>
+          </div>
+        </div>
+
+        <p class="poll-line" id="dataManageStatus">Enter ingest token above, then refresh storage summary.</p>
+        <button type="button" class="hub-btn hub-btn--ghost" id="dataManageRefreshBtn">Refresh storage summary</button>
+      </section>
     </div>
 
     <footer class="ahd-footer">
@@ -216,6 +336,7 @@
       crossorigin=""
     ></script>
     <script src="/dashboard-history.js"></script>
+    <script src="/dashboard-data-manage.js"></script>
     <script src="/dashboard.js"></script>
   </body>
 </html>

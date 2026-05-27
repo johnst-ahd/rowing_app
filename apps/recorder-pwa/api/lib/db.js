@@ -606,6 +606,106 @@ async function getSessionFromDb(sessionId) {
   };
 }
 
+async function getStorageStats() {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const result = await sql`
+    SELECT
+      (SELECT COUNT(*)::int FROM rnz_devices) AS device_count,
+      (SELECT COUNT(*)::int FROM rnz_sessions) AS session_count,
+      (SELECT COUNT(*)::int FROM rnz_samples) AS sample_count,
+      (SELECT MIN(t_ms)::bigint FROM rnz_samples) AS oldest_sample_ms,
+      (SELECT MAX(t_ms)::bigint FROM rnz_samples) AS newest_sample_ms
+  `;
+  const r = result.rows[0];
+  return {
+    deviceCount: Number(r.device_count) || 0,
+    sessionCount: Number(r.session_count) || 0,
+    sampleCount: Number(r.sample_count) || 0,
+    oldestSampleMs:
+      r.oldest_sample_ms != null ? Number(r.oldest_sample_ms) : null,
+    newestSampleMs:
+      r.newest_sample_ms != null ? Number(r.newest_sample_ms) : null,
+  };
+}
+
+async function deleteSession(sessionId) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const sid = String(sessionId);
+  const delSamples = await sql`
+    DELETE FROM rnz_samples WHERE session_id = ${sid}
+  `;
+  const delSession = await sql`
+    DELETE FROM rnz_sessions WHERE session_id = ${sid}
+  `;
+  return {
+    samplesDeleted: delSamples.rowCount ?? 0,
+    sessionsDeleted: delSession.rowCount ?? 0,
+  };
+}
+
+async function deleteDeviceData(uniqueId) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const uid = String(uniqueId);
+  const delSamples = await sql`
+    DELETE FROM rnz_samples WHERE unique_id = ${uid}
+  `;
+  const delSessions = await sql`
+    DELETE FROM rnz_sessions WHERE unique_id = ${uid}
+  `;
+  const delDevice = await sql`
+    DELETE FROM rnz_devices WHERE unique_id = ${uid}
+  `;
+  return {
+    samplesDeleted: delSamples.rowCount ?? 0,
+    sessionsDeleted: delSessions.rowCount ?? 0,
+    devicesDeleted: delDevice.rowCount ?? 0,
+  };
+}
+
+async function deleteSamplesInRange(uniqueId, fromMs, toMs) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const uid = String(uniqueId);
+  const delSamples = await sql`
+    DELETE FROM rnz_samples
+    WHERE unique_id = ${uid}
+      AND t_ms >= ${fromMs}
+      AND t_ms <= ${toMs}
+  `;
+  const delEmptySessions = await sql`
+    DELETE FROM rnz_sessions s
+    WHERE s.unique_id = ${uid}
+      AND NOT EXISTS (
+        SELECT 1 FROM rnz_samples x WHERE x.session_id = s.session_id
+      )
+  `;
+  return {
+    samplesDeleted: delSamples.rowCount ?? 0,
+    sessionsDeleted: delEmptySessions.rowCount ?? 0,
+  };
+}
+
+async function deleteAllStoredData() {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const delSamples = await sql`DELETE FROM rnz_samples`;
+  const delSessions = await sql`DELETE FROM rnz_sessions`;
+  const delDevices = await sql`DELETE FROM rnz_devices`;
+  return {
+    samplesDeleted: delSamples.rowCount ?? 0,
+    sessionsDeleted: delSessions.rowCount ?? 0,
+    devicesDeleted: delDevices.rowCount ?? 0,
+  };
+}
+
 module.exports = {
   hasDb,
   initSchema,
@@ -621,4 +721,9 @@ module.exports = {
   getSessionFromDb,
   getDashboardHistory,
   getDashboardHistoryBySession,
+  getStorageStats,
+  deleteSession,
+  deleteDeviceData,
+  deleteSamplesInRange,
+  deleteAllStoredData,
 };

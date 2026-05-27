@@ -637,3 +637,129 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Stored data management */
+.hub-panel--data-manage {
+  border-color: rgba(148, 163, 184, 0.35);
+}
+
+.data-manage-intro,
+.data-manage-hint {
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+  color: var(--ahd-muted);
+  line-height: 1.5;
+}
+
+.data-manage-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.data-manage-stat {
+  padding: 0.75rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid var(--ahd-border);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.data-manage-stat__value {
+  display: block;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: var(--ahd-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-manage-stat__label {
+  display: block;
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--ahd-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.data-manage-security {
+  margin: 0 0 1rem;
+  border: 1px solid var(--ahd-border);
+  border-radius: 8px;
+  padding: 0.65rem 0.85rem;
+  background: rgba(15, 23, 42, 0.35);
+}
+
+.data-manage-security summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ahd-accent);
+}
+
+.data-manage-security-body {
+  margin-top: 0.75rem;
+}
+
+.data-manage-security-body ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--ahd-muted);
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.data-manage-security-body li {
+  margin-bottom: 0.35rem;
+}
+
+.data-manage-security-warn {
+  color: #fca5a5;
+  font-weight: 600;
+}
+
+.data-manage-subtitle {
+  margin: 0 0 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ahd-accent);
+}
+
+.data-manage-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--ahd-text);
+}
+
+.data-manage-block {
+  margin-bottom: 1.1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.data-manage-block--danger {
+  border-bottom: none;
+  padding: 0.85rem;
+  border-radius: 8px;
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.18);
+}
+
+.data-manage-field--wide {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+
+.data-manage-datetime {
+  margin: 0.5rem 0 0.75rem;
+}
+
+#dataManageStatus.err {
+  color: var(--ahd-danger);
+}
+
+#dataManageStatus.ok {
+  color: var(--ahd-safety);
+}
