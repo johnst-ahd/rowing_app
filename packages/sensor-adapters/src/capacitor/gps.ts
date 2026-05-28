@@ -1,6 +1,14 @@
 import { Geolocation } from '@capacitor/geolocation';
+import { isValidGpsReading } from '../gps-validate';
 import type { GpsReading, GpsWatcher } from '../types';
 import { startBackgroundGpsWatcher } from './background-gps';
+
+function emitIfValid(
+  onReading: (r: GpsReading) => void,
+  reading: GpsReading | null,
+): void {
+  if (reading && isValidGpsReading(reading)) onReading(reading);
+}
 
 export type GpsWatcherOptions = {
   /** Use foreground-service background GPS (native only). */
@@ -44,7 +52,7 @@ function startForegroundGpsWatcher(
   timer = setInterval(() => {
     if (stopped) return;
     if (last) {
-      onReading({ ...last, t: Date.now() });
+      emitIfValid(onReading, { ...last, t: Date.now() });
       return;
     }
     void Geolocation.getCurrentPosition({
@@ -62,7 +70,7 @@ function startForegroundGpsWatcher(
           hdg: c.heading ?? undefined,
           alt: c.altitude ?? undefined,
         };
-        if (last) onReading({ ...last });
+        emitIfValid(onReading, last);
       })
       .catch((e) => onError?.(e instanceof Error ? e.message : String(e)));
   }, intervalMs);

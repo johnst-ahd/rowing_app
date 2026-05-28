@@ -51,6 +51,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
+    /** Reject null-island and very coarse network fixes. */
+    private static final float MAX_GPS_ACCURACY_M = 150f;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -167,6 +169,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     @Override
     public void onLocationChanged(Location location) {
         if (!enableGps || location == null) return;
+        if (!isGpsFixUsable(location)) return;
         long t = System.currentTimeMillis();
         if (t - lastGpsPostMs < gpsIntervalMs) return;
         lastGpsPostMs = t;
@@ -476,6 +479,16 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) sensorManager.unregisterListener(this);
     }
 
+    private static boolean isGpsFixUsable(Location location) {
+        if (location == null) return false;
+        double lat = location.getLatitude();
+        double lon = location.getLongitude();
+        if (Math.abs(lat) < 1e-4 && Math.abs(lon) < 1e-4) return false;
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+        if (location.hasAccuracy() && location.getAccuracy() > MAX_GPS_ACCURACY_M) return false;
+        return true;
+    }
+
     private void registerLocation() {
         if (locationManager == null) {
             Log.e(TAG, "No LocationManager");
@@ -492,18 +505,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
             }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
-            }
             Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-            if (last == null) {
-                last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
-            }
-            if (last != null) {
+            if (last != null && isGpsFixUsable(last)) {
                 onLocationChanged(last);
             }
-            Log.i(TAG, "Native location updates registered (" + minTime + "ms)");
+            Log.i(TAG, "Native GPS updates registered (" + minTime + "ms, GPS provider only)");
         } catch (SecurityException e) {
             Log.e(TAG, "Location permission error", e);
         }

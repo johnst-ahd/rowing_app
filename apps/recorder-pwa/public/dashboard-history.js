@@ -252,7 +252,16 @@
     historyMarkers.clearLayers();
 
     const latlngs = track
-      .filter((p) => p.lat != null && p.lon != null)
+      .filter(
+        (p) =>
+          p.lat != null &&
+          p.lon != null &&
+          (Math.abs(p.lat) > 1e-4 || Math.abs(p.lon) > 1e-4) &&
+          p.lat >= -90 &&
+          p.lat <= 90 &&
+          p.lon >= -180 &&
+          p.lon <= 180,
+      )
       .map((p) => [p.lat, p.lon]);
 
     if (latlngs.length >= 2) {

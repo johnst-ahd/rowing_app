@@ -1,4 +1,5 @@
 import type { GpsSample } from '@rowing/telemetry-types';
+import { isValidGpsReading } from '../gps-validate';
 import type { GpsReading, GpsWatcher } from '../types';
 
 function positionToReading(pos: GeolocationPosition): GpsReading {
@@ -37,12 +38,12 @@ export function startGpsWatcher(
   );
 
   timer = setInterval(() => {
-    if (last) onReading({ ...last, t: Date.now() });
+    if (last && isValidGpsReading(last)) onReading({ ...last, t: Date.now() });
     else {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           last = positionToReading(pos);
-          if (last) onReading({ ...last });
+          if (last && isValidGpsReading(last)) onReading({ ...last });
         },
         (err) => onError?.(err.message),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
