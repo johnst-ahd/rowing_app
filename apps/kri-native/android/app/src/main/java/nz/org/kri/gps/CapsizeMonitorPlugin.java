@@ -73,6 +73,16 @@ public class CapsizeMonitorPlugin extends Plugin {
             ret.put("lastGps", gps);
         }
         ret.put("nativeGpsCount", p.getInt("nativeGpsCount", 0));
+        if (p.contains("lastUploadT")) {
+            JSObject upload = new JSObject();
+            upload.put("seq", p.getInt("uploadSeq", 0));
+            upload.put("ok", p.getBoolean("lastUploadOk", false));
+            upload.put("code", p.getInt("lastUploadCode", 0));
+            upload.put("samples", p.getInt("lastUploadSamples", 0));
+            upload.put("okCount", p.getInt("uploadOkCount", 0));
+            upload.put("failCount", p.getInt("uploadFailCount", 0));
+            ret.put("upload", upload);
+        }
         call.resolve(ret);
     }
 }

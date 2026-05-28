@@ -13,9 +13,19 @@ export type NativeCapsizeMonitorConfig = {
   gpsIntervalMs?: number;
 };
 
+export type NativeUploadStatus = {
+  seq: number;
+  ok: boolean;
+  code: number;
+  samples: number;
+  okCount?: number;
+  failCount?: number;
+};
+
 export type NativeRecordingPulse = {
   lastGps?: { t: number; lat: number; lon: number; spd?: number };
   nativeGpsCount?: number;
+  upload?: NativeUploadStatus;
 };
 
 export interface NativeCapsizeMonitorPlugin {

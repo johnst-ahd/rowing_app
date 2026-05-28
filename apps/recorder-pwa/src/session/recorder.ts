@@ -57,9 +57,12 @@ export type RecorderController = {
 export type RecorderHooks = {
   /** Throttled while screen off — flush queue + upload. */
   onBackgroundPulse?: () => void;
+  /** A package reached the server successfully (native or outbox). */
+  onPackageSent?: () => void;
 };
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const BG_UPLOAD_PULSE_MS = 12_000;
 
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
@@ -128,6 +131,7 @@ export async function startRecorder(
   let lastBackgroundPulseAt = 0;
   let bgMotionPollTimer: ReturnType<typeof setInterval> | null = null;
   let nativeCapsizeMonitorOn = false;
+  let lastNativeUploadSeq = 0;
   let motionWasCalibrated = false;
 
   const motionUploadMs = Math.max(
@@ -163,6 +167,9 @@ export async function startRecorder(
       await enqueueTelemetry(sessionId, slice);
       stats.pendingOutbox = await countPendingOutbox();
       onPendingChange(stats.pendingOutbox);
+      onLog(
+        `+ Queued ${slice.length} sample(s) · ${stats.pendingOutbox} package(s) waiting upload`,
+      );
       emit();
     } finally {
       pushInFlight = false;
@@ -205,6 +212,27 @@ export async function startRecorder(
     });
     nativeCapsizeMonitorOn = started;
     if (started) {
+      const nativeUploadLogTimer = setInterval(() => {
+        if (stopped) return;
+        void getNativeRecordingPulse().then((pulse) => {
+          if (!pulse?.upload || pulse.upload.seq === lastNativeUploadSeq) return;
+          lastNativeUploadSeq = pulse.upload.seq;
+          const u = pulse.upload;
+          if (u.ok) {
+            hooks?.onPackageSent?.();
+            onLog(
+              `✓ Native sent (${u.samples} sample(s)) HTTP ${u.code} · ok ${u.okCount ?? 0} fail ${u.failCount ?? 0}`,
+            );
+          } else {
+            const code = u.code >= 0 ? `HTTP ${u.code}` : 'network error';
+            onLog(
+              `✗ Native upload failed (${u.samples} sample(s)) ${code} · ok ${u.okCount ?? 0} fail ${u.failCount ?? 0}`,
+            );
+          }
+        });
+      }, 1500);
+      stoppers.push(() => clearInterval(nativeUploadLogTimer));
+
       if (settings.enableGps) {
         onLog(
           'Native GPS on — posts to dashboard with screen off (Android foreground service).',
@@ -233,7 +261,7 @@ export async function startRecorder(
     latestMotion = { ax: r.ax, ay: r.ay, az: r.az };
     motionAnalyzer.process(r.t, r.ax, r.ay, r.az);
     const metrics = metricsFromAnalyzer(motionAnalyzer);
-    stats.strokeRate = metrics.strokeRate;
+    if (!IS_KRI) stats.strokeRate = metrics.strokeRate;
     stats.tiltDeg = metrics.tiltDeg;
     stats.capsize = metrics.capsize;
     stats.motionCalibrated = metrics.calibrated;
@@ -253,11 +281,13 @@ export async function startRecorder(
       void syncNativeCapsizeUpright(grav.gx, grav.gy, grav.gz);
     }
 
-    latestDerived = {
-      strokeRate: metrics.strokeRate,
-      capsize: metrics.capsize,
-      tiltDeg: metrics.tiltDeg,
-    };
+    latestDerived = IS_KRI
+      ? { capsize: metrics.capsize, tiltDeg: metrics.tiltDeg }
+      : {
+          strokeRate: metrics.strokeRate,
+          capsize: metrics.capsize,
+          tiltDeg: metrics.tiltDeg,
+        };
 
     const backgrounded =
       typeof document !== 'undefined' && document.visibilityState === 'hidden';

@@ -329,6 +329,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             postBatch(p, sessionId, deviceId, samples);
             Log.d(TAG, "GPS ingest OK");
         } catch (Exception e) {
+            recordUploadResult(-1, 1, false);
             Log.e(TAG, "GPS ingest failed", e);
         }
     }
@@ -359,6 +360,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             postBatch(p, sessionId, deviceId, samples);
             Log.i(TAG, "Capsize ingest sent");
         } catch (Exception e) {
+            recordUploadResult(-1, 1, false);
             Log.e(TAG, "Capsize ingest failed", e);
         }
     }
@@ -391,9 +393,29 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
         int code = conn.getResponseCode();
         conn.disconnect();
-        if (code < 200 || code >= 300) {
+        boolean ok = code >= 200 && code < 300;
+        recordUploadResult(code, samples.length(), ok);
+        if (!ok) {
             Log.w(TAG, "Ingest HTTP " + code);
         }
+    }
+
+    private void recordUploadResult(int httpCode, int sampleCount, boolean ok) {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        int seq = p.getInt("uploadSeq", 0) + 1;
+        SharedPreferences.Editor ed =
+            p.edit()
+                .putInt("uploadSeq", seq)
+                .putLong("lastUploadT", System.currentTimeMillis())
+                .putBoolean("lastUploadOk", ok)
+                .putInt("lastUploadCode", httpCode)
+                .putInt("lastUploadSamples", sampleCount);
+        if (ok) {
+            ed.putInt("uploadOkCount", p.getInt("uploadOkCount", 0) + 1);
+        } else {
+            ed.putInt("uploadFailCount", p.getInt("uploadFailCount", 0) + 1);
+        }
+        ed.apply();
     }
 
     private void saveLastGpsToPrefs(Location location, long t, int count) {
@@ -420,6 +442,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
             .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
             .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
+            .putInt("uploadSeq", 0)
+            .putInt("uploadOkCount", 0)
+            .putInt("uploadFailCount", 0)
             .apply();
     }
 
