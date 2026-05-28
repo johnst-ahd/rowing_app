@@ -64,10 +64,6 @@ export type RecorderHooks = {
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const BG_UPLOAD_PULSE_MS = 12_000;
-/** Keep fallback uploader responsive when native service is unavailable. */
-const MIN_UPLOAD_BATCH_MS = 2_000;
-/** If GPS is enabled but stale, keep uploading motion/capsize samples. */
-const GPS_STALE_FALLBACK_MS = 12_000;
 
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
 const MAX_BATCH_SAMPLES = 40;
@@ -149,12 +145,12 @@ export async function startRecorder(
         ? Math.min(
             MAX_BATCH_SAMPLES,
             Math.ceil(
-              Math.max(settings.uploadBatchMs, MIN_UPLOAD_BATCH_MS) / motionUploadMs,
+              Math.max(settings.uploadBatchMs, 8000) / motionUploadMs,
             ) + 4,
           )
         : MAX_BATCH_SAMPLES;
   const batchIntervalMs = settings.enableMotion
-    ? Math.max(settings.uploadBatchMs, MIN_UPLOAD_BATCH_MS)
+    ? Math.max(settings.uploadBatchMs, 8000)
     : settings.uploadBatchMs;
 
   const stoppers: Array<() => void | Promise<void>> = [];
@@ -319,9 +315,7 @@ export async function startRecorder(
       onCapsize?.(false);
     }
 
-    const lastGpsT = stats.lastGps?.t ?? 0;
-    const gpsStale = !settings.enableGps || Date.now() - lastGpsT > GPS_STALE_FALLBACK_MS;
-    if (gpsStale) {
+    if (!settings.enableGps) {
       const now = Date.now();
       if (now - lastMotionUploadAt >= motionUploadMs) {
         lastMotionUploadAt = now;
