@@ -66,6 +66,8 @@ const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const BG_UPLOAD_PULSE_MS = 12_000;
 /** Keep fallback uploader responsive when native service is unavailable. */
 const MIN_UPLOAD_BATCH_MS = 2_000;
+/** If GPS is enabled but stale, keep uploading motion/capsize samples. */
+const GPS_STALE_FALLBACK_MS = 12_000;
 
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
 const MAX_BATCH_SAMPLES = 40;
@@ -317,7 +319,9 @@ export async function startRecorder(
       onCapsize?.(false);
     }
 
-    if (!settings.enableGps) {
+    const lastGpsT = stats.lastGps?.t ?? 0;
+    const gpsStale = !settings.enableGps || Date.now() - lastGpsT > GPS_STALE_FALLBACK_MS;
+    if (gpsStale) {
       const now = Date.now();
       if (now - lastMotionUploadAt >= motionUploadMs) {
         lastMotionUploadAt = now;
