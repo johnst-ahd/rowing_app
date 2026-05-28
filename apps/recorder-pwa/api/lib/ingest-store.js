@@ -100,7 +100,7 @@ function isValidGpsCoords(lat, lon) {
   return true;
 }
 
-function gpsFromSample(sample) {
+function gpsFromSample(sample, { forTrack = false } = {}) {
   if (!sample || typeof sample !== 'object' || !sample.gps) return null;
   const lat = Number(sample.gps.lat);
   const lon = Number(sample.gps.lon);
@@ -109,7 +109,7 @@ function gpsFromSample(sample) {
     sample.gps.acc != null && Number.isFinite(Number(sample.gps.acc))
       ? Number(sample.gps.acc)
       : null;
-  if (acc != null && acc > MAX_GPS_ACCURACY_M) return null;
+  if (forTrack && acc != null && acc > MAX_GPS_ACCURACY_M) return null;
   const t = Number(sample.t);
   if (!Number.isFinite(t)) return null;
   const spd =
@@ -177,10 +177,23 @@ function updateGpsTrack(deviceId, fix) {
   }
 
   const dt = (fix.t - prev.t) / 1000;
-  if (!Number.isFinite(dt) || dt <= 0 || dt > 30) {
-    prev.rawT = fix.t;
-    prev.accuracy = fix.acc;
+  if (!Number.isFinite(dt) || dt <= 0) {
     return false;
+  }
+  if (dt > 30) {
+    const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, fix.lat);
+    gpsTracks.set(key, {
+      t: fix.t,
+      rawT: fix.t,
+      lat: fix.lat,
+      lon: fix.lon,
+      vLat: vh?.vLat ?? 0,
+      vLon: vh?.vLon ?? 0,
+      speedMps: vh?.speedMps ?? 0,
+      courseDeg: fix.hdg ?? null,
+      accuracy: fix.acc,
+    });
+    return true;
   }
 
   const predLat = prev.lat + prev.vLat * dt;
@@ -265,7 +278,7 @@ function sanitizeAndTrackSamples(deviceId, samples) {
     let next = sample;
     if (sample.gps) {
       const fix = gpsFromSample(sample);
-      if (!fix || !updateGpsTrack(deviceId, fix)) {
+      if (!fix) {
         const { gps, ...rest } = sample;
         const hasPayload =
           rest.motion != null || rest.hr != null || rest.derived != null;
@@ -274,6 +287,9 @@ function sanitizeAndTrackSamples(deviceId, samples) {
           continue;
         }
         next = rest;
+      } else {
+        const trackFix = gpsFromSample(sample, { forTrack: true });
+        if (trackFix) updateGpsTrack(deviceId, trackFix);
       }
     }
     out.push(next);
