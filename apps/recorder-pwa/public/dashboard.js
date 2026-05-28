@@ -16,6 +16,8 @@ let markersLayer = null;
 /** @type {Map<string, L.Marker>} */
 const deviceMarkers = new Map();
 let mapDidFit = false;
+let lastPollDurationMs = null;
+let lastMapDurationMs = null;
 
 function apiBase() {
   return window.location.origin;
@@ -316,14 +318,53 @@ function updateMap(positions) {
 
 async function fetchMapPositions() {
   const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}`;
+  const started = performance.now();
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Map ${res.status} ${text.slice(0, 80)}`);
   }
   const data = await res.json();
+  lastMapDurationMs = Math.round(performance.now() - started);
   updateMap(Array.isArray(data.positions) ? data.positions : []);
   return data;
+}
+
+function renderHealthBar(data) {
+  const health = data.health || {};
+  const serverEl = $('#serverHealth');
+  const gpsEl = $('#gpsHealth');
+  const latencyEl = $('#latencyHealth');
+
+  if (serverEl) {
+    const lag = health.serverDataLagSec;
+    const storage = data.storage || 'memory';
+    if (health.status === 'degraded') {
+      serverEl.textContent = `Server: degraded (${storage})`;
+      serverEl.classList.add('hub-stats-item--danger');
+    } else {
+      serverEl.textContent =
+        lag != null ? `Server: ${storage}, lag ${lag}s` : `Server: ${storage}`;
+      serverEl.classList.remove('hub-stats-item--danger');
+    }
+  }
+
+  if (gpsEl) {
+    const delayed = health.delayedGpsDevices ?? 0;
+    const avgAge = health.avgGpsAgeSec;
+    gpsEl.textContent =
+      avgAge != null
+        ? `GPS health: avg ${avgAge}s, delayed ${delayed}`
+        : 'GPS health: waiting…';
+    gpsEl.classList.toggle('hub-stats-item--danger', delayed > 0);
+  }
+
+  if (latencyEl) {
+    const pollMs = lastPollDurationMs != null ? `${lastPollDurationMs}ms` : '—';
+    const mapMs = lastMapDurationMs != null ? `${lastMapDurationMs}ms` : '—';
+    const ingest = health.avgIngestHz != null ? `${health.avgIngestHz}Hz` : '—';
+    latencyEl.textContent = `Latency: api ${pollMs}, map ${mapMs}, ingest ${ingest}`;
+  }
 }
 
 function renderDevice(d) {
@@ -399,6 +440,7 @@ function renderDevice(d) {
 }
 
 async function poll() {
+  const pollStarted = performance.now();
   const status = $('#pollStatus');
   const grid = $('#devicesGrid');
   const windowSec = $('#windowSec')?.value || 60;
@@ -444,6 +486,8 @@ async function poll() {
     $('#activeCount').textContent = `Online: ${data.activeCount ?? 0}`;
     $('#deviceCount').textContent = `Devices: ${data.deviceCount ?? 0}`;
     $('#windowLabel').textContent = `Window: ${data.windowSec ?? windowSec}s`;
+    lastPollDurationMs = Math.round(performance.now() - pollStarted);
+    renderHealthBar(data);
 
     updateCapsizeBanner(data.devices);
     updateRowingSummary(data.devices);
@@ -472,6 +516,7 @@ async function poll() {
     status.textContent = `Updated ${t} · ${data.devices?.length ?? 0} device(s)`;
     status.classList.remove('err');
   } catch (e) {
+    lastPollDurationMs = Math.round(performance.now() - pollStarted);
     status.textContent = `Error: ${e instanceof Error ? e.message : String(e)}`;
     status.classList.add('err');
   }

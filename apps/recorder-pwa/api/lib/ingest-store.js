@@ -513,6 +513,35 @@ async function listDevices(opts = {}) {
   const devices = [...byDevice.values()].sort(
     (a, b) => b.lastSeenMs - a.lastSeenMs,
   );
+  const onlineDevices = devices.filter((d) => d.online);
+  const gpsAges = onlineDevices
+    .map((d) => d.gps?.ageSec)
+    .filter((v) => Number.isFinite(v));
+  const ingestRates = onlineDevices
+    .map((d) => d.ingestRateHz)
+    .filter((v) => Number.isFinite(v));
+  const maxLastSeenMs = devices.length
+    ? Math.max(...devices.map((d) => d.lastSeenMs || 0))
+    : null;
+  const health = {
+    status:
+      warning != null
+        ? 'degraded'
+        : onlineDevices.length === 0
+          ? 'idle'
+          : 'ok',
+    onlineDevices: onlineDevices.length,
+    delayedGpsDevices: onlineDevices.filter((d) => (d.gps?.ageSec ?? 1e9) > 30).length,
+    capsizeDevices: onlineDevices.filter((d) => d.rowing?.capsize).length,
+    avgGpsAgeSec: gpsAges.length
+      ? Math.round((gpsAges.reduce((a, b) => a + b, 0) / gpsAges.length) * 10) / 10
+      : null,
+    avgIngestHz: ingestRates.length
+      ? Math.round((ingestRates.reduce((a, b) => a + b, 0) / ingestRates.length) * 10) / 10
+      : null,
+    serverDataLagSec:
+      maxLastSeenMs != null ? Math.max(0, Math.round((now - maxLastSeenMs) / 1000)) : null,
+  };
 
   return {
     polledAt: now,
@@ -524,6 +553,7 @@ async function listDevices(opts = {}) {
     persisted: hasPostgres,
     storage,
     warning,
+    health,
   };
 }
 
