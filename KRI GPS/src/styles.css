@@ -142,8 +142,10 @@
   display: none !important;
 }
 
-.kri-theme-page .session-live-hud__metrics--kri {
-  grid-template-columns: repeat(2, 1fr);
+.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(2),
+.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(3),
+.kri-theme-page .spectrum-rail--hr {
+  display: none !important;
 }
 
 .kri-theme-page .session-live-hud {
@@ -160,12 +162,8 @@
   color: #0f172a;
 }
 
-.kri-theme-page .session-live-hud__pill {
+.kri-theme-page .session-live-hud__gps-status {
   color: #334155;
-}
-
-.kri-theme-page .session-live-hud__pill[data-active='true'] {
-  color: #16a34a;
 }
 
 .kri-theme-page .session-stage:fullscreen,

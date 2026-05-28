@@ -84,9 +84,9 @@ async function flushOutboxInner(
         continue;
       }
 
-      progress?.(`↑ Sending package ${i + 1}/${rows.length} (${sampleCount} samples)…`);
+      progress?.(`Batch ${i + 1}/${rows.length} (${sampleCount} samples)…`);
 
-      const res = await withTimeout(
+      await withTimeout(
         postTelemetryBatch(settings.ingestUrl, settings.ingestToken, {
           sessionId: parsed.sessionId,
           deviceId: settings.deviceId,
@@ -94,27 +94,19 @@ async function flushOutboxInner(
           samples: parsed.samples,
         }),
         PER_BATCH_TIMEOUT_MS,
-        `Package ${i + 1}`,
+        `Batch ${i + 1}`,
       );
 
       await markOutboxSent(row.id);
       sent++;
-      const persisted =
-        res.persisted === true
-          ? ' · saved'
-          : res.persisted === false
-            ? ' · not saved to DB'
-            : '';
-      progress?.(
-        `✓ Sent package ${i + 1}/${rows.length} (${sampleCount} samples, ${res.received ?? sampleCount} received${persisted})`,
-      );
+      progress?.(`Batch ${i + 1} sent.`);
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       const parsed = safeParsePayload(row.payload);
       const n = parsed?.samples?.length ?? '?';
-      errors.push(`package ${i + 1} (${n} samples): ${msg}`);
-      progress?.(`✗ Package ${i + 1}/${rows.length} failed (${n} samples): ${msg}`);
+      errors.push(`batch ${i + 1} (${n} samples): ${msg}`);
+      progress?.(`Batch ${i + 1} failed.`);
       if (/401|403|localhost/i.test(msg)) break;
     }
   }

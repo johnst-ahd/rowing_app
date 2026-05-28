@@ -53,7 +53,6 @@ export function mountApp(root: HTMLElement): void {
   let controller: RecorderController | null = null;
   let syncTimer: ReturnType<typeof setInterval> | null = null;
   let sessionStartedAt: number | null = null;
-  let lastPackageSentAt = 0;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
   let controlsCollapsed = false;
   const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
@@ -109,27 +108,11 @@ export function mountApp(root: HTMLElement): void {
         return;
       }
 
-      const logPackages = manual || recording;
       const { sent, failed, errors } = await flushOutbox(s, {
         force: manual,
         maxBatches: manual ? 15 : 40,
-        onProgress: logPackages
-          ? (msg) => {
-              pushLog(msg, false);
-              if (msg.startsWith('✓ Sent')) {
-                lastPackageSentAt = Date.now();
-                updateLiveHud();
-              }
-            }
-          : undefined,
+        onProgress: manual ? (msg) => pushLog(msg, false) : undefined,
       });
-      if (sent > 0) {
-        lastPackageSentAt = Date.now();
-        updateLiveHud();
-      }
-      if (logPackages && (sent > 0 || failed > 0)) {
-        refreshLogPre();
-      }
 
       const pendingAfter = await countPendingOutbox();
       if (manual || sent || failed) {
@@ -237,19 +220,15 @@ export function mountApp(root: HTMLElement): void {
 
     setHudText('[data-hud-timer]', formatElapsed(elapsed));
 
-    if (!IS_KRI) {
-      const spm = stats?.strokeRate;
-      if (spm != null && spm > 0) strokeRateAvg.push(spm);
-      const avgSpm = strokeRateAvg.average();
-      setHudText(
-        '[data-hud-spm]',
-        avgSpm != null && avgSpm > 0 ? String(Math.round(avgSpm)) : '—',
-      );
-    }
+    const spm = stats?.strokeRate;
+    if (spm != null && spm > 0) strokeRateAvg.push(spm);
+    const avgSpm = strokeRateAvg.average();
+    setHudText(
+      '[data-hud-spm]',
+      avgSpm != null && avgSpm > 0 ? String(Math.round(avgSpm)) : '—',
+    );
 
-    if (!IS_KRI) {
-      setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
-    }
+    setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
 
     if (stats?.speedMps != null && stats.speedMps >= 0.15) {
       speedAvg.push(stats.speedMps);
@@ -257,38 +236,15 @@ export function mountApp(root: HTMLElement): void {
     const avgMps = speedAvg.average();
     setHudText('[data-hud-split]', formatSplit500m(avgMps));
 
-    const s = loadSettings();
-    const deviceEl = root.querySelector('[data-hud-device]');
-    if (deviceEl) {
-      deviceEl.textContent = s.deviceId || '(device not set)';
-    }
-
-    const lastGpsMs = stats?.lastGps?.t ?? 0;
-    const lat = stats?.lastGps?.lat ?? 0;
-    const lon = stats?.lastGps?.lon ?? 0;
-    const gpsCoordsOk = Math.abs(lat) > 1e-4 || Math.abs(lon) > 1e-4;
-    const gpsActive =
-      s.enableGps &&
-      lastGpsMs > 0 &&
-      Date.now() - lastGpsMs <= 30_000 &&
-      gpsCoordsOk;
-    const gpsEl = root.querySelector('[data-hud-gps-status]');
-    if (gpsEl) {
-      if (!s.enableGps) {
-        gpsEl.textContent = 'GPS off';
-        gpsEl.setAttribute('data-active', 'false');
-      } else {
-        gpsEl.textContent = gpsActive ? 'GPS OK (30s)' : 'GPS waiting…';
-        gpsEl.setAttribute('data-active', gpsActive ? 'true' : 'false');
+    if (IS_KRI) {
+      setHudText('[data-hud-device]', settings.deviceId || '(device not set)');
+      const lastGpsMs = stats?.lastGps?.t ?? 0;
+      const gpsActive = lastGpsMs > 0 && Date.now() - lastGpsMs <= 30_000;
+      const gpsEl = root.querySelector('[data-hud-gps-status]');
+      if (gpsEl) {
+        gpsEl.textContent = gpsActive ? 'GPS active (last 30s)' : 'GPS waiting…';
+        gpsEl.setAttribute('data-gps-active', gpsActive ? 'true' : 'false');
       }
-    }
-
-    const uploadActive =
-      lastPackageSentAt > 0 && Date.now() - lastPackageSentAt <= 30_000;
-    const uploadEl = root.querySelector('[data-hud-upload-status]');
-    if (uploadEl) {
-      uploadEl.textContent = uploadActive ? 'Sending OK (30s)' : 'Upload waiting…';
-      uploadEl.setAttribute('data-active', uploadActive ? 'true' : 'false');
     }
 
     const splitSec = splitSecFromMps(avgMps);
@@ -296,13 +252,11 @@ export function mountApp(root: HTMLElement): void {
       root.querySelector('[data-rail-speed]') as HTMLElement | null,
       splitSec != null ? splitSecToT(splitSec) : undefined,
     );
-    if (!IS_KRI) {
-      const hr = stats?.lastHr;
-      updateSpectrumRail(
-        root.querySelector('[data-rail-hr]') as HTMLElement | null,
-        hr != null && hr > 0 ? hrToT(hr) : undefined,
-      );
-    }
+    const hr = stats?.lastHr;
+    updateSpectrumRail(
+      root.querySelector('[data-rail-hr]') as HTMLElement | null,
+      hr != null && hr > 0 ? hrToT(hr) : undefined,
+    );
 
     const capsizeEl = root.querySelector('[data-hud-capsize]');
     if (capsizeEl) {
@@ -387,11 +341,7 @@ export function mountApp(root: HTMLElement): void {
       ? `${stats.lastGps.lat.toFixed(4)}, ${stats.lastGps.lon.toFixed(4)}`
       : 'No GPS fix';
     const spm =
-      !IS_KRI && stats?.strokeRate != null
-        ? `${stats.strokeRate} spm`
-        : !IS_KRI && recording
-          ? 'SPM —'
-          : '';
+      stats?.strokeRate != null ? `${stats.strokeRate} spm` : recording ? 'SPM —' : '';
     const bg =
       recording && backgroundStatus === 'background'
         ? 'Background'
@@ -417,43 +367,38 @@ export function mountApp(root: HTMLElement): void {
         <span class="spectrum-rail__fast">1:15</span>
         <span class="spectrum-rail__slow">2:30</span>
       </div>
-      ${
-        IS_KRI
-          ? ''
-          : `
       <div class="spectrum-rail spectrum-rail--hr" data-rail-hr aria-label="Heart rate spectrum: 200 top, 100 bottom">
         <span class="spectrum-rail__marker" data-rail-marker></span>
         <span class="spectrum-rail__legend">HR</span>
         <span class="spectrum-rail__fast">200</span>
         <span class="spectrum-rail__slow">100</span>
       </div>
-      `
-      }
     `;
   }
 
   function liveHudHtml(): string {
     return `
       <section class="session-live-hud" aria-live="polite">
-        <div class="session-live-hud__status">
+        ${
+          IS_KRI
+            ? `
+        <div class="session-live-hud__kri">
           <div class="session-live-hud__device" data-hud-device>${esc(settings.deviceId || '(device not set)')}</div>
-          <div class="session-live-hud__indicators">
-            <span class="session-live-hud__pill" data-hud-gps-status data-active="false">GPS waiting…</span>
-            <span class="session-live-hud__pill" data-hud-upload-status data-active="false">Upload waiting…</span>
+          <div class="session-live-hud__gps-status" data-hud-gps-status data-gps-active="false">
+            GPS waiting…
           </div>
         </div>
+        `
+            : ''
+        }
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
         </div>
-        <div class="session-live-hud__metrics${IS_KRI ? ' session-live-hud__metrics--kri' : ''}">
+        <div class="session-live-hud__metrics">
           <div class="session-metric session-metric--timer">
             <span class="session-metric__value" data-hud-timer>0:00</span>
             <span class="session-metric__label">Time</span>
           </div>
-          ${
-            IS_KRI
-              ? ''
-              : `
           <div class="session-metric">
             <span class="session-metric__value" data-hud-spm>—</span>
             <span class="session-metric__label">Stroke /min <span class="session-metric__sub">15s avg</span></span>
@@ -462,8 +407,6 @@ export function mountApp(root: HTMLElement): void {
             <span class="session-metric__value" data-hud-hr>—</span>
             <span class="session-metric__label">HR</span>
           </div>
-          `
-          }
           <div class="session-metric">
             <span class="session-metric__value" data-hud-split>—</span>
             <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
@@ -526,7 +469,7 @@ export function mountApp(root: HTMLElement): void {
           `
           : `
             <section class="hub-panel">
-              <p class="hint">${IS_KRI ? 'Set a <strong>Device ID</strong> in Settings, then start a session. Live timer, capsize status, GPS/upload indicators, and pace appear at the top while recording.' : 'Set a <strong>Device ID</strong> in Settings, then start a session. Live timer, stroke rate, HR, and pace appear at the top while recording.'}</p>
+              <p class="hint">Set a <strong>Device ID</strong> in Settings, then start a session. Live timer, stroke rate, HR, and pace appear at the top while recording.</p>
             </section>
           `
       }
@@ -623,7 +566,7 @@ export function mountApp(root: HTMLElement): void {
           ${logPanelHtml()}
           <section class="hub-panel hint-card">
             <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
-            <p>${IS_KRI ? 'Native APK: background GPS uses a system notification (Android). With <strong>GPS</strong> + accelerometer, capsize detection runs while the screen is off. Capsize triggers a <strong>phone notification</strong> (sound/vibrate) when minimized or screen off — allow Notifications.' : 'Native APK: background GPS uses a system notification (Android). With <strong>Allow background</strong> + <strong>GPS</strong> + accelerometer, capsize and stroke run while the screen is off (v1.0.10+). Capsize triggers a <strong>phone notification</strong> (sound/vibrate) when minimized or screen off — allow Notifications (v1.0.11+). Web PWA: background is limited.'}</p>
+            <p>Native APK: background GPS uses a system notification (Android). With <strong>Allow background</strong> + <strong>GPS</strong> + accelerometer, capsize and stroke run while the screen is off (v1.0.10+). Capsize triggers a <strong>phone notification</strong> (sound/vibrate) when minimized or screen off — allow Notifications (v1.0.11+). Web PWA: background is limited.</p>
             <p>iOS needs a user tap to connect BLE HR. Sensors may pause if the app is swiped away.</p>
           </section>
         </div>
@@ -699,7 +642,6 @@ export function mountApp(root: HTMLElement): void {
         }
       }
       sessionStartedAt = Date.now();
-      lastPackageSentAt = 0;
       controlsCollapsed = true;
       speedAvg.clear();
       strokeRateAvg.clear();
@@ -719,10 +661,6 @@ export function mountApp(root: HTMLElement): void {
         },
         {
           onBackgroundPulse: () => void runSync(false),
-          onPackageSent: () => {
-            lastPackageSentAt = Date.now();
-            updateLiveHud();
-          },
         },
       );
       if (!controller) return;

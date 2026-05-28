@@ -259,25 +259,19 @@
   display: none;
 }
 
-.session-live-hud__status {
+.session-live-hud__kri {
   margin: 0 0 0.55rem;
 }
 
 .session-live-hud__device {
-  font-size: clamp(1rem, 4.5vw, 1.45rem);
+  font-size: clamp(1.1rem, 5.2vw, 1.65rem);
   font-weight: 900;
   letter-spacing: 0.01em;
   line-height: 1.15;
-  margin-bottom: 0.35rem;
 }
 
-.session-live-hud__indicators {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem 0.65rem;
-}
-
-.session-live-hud__pill {
+.session-live-hud__gps-status {
+  margin-top: 0.35rem;
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -286,7 +280,7 @@
   color: var(--ahd-muted);
 }
 
-.session-live-hud__pill::before {
+.session-live-hud__gps-status::before {
   content: '';
   width: 0.52rem;
   height: 0.52rem;
@@ -295,11 +289,11 @@
   box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35);
 }
 
-.session-live-hud__pill[data-active='true'] {
+.session-live-hud__gps-status[data-gps-active='true'] {
   color: #16a34a;
 }
 
-.session-live-hud__pill[data-active='true']::before {
+.session-live-hud__gps-status[data-gps-active='true']::before {
   background: #22c55e;
   box-shadow: 0 0 8px rgba(34, 197, 94, 0.75);
 }

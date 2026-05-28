@@ -5,49 +5,6 @@ const MAX_SAMPLES_PER_REQUEST = 500;
 const MAX_SESSIONS = 200;
 const MAX_SAMPLES_PER_SESSION = 50000;
 const RING_TRIM_TO = 3000;
-const MAX_GPS_ACCURACY_M = 150;
-
-function isValidGpsCoords(lat, lon) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
-  if (Math.abs(lat) < 1e-4 && Math.abs(lon) < 1e-4) return false;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
-  return true;
-}
-
-function isValidGps(gps) {
-  if (!gps) return false;
-  const lat = Number(gps.lat);
-  const lon = Number(gps.lon);
-  if (!isValidGpsCoords(lat, lon)) return false;
-  const acc = gps.acc != null ? Number(gps.acc) : null;
-  if (acc != null && Number.isFinite(acc) && acc > MAX_GPS_ACCURACY_M) return false;
-  return true;
-}
-
-function sanitizeSample(sample) {
-  if (!sample || typeof sample !== 'object') return null;
-  const t = Number(sample.t);
-  if (!Number.isFinite(t)) return null;
-
-  if (sample.gps && !isValidGps(sample.gps)) {
-    const { gps, ...rest } = sample;
-    const hasPayload =
-      rest.motion != null || rest.hr != null || rest.derived != null;
-    if (!hasPayload) return null;
-    return { ...rest, t };
-  }
-
-  return { ...sample, t };
-}
-
-function sanitizeTelemetrySamples(samples) {
-  const out = [];
-  for (const s of samples) {
-    const clean = sanitizeSample(s);
-    if (clean) out.push(clean);
-  }
-  return out;
-}
 
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
@@ -191,8 +148,7 @@ function sensorStats(samples, windowMs, deviceId) {
  * @param {Sample[]} samples
  */
 async function recordBatch(sessionId, deviceId, athleteId, samples) {
-  const clean = sanitizeTelemetrySamples(samples);
-  if (!clean.length) return { received: 0, dropped: samples.length };
+  if (!samples.length) return { received: 0 };
 
   const key = String(sessionId);
   const now = Date.now();
@@ -210,7 +166,7 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
 
   row.deviceId = String(deviceId);
   if (athleteId) row.athleteId = String(athleteId);
-  row.samples.push(...clean);
+  row.samples.push(...samples);
   row.updatedAt = now;
   trimSampleRing(row);
   trimSessions();
@@ -219,17 +175,15 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   let persistError = null;
   try {
     if (db.hasDb()) {
-      persisted = await db.persistBatch(sessionId, deviceId, athleteId, clean);
+      persisted = await db.persistBatch(sessionId, deviceId, athleteId, samples);
     }
   } catch (err) {
     persistError = err instanceof Error ? err.message : String(err);
     console.error('[ingest-store] DB persist failed:', err);
   }
 
-  const dropped = samples.length - clean.length;
   return {
-    received: clean.length,
-    dropped: dropped > 0 ? dropped : undefined,
+    received: samples.length,
     total: row.samples.length,
     persisted,
     persistError,

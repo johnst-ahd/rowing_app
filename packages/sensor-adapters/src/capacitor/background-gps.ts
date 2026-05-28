@@ -1,6 +1,5 @@
 import { registerPlugin } from '@capacitor/core';
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation';
-import { isValidGpsReading } from '../gps-validate';
 import type { GpsReading, GpsWatcher } from '../types';
 
 const BackgroundGeolocation =
@@ -43,7 +42,7 @@ export function startBackgroundGpsWatcher(
       if (now - lastEmit < intervalMs) return;
       lastEmit = now;
 
-      const reading: GpsReading = {
+      onReading({
         t: location.time ?? now,
         lat: location.latitude,
         lon: location.longitude,
@@ -51,8 +50,7 @@ export function startBackgroundGpsWatcher(
         spd: location.speed ?? undefined,
         hdg: location.bearing ?? undefined,
         alt: location.altitude ?? undefined,
-      };
-      if (isValidGpsReading(reading)) onReading(reading);
+      });
     },
   )
     .then((id) => {

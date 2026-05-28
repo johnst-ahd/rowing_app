@@ -51,8 +51,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
-    /** Reject null-island and very coarse network fixes. */
-    private static final float MAX_GPS_ACCURACY_M = 150f;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -169,7 +167,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     @Override
     public void onLocationChanged(Location location) {
         if (!enableGps || location == null) return;
-        if (!isGpsFixUsable(location)) return;
         long t = System.currentTimeMillis();
         if (t - lastGpsPostMs < gpsIntervalMs) return;
         lastGpsPostMs = t;
@@ -329,7 +326,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             postBatch(p, sessionId, deviceId, samples);
             Log.d(TAG, "GPS ingest OK");
         } catch (Exception e) {
-            recordUploadResult(-1, 1, false);
             Log.e(TAG, "GPS ingest failed", e);
         }
     }
@@ -360,7 +356,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             postBatch(p, sessionId, deviceId, samples);
             Log.i(TAG, "Capsize ingest sent");
         } catch (Exception e) {
-            recordUploadResult(-1, 1, false);
             Log.e(TAG, "Capsize ingest failed", e);
         }
     }
@@ -393,29 +388,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
         int code = conn.getResponseCode();
         conn.disconnect();
-        boolean ok = code >= 200 && code < 300;
-        recordUploadResult(code, samples.length(), ok);
-        if (!ok) {
+        if (code < 200 || code >= 300) {
             Log.w(TAG, "Ingest HTTP " + code);
         }
-    }
-
-    private void recordUploadResult(int httpCode, int sampleCount, boolean ok) {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        int seq = p.getInt("uploadSeq", 0) + 1;
-        SharedPreferences.Editor ed =
-            p.edit()
-                .putInt("uploadSeq", seq)
-                .putLong("lastUploadT", System.currentTimeMillis())
-                .putBoolean("lastUploadOk", ok)
-                .putInt("lastUploadCode", httpCode)
-                .putInt("lastUploadSamples", sampleCount);
-        if (ok) {
-            ed.putInt("uploadOkCount", p.getInt("uploadOkCount", 0) + 1);
-        } else {
-            ed.putInt("uploadFailCount", p.getInt("uploadFailCount", 0) + 1);
-        }
-        ed.apply();
     }
 
     private void saveLastGpsToPrefs(Location location, long t, int count) {
@@ -442,9 +417,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
             .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
             .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
-            .putInt("uploadSeq", 0)
-            .putInt("uploadOkCount", 0)
-            .putInt("uploadFailCount", 0)
             .apply();
     }
 
@@ -504,16 +476,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) sensorManager.unregisterListener(this);
     }
 
-    private static boolean isGpsFixUsable(Location location) {
-        if (location == null) return false;
-        double lat = location.getLatitude();
-        double lon = location.getLongitude();
-        if (Math.abs(lat) < 1e-4 && Math.abs(lon) < 1e-4) return false;
-        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
-        if (location.hasAccuracy() && location.getAccuracy() > MAX_GPS_ACCURACY_M) return false;
-        return true;
-    }
-
     private void registerLocation() {
         if (locationManager == null) {
             Log.e(TAG, "No LocationManager");
@@ -530,11 +492,18 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 locationManager.requestLocationUpdates(
                     LocationManager.GPS_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
             }
+            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                locationManager.requestLocationUpdates(
+                    LocationManager.NETWORK_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
+            }
             Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
-            if (last != null && isGpsFixUsable(last)) {
+            if (last == null) {
+                last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            }
+            if (last != null) {
                 onLocationChanged(last);
             }
-            Log.i(TAG, "Native GPS updates registered (" + minTime + "ms, GPS provider only)");
+            Log.i(TAG, "Native location updates registered (" + minTime + "ms)");
         } catch (SecurityException e) {
             Log.e(TAG, "Location permission error", e);
         }
