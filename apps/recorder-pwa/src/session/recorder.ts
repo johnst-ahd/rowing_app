@@ -64,6 +64,8 @@ export type RecorderHooks = {
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const BG_UPLOAD_PULSE_MS = 12_000;
+/** Keep fallback uploader responsive when native service is unavailable. */
+const MIN_UPLOAD_BATCH_MS = 2_000;
 
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
 const MAX_BATCH_SAMPLES = 40;
@@ -145,12 +147,12 @@ export async function startRecorder(
         ? Math.min(
             MAX_BATCH_SAMPLES,
             Math.ceil(
-              Math.max(settings.uploadBatchMs, 8000) / motionUploadMs,
+              Math.max(settings.uploadBatchMs, MIN_UPLOAD_BATCH_MS) / motionUploadMs,
             ) + 4,
           )
         : MAX_BATCH_SAMPLES;
   const batchIntervalMs = settings.enableMotion
-    ? Math.max(settings.uploadBatchMs, 8000)
+    ? Math.max(settings.uploadBatchMs, MIN_UPLOAD_BATCH_MS)
     : settings.uploadBatchMs;
 
   const stoppers: Array<() => void | Promise<void>> = [];

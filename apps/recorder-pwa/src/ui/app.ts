@@ -109,7 +109,7 @@ export function mountApp(root: HTMLElement): void {
         return;
       }
 
-      const logPackages = manual || recording;
+      const logPackages = manual || (recording && pendingBefore > 0);
       const { sent, failed, errors } = await flushOutbox(s, {
         force: manual,
         maxBatches: manual ? 15 : 40,
@@ -742,8 +742,8 @@ export function mountApp(root: HTMLElement): void {
       });
 
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
-      const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;
-      const syncInterval = Math.max(4000, Math.min(batchMs, 12000));
+      const batchMs = s.uploadBatchMs;
+      const syncInterval = Math.max(2000, Math.min(batchMs, 6000));
       syncTimer = setInterval(() => void runSync(false), syncInterval);
       void runSync(false);
       render();
