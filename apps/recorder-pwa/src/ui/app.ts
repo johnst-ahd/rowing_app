@@ -118,6 +118,14 @@ export function mountApp(root: HTMLElement): void {
       if (manual || sent || failed) {
         pushLog(`Upload: ${sent} sent, ${failed} failed · queue ${pendingAfter}`);
       }
+      if (recording && pendingAfter >= 120) {
+        pushLog(
+          `Queue pressure HIGH (${pendingAfter}) — check signal or raise upload interval.`,
+          false,
+        );
+      } else if (recording && pendingAfter >= 60) {
+        pushLog(`Queue pressure rising (${pendingAfter}) — watch upload status.`, false);
+      }
       if (errors.length) {
         for (const err of errors.slice(0, 3)) pushLog(err, false);
         refreshLogPre();

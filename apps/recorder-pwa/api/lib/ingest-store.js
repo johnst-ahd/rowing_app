@@ -21,6 +21,10 @@ globalThis.__rnzCapsizeClearAt = capsizeClearAt;
 /** @type {Map<string, GpsTrack>} */
 const gpsTracks = globalThis.__rnzGpsTracks ?? new Map();
 globalThis.__rnzGpsTracks = gpsTracks;
+/** @type {Map<string, { t:number, result: object }>} */
+const recentIdempotency = globalThis.__rnzRecentIdempotency ?? new Map();
+globalThis.__rnzRecentIdempotency = recentIdempotency;
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 
 /**
  * @typedef {{
@@ -68,6 +72,12 @@ function trimSampleRing(row) {
     row.samples = row.samples.slice(-MAX_SAMPLES_PER_SESSION);
   } else if (row.samples.length > RING_TRIM_TO) {
     row.samples = row.samples.slice(-RING_TRIM_TO);
+  }
+}
+
+function pruneIdempotency(now = Date.now()) {
+  for (const [key, entry] of recentIdempotency.entries()) {
+    if (now - entry.t > IDEMPOTENCY_TTL_MS) recentIdempotency.delete(key);
   }
 }
 
@@ -355,8 +365,18 @@ function sensorStats(samples, windowMs, deviceId) {
  * @param {string} deviceId
  * @param {string} [athleteId]
  * @param {Sample[]} samples
+ * @param {string} [idempotencyKey]
  */
-async function recordBatch(sessionId, deviceId, athleteId, samples) {
+async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyKey) {
+  const dedupeKey = idempotencyKey ? String(idempotencyKey) : '';
+  const now = Date.now();
+  pruneIdempotency(now);
+  if (dedupeKey) {
+    const cached = recentIdempotency.get(dedupeKey);
+    if (cached && now - cached.t <= IDEMPOTENCY_TTL_MS) {
+      return { ...cached.result, duplicate: true };
+    }
+  }
   if (!samples.length) return { received: 0 };
   const clean = sanitizeAndTrackSamples(deviceId, samples);
   if (!clean.samples.length) {
@@ -364,7 +384,6 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   }
 
   const key = String(sessionId);
-  const now = Date.now();
   let row = sessions.get(key);
   if (!row) {
     row = {
@@ -400,13 +419,17 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
     console.error('[ingest-store] DB persist failed:', err);
   }
 
-  return {
+  const result = {
     received: clean.samples.length,
     dropped: clean.dropped || undefined,
     total: row.samples.length,
     persisted,
     persistError,
   };
+  if (dedupeKey) {
+    recentIdempotency.set(dedupeKey, { t: now, result });
+  }
+  return result;
 }
 
 /**

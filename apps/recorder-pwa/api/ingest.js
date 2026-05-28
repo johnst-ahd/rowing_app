@@ -57,6 +57,7 @@ module.exports = async function handler(req, res) {
     deviceId,
     body.athleteId,
     samples,
+    req.headers['x-idempotency-key'] || req.headers['X-Idempotency-Key'],
   );
 
   const response = {

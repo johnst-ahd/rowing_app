@@ -33,14 +33,35 @@ function isRetryableError(err: unknown): boolean {
   );
 }
 
+function checksumString(input: string): string {
+  let h = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(36);
+}
+
+function buildIdempotencyKey(batch: TelemetryBatch): string {
+  const n = batch.samples.length;
+  const first = n > 0 ? Number(batch.samples[0]?.t ?? 0) : 0;
+  const last = n > 0 ? Number(batch.samples[n - 1]?.t ?? 0) : 0;
+  const shape = batch.samples
+    .map((s) => `${s.gps ? 'g' : ''}${s.motion ? 'm' : ''}${s.hr ? 'h' : ''}${s.derived ? 'd' : ''}`)
+    .join('');
+  return `rnz-${checksumString(`${batch.sessionId}|${batch.deviceId}|${first}|${last}|${n}|${shape}`)}`;
+}
+
 async function postOnceNative(
   ingestUrl: string,
   token: string,
   batch: TelemetryBatch,
 ): Promise<IngestResponse> {
+  const idempotencyKey = buildIdempotencyKey(batch);
   const { CapacitorHttp } = await import('@capacitor/core');
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Idempotency-Key': idempotencyKey,
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -74,8 +95,10 @@ async function postOnceFetch(
   token: string,
   batch: TelemetryBatch,
 ): Promise<IngestResponse> {
+  const idempotencyKey = buildIdempotencyKey(batch);
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Idempotency-Key': idempotencyKey,
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -166,13 +189,17 @@ async function postOnceWithRetry(
 ): Promise<IngestResponse> {
   const delays = [0, 1200, 3500];
   let lastErr: unknown;
-  for (const delay of delays) {
-    if (delay > 0) await sleep(delay);
+  for (let i = 0; i < delays.length; i++) {
+    const delay = delays[i];
+    if (delay > 0) {
+      const jitter = Math.floor(Math.random() * 400);
+      await sleep(delay + jitter);
+    }
     try {
       return await postOnce(ingestUrl, token, batch);
     } catch (e) {
       lastErr = e;
-      if (!isRetryableError(e)) throw e;
+      if (!isRetryableError(e) || i === delays.length - 1) throw e;
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
