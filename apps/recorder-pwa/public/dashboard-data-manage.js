@@ -35,6 +35,18 @@
     return n.toLocaleString();
   }
 
+  function fmtBytes(n) {
+    if (n == null || !Number.isFinite(n) || n < 0) return '—';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let v = n;
+    let i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
+  }
+
   function renderStats(stats, persisted) {
     const el = $('#dataManageStats');
     if (!el) return;
@@ -48,6 +60,19 @@
         '<p class="poll-line">Could not load storage summary (check ingest token).</p>';
       return;
     }
+    const used = stats.usedBytes ?? null;
+    const limit = stats.storageLimitBytes ?? null;
+    const pct =
+      stats.storageUsedPct != null
+        ? Math.max(0, Math.min(100, Number(stats.storageUsedPct)))
+        : null;
+    const barFill = pct != null ? `${pct}%` : '0%';
+    const barLabel =
+      used != null && limit != null
+        ? `${fmtBytes(used)} used of ${fmtBytes(limit)} (${pct?.toFixed?.(1) ?? pct}%)`
+        : used != null
+          ? `${fmtBytes(used)} used · set POSTGRES_STORAGE_LIMIT_MB to show available space`
+          : 'Storage usage unavailable';
     el.innerHTML = `
       <div class="data-manage-stat">
         <span class="data-manage-stat__value">${fmtNum(stats.deviceCount)}</span>
@@ -68,6 +93,15 @@
       <div class="data-manage-stat">
         <span class="data-manage-stat__value" style="font-size:0.95rem">${fmtDate(stats.newestSampleMs)}</span>
         <span class="data-manage-stat__label">Newest sample</span>
+      </div>
+      <div class="data-manage-storage-bar">
+        <div class="data-manage-storage-bar__head">
+          <span>Database storage</span>
+          <span>${barLabel}</span>
+        </div>
+        <div class="data-manage-storage-bar__track" role="img" aria-label="${barLabel}">
+          <span class="data-manage-storage-bar__fill" style="width:${barFill}"></span>
+        </div>
       </div>
     `;
   }

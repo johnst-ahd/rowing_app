@@ -639,15 +639,25 @@ async function getStorageStats() {
   if (!hasDb()) return null;
   const sql = await getSql();
   await initSchema();
+  const limitMb =
+    Number(process.env.POSTGRES_STORAGE_LIMIT_MB || process.env.STORAGE_LIMIT_MB) || null;
   const result = await sql`
     SELECT
       (SELECT COUNT(*)::int FROM rnz_devices) AS device_count,
       (SELECT COUNT(*)::int FROM rnz_sessions) AS session_count,
       (SELECT COUNT(*)::int FROM rnz_samples) AS sample_count,
       (SELECT MIN(t_ms)::bigint FROM rnz_samples) AS oldest_sample_ms,
-      (SELECT MAX(t_ms)::bigint FROM rnz_samples) AS newest_sample_ms
+      (SELECT MAX(t_ms)::bigint FROM rnz_samples) AS newest_sample_ms,
+      pg_database_size(current_database())::bigint AS database_size_bytes,
+      pg_total_relation_size('rnz_samples')::bigint AS samples_table_bytes
   `;
   const r = result.rows[0];
+  const usedBytes =
+    r.database_size_bytes != null ? Number(r.database_size_bytes) : null;
+  const limitBytes =
+    limitMb != null && Number.isFinite(limitMb) && limitMb > 0
+      ? Math.round(limitMb * 1024 * 1024)
+      : null;
   return {
     deviceCount: Number(r.device_count) || 0,
     sessionCount: Number(r.session_count) || 0,
@@ -656,6 +666,14 @@ async function getStorageStats() {
       r.oldest_sample_ms != null ? Number(r.oldest_sample_ms) : null,
     newestSampleMs:
       r.newest_sample_ms != null ? Number(r.newest_sample_ms) : null,
+    usedBytes,
+    samplesTableBytes:
+      r.samples_table_bytes != null ? Number(r.samples_table_bytes) : null,
+    storageLimitBytes: limitBytes,
+    storageUsedPct:
+      usedBytes != null && limitBytes != null && limitBytes > 0
+        ? Math.round((usedBytes / limitBytes) * 1000) / 10
+        : null,
   };
 }
 
