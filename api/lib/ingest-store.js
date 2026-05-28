@@ -1,4 +1,5 @@
 const db = require('./db');
+const { sanitizeTelemetrySamples } = require('./gps-validate');
 const { analyzeMotionWindow } = require('./motion-analysis');
 
 const MAX_SAMPLES_PER_REQUEST = 500;
@@ -148,7 +149,8 @@ function sensorStats(samples, windowMs, deviceId) {
  * @param {Sample[]} samples
  */
 async function recordBatch(sessionId, deviceId, athleteId, samples) {
-  if (!samples.length) return { received: 0 };
+  const clean = sanitizeTelemetrySamples(samples);
+  if (!clean.length) return { received: 0, dropped: samples.length };
 
   const key = String(sessionId);
   const now = Date.now();
@@ -166,7 +168,7 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
 
   row.deviceId = String(deviceId);
   if (athleteId) row.athleteId = String(athleteId);
-  row.samples.push(...samples);
+  row.samples.push(...clean);
   row.updatedAt = now;
   trimSampleRing(row);
   trimSessions();
@@ -175,15 +177,17 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   let persistError = null;
   try {
     if (db.hasDb()) {
-      persisted = await db.persistBatch(sessionId, deviceId, athleteId, samples);
+      persisted = await db.persistBatch(sessionId, deviceId, athleteId, clean);
     }
   } catch (err) {
     persistError = err instanceof Error ? err.message : String(err);
     console.error('[ingest-store] DB persist failed:', err);
   }
 
+  const dropped = samples.length - clean.length;
   return {
-    received: samples.length,
+    received: clean.length,
+    dropped: dropped > 0 ? dropped : undefined,
     total: row.samples.length,
     persisted,
     persistError,

@@ -1,6 +1,5 @@
 const store = require('./lib/ingest-store');
 
-/** GET /api/positions — latest GPS per device from ingest (replaces Traccar for maps). */
 module.exports = async function handler(req, res) {
   store.cors(res);
 
@@ -21,6 +20,34 @@ module.exports = async function handler(req, res) {
     Math.max(5, Number(req.query?.onlineSec) || 30),
   );
 
+  if (store.hasDb()) {
+    try {
+      const snap = await store.getTraccarSnapshot(onlineSec * 1000);
+      return res.status(200).json({
+        ok: true,
+        polledAt: Date.now(),
+        onlineThresholdSec: onlineSec,
+        positions: snap.positions.map((p) => ({
+          uniqueId: p.deviceName || p.attributes?.uniqueId,
+          deviceId: p.deviceId,
+          numericDeviceId: p.deviceId,
+          latitude: p.latitude,
+          longitude: p.longitude,
+          accuracy: p.accuracy,
+          speed: p.speed,
+          course: p.course,
+          altitude: p.altitude,
+          fixTime: p.fixTime,
+          deviceTime: p.deviceTime,
+          attributes: p.attributes,
+        })),
+        persisted: true,
+      });
+    } catch (err) {
+      console.error('[positions] DB failed:', err);
+    }
+  }
+
   const payload = store.getPositionsSnapshot(onlineSec * 1000);
-  return res.status(200).json({ ok: true, ...payload });
+  return res.status(200).json({ ok: true, ...payload, persisted: false });
 };

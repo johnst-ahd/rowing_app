@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a1628" />
+    <title>Device Monitor · Altitude HD</title>
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link rel="stylesheet" href="/ahd-hub-theme.css" />
+    <link rel="stylesheet" href="/dashboard.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body class="hub-page">
+    <header class="hub-topbar">
+      <div class="hub-topbar-inner">
+        <div class="hub-topbar-brands">
+          <img
+            src="/altitude-hd-logo.png"
+            alt="Altitude HD"
+            class="hub-logo"
+            width="320"
+            height="120"
+          />
+          <img
+            src="/assets/rnz/rnz-logo-white.png"
+            alt="Rowing New Zealand"
+            class="hub-rnz-logo"
+            width="200"
+            height="80"
+          />
+        </div>
+        <p class="hub-tagline">RNZ ingest monitor — GPS, stroke rate (15–50 spm), and capsize alerts</p>
+      </div>
+    </header>
+
+    <div class="hub-stats-bar" aria-live="polite">
+      <span class="hub-stats-item hub-stats-item--accent" id="activeCount">Online: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="deviceCount">Devices: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="windowLabel">Window: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="strokeSummary">Stroke: —</span>
+      <span class="hub-stats-sep" aria-hidden="true">·</span>
+      <span class="hub-stats-item" id="capsizeSummary">Capsize: —</span>
+    </div>
+
+    <div class="ahd-app-wrap">
+      <div class="capsize-alert-bar" id="capsizeAlertBar" hidden role="alert" aria-hidden="true">
+        <div class="capsize-alert-bar__main">
+          <strong>Capsize alert</strong>
+          <span id="capsizeAlertText">—</span>
+        </div>
+        <button type="button" class="hub-btn capsize-clear-btn" id="clearCapsizeBtn">
+          Clear alert
+        </button>
+      </div>
+
+      <section class="hub-panel hub-panel--map">
+        <h2 class="hub-section-title">Fleet map</h2>
+        <p class="map-legend">
+          <span class="map-legend-item map-legend-item--live">● GPS live (≤30s)</span>
+          <span class="map-legend-item map-legend-item--amber">● GPS delayed (30s–5min)</span>
+          <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
+          <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
+        </p>
+        <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
+        <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+      </section>
+
+      <section class="hub-panel">
+        <h2 class="hub-section-title">Devices</h2>
+        <div class="devices-grid" id="devicesGrid"></div>
+      </section>
+
+      <section class="hub-panel hub-panel--history" id="historyPanel">
+        <h2 class="hub-section-title">Session history</h2>
+        <p class="history-intro">
+          Searches the <strong>database</strong> (all uploads from the apps, not just this browser session).
+          Pick a <strong>session</strong> for one outing, or a device + date range. Use <strong>All stored for device</strong>
+          if a short range shows no data.
+        </p>
+        <div class="ahd-inline-fields history-fields">
+          <label class="ahd-field">
+            Device ID
+            <select id="historyDeviceId">
+              <option value="">— select device —</option>
+            </select>
+          </label>
+          <label class="ahd-field history-field--wide">
+            Session <span class="history-field-hint">(easiest — loads that outing)</span>
+            <select id="historySessionId">
+              <option value="">— pick a recorded session —</option>
+            </select>
+          </label>
+        </div>
+        <div class="history-range-block">
+          <span class="history-range-label">Or search by date &amp; time</span>
+          <div class="history-presets" role="group" aria-label="Quick time ranges">
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="1h">Last hour</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="6h">Last 6 hours</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="today">Today</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="yesterday">Yesterday</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="30d">Last 30 days</button>
+            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="all">All stored for device</button>
+          </div>
+          <div class="history-datetime-grid">
+            <fieldset class="history-datetime-group">
+              <legend>From</legend>
+              <label class="ahd-field">
+                Date
+                <input type="date" id="historyFromDate" />
+              </label>
+              <label class="ahd-field">
+                Time
+                <input type="time" id="historyFromTime" step="60" />
+              </label>
+            </fieldset>
+            <fieldset class="history-datetime-group">
+              <legend>To</legend>
+              <label class="ahd-field">
+                Date
+                <input type="date" id="historyToDate" />
+              </label>
+              <label class="ahd-field">
+                Time
+                <input type="time" id="historyToTime" step="60" />
+              </label>
+            </fieldset>
+          </div>
+          <button type="button" class="hub-btn hub-btn--primary" id="historyLoadBtn">Load history</button>
+          <button type="button" class="hub-btn" id="historyRefreshListsBtn">Refresh lists</button>
+        </div>
+        <p class="poll-line" id="historyStatus">Select a session (recommended) or device + date range.</p>
+        <p class="history-results-hint">After loading, the <strong>GPS map and charts</strong> appear in the section below (scroll down if needed).</p>
+        <div id="historyResults" class="history-results" hidden aria-hidden="true">
+          <p class="history-meta" id="historyMeta"></p>
+          <h3 class="history-subtitle">GPS trace</h3>
+          <p class="map-legend history-legend">
+            <span class="map-legend-item map-legend-item--live">● Start</span>
+            <span class="map-legend-item" style="color:#3b82f6">● End</span>
+            <span class="map-legend-item map-legend-item--capsize">● Capsize</span>
+          </p>
+          <div id="historyMap" class="history-map" role="application" aria-label="Historical GPS trace"></div>
+          <div class="history-charts">
+            <div class="history-chart-wrap">
+              <canvas id="historyChartSpeed" class="history-chart" height="160"></canvas>
+            </div>
+            <div class="history-chart-wrap">
+              <canvas id="historyChartHr" class="history-chart" height="160"></canvas>
+            </div>
+            <div class="history-chart-wrap" id="historyChartStrokeWrap">
+              <canvas id="historyChartStroke" class="history-chart" height="160"></canvas>
+            </div>
+          </div>
+          <div id="historyCapsizeList" class="history-capsize-list"></div>
+        </div>
+      </section>
+
+      <section class="hub-panel ahd-controls-panel hub-panel--settings">
+        <h2 class="hub-section-title">Monitor settings</h2>
+        <div class="ahd-inline-fields">
+          <label class="ahd-field">
+            Ingest token
+            <input type="password" id="token" placeholder="Bearer token (if set)" autocomplete="off" />
+          </label>
+          <label class="ahd-field">
+            Stats window
+            <select id="windowSec">
+              <option value="30">30 s</option>
+              <option value="60" selected>60 s</option>
+              <option value="120">120 s</option>
+            </select>
+          </label>
+          <label class="ahd-field">
+            Refresh
+            <select id="pollMs">
+              <option value="1000">1 s</option>
+              <option value="2000" selected>2 s</option>
+              <option value="5000">5 s</option>
+              <option value="10000">10 s</option>
+            </select>
+          </label>
+          <label class="ahd-field">
+            Hide offline after
+            <select id="staleSec">
+              <option value="900">15 min</option>
+              <option value="3600" selected>1 hour</option>
+              <option value="21600">6 hours</option>
+              <option value="86400">24 hours</option>
+            </select>
+          </label>
+          <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
+          <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
+          <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
+          <a class="hub-btn hub-btn--ghost" href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Altitude HD hub</a>
+        </div>
+        <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
+        <p class="poll-line" id="pollStatus">Connecting…</p>
+      </section>
+    </div>
+
+    <footer class="ahd-footer">
+      Altitude HD · RNZ Row Recorder ·
+      <a href="https://traccar-overlay.vercel.app/">traccar-overlay.vercel.app</a>
+    </footer>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/dashboard.js"></script>
+    <script src="/dashboard-history.js"></script>
+  </body>
+</html>
