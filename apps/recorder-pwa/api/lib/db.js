@@ -67,6 +67,13 @@ async function initSchema() {
       tilt_deg DOUBLE PRECISION
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS rnz_idempotency (
+      key TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      response JSONB NOT NULL
+    )
+  `;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS stroke_rate DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS capsize BOOLEAN`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
@@ -77,6 +84,10 @@ async function initSchema() {
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_device_ref_time
       ON rnz_samples (device_ref, t_ms DESC)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_rnz_idempotency_created
+      ON rnz_idempotency (created_at DESC)
   `;
 
   schemaReady = true;
@@ -116,34 +127,52 @@ async function upsertSession(sessionId, deviceRef, uniqueId, athleteId) {
  */
 async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   const sql = await getSql();
-  for (const s of samples) {
+  const packed = samples.map((s) => {
     const d = s.derived || {};
-    await sql`
-      INSERT INTO rnz_samples (
-        session_id, device_ref, unique_id, t_ms,
-        latitude, longitude, accuracy, speed, course, altitude,
-        hr, ax, ay, az, stroke_rate, capsize, tilt_deg
-      ) VALUES (
-        ${sessionId},
-        ${deviceRef},
-        ${uniqueId},
-        ${s.t},
-        ${s.gps?.lat ?? null},
-        ${s.gps?.lon ?? null},
-        ${s.gps?.acc ?? null},
-        ${s.gps?.spd ?? null},
-        ${s.gps?.hdg ?? null},
-        ${s.gps?.alt ?? null},
-        ${s.hr?.bpm ?? null},
-        ${s.motion?.ax ?? null},
-        ${s.motion?.ay ?? null},
-        ${s.motion?.az ?? null},
-        ${d.strokeRate ?? null},
-        ${d.capsize === true ? true : d.capsize === false ? false : null},
-        ${d.tiltDeg ?? null}
-      )
-    `;
-  }
+    return {
+      t_ms: Number(s.t),
+      latitude: s.gps?.lat ?? null,
+      longitude: s.gps?.lon ?? null,
+      accuracy: s.gps?.acc ?? null,
+      speed: s.gps?.spd ?? null,
+      course: s.gps?.hdg ?? null,
+      altitude: s.gps?.alt ?? null,
+      hr: s.hr?.bpm ?? null,
+      ax: s.motion?.ax ?? null,
+      ay: s.motion?.ay ?? null,
+      az: s.motion?.az ?? null,
+      stroke_rate: d.strokeRate ?? null,
+      capsize: d.capsize === true ? true : d.capsize === false ? false : null,
+      tilt_deg: d.tiltDeg ?? null,
+    };
+  });
+  await sql`
+    INSERT INTO rnz_samples (
+      session_id, device_ref, unique_id, t_ms,
+      latitude, longitude, accuracy, speed, course, altitude,
+      hr, ax, ay, az, stroke_rate, capsize, tilt_deg
+    )
+    SELECT
+      ${sessionId}::text, ${deviceRef}::int, ${uniqueId}::text,
+      x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.altitude,
+      x.hr, x.ax, x.ay, x.az, x.stroke_rate, x.capsize, x.tilt_deg
+    FROM jsonb_to_recordset(${JSON.stringify(packed)}::jsonb) AS x(
+      t_ms bigint,
+      latitude double precision,
+      longitude double precision,
+      accuracy double precision,
+      speed double precision,
+      course double precision,
+      altitude double precision,
+      hr integer,
+      ax double precision,
+      ay double precision,
+      az double precision,
+      stroke_rate double precision,
+      capsize boolean,
+      tilt_deg double precision
+    )
+  `;
 }
 
 async function persistBatch(sessionId, deviceId, athleteId, samples) {
@@ -706,6 +735,40 @@ async function deleteAllStoredData() {
   };
 }
 
+async function getIdempotency(key, ttlMs = 10 * 60 * 1000) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT response, created_at
+    FROM rnz_idempotency
+    WHERE key = ${String(key)}
+    LIMIT 1
+  `;
+  const row = rows.rows[0];
+  if (!row) return null;
+  const createdMs = new Date(row.created_at).getTime();
+  if (!Number.isFinite(createdMs) || Date.now() - createdMs > ttlMs) return null;
+  return row.response || null;
+}
+
+async function setIdempotency(key, response) {
+  if (!hasDb()) return;
+  const sql = await getSql();
+  await initSchema();
+  await sql`
+    INSERT INTO rnz_idempotency (key, created_at, response)
+    VALUES (${String(key)}, NOW(), ${JSON.stringify(response)}::jsonb)
+    ON CONFLICT (key) DO UPDATE SET
+      created_at = NOW(),
+      response = EXCLUDED.response
+  `;
+  await sql`
+    DELETE FROM rnz_idempotency
+    WHERE created_at < NOW() - INTERVAL '30 minutes'
+  `;
+}
+
 module.exports = {
   hasDb,
   initSchema,
@@ -726,4 +789,6 @@ module.exports = {
   deleteDeviceData,
   deleteSamplesInRange,
   deleteAllStoredData,
+  getIdempotency,
+  setIdempotency,
 };

@@ -25,6 +25,18 @@ globalThis.__rnzGpsTracks = gpsTracks;
 const recentIdempotency = globalThis.__rnzRecentIdempotency ?? new Map();
 globalThis.__rnzRecentIdempotency = recentIdempotency;
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const metrics = globalThis.__rnzIngestMetrics ?? {
+  startedAt: Date.now(),
+  requests: 0,
+  duplicates: 0,
+  droppedSamples: 0,
+  persistedBatches: 0,
+  persistFailures: 0,
+  lastPersistError: null,
+  lastPersistAt: null,
+  mapPolls: 0,
+};
+globalThis.__rnzIngestMetrics = metrics;
 
 /**
  * @typedef {{
@@ -368,20 +380,36 @@ function sensorStats(samples, windowMs, deviceId) {
  * @param {string} [idempotencyKey]
  */
 async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyKey) {
+  metrics.requests++;
   const dedupeKey = idempotencyKey ? String(idempotencyKey) : '';
   const now = Date.now();
   pruneIdempotency(now);
+  if (dedupeKey && db.hasDb()) {
+    try {
+      const dbCached = await db.getIdempotency(dedupeKey, IDEMPOTENCY_TTL_MS);
+      if (dbCached) {
+        metrics.duplicates++;
+        recentIdempotency.set(dedupeKey, { t: now, result: dbCached });
+        return { ...dbCached, duplicate: true };
+      }
+    } catch (err) {
+      console.error('[ingest-store] DB idempotency read failed:', err);
+    }
+  }
   if (dedupeKey) {
     const cached = recentIdempotency.get(dedupeKey);
     if (cached && now - cached.t <= IDEMPOTENCY_TTL_MS) {
+      metrics.duplicates++;
       return { ...cached.result, duplicate: true };
     }
   }
   if (!samples.length) return { received: 0 };
   const clean = sanitizeAndTrackSamples(deviceId, samples);
   if (!clean.samples.length) {
+    metrics.droppedSamples += clean.dropped || 0;
     return { received: 0, dropped: clean.dropped };
   }
+  metrics.droppedSamples += clean.dropped || 0;
 
   const key = String(sessionId);
   let row = sessions.get(key);
@@ -413,10 +441,16 @@ async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyK
         athleteId,
         clean.samples,
       );
+      if (persisted) {
+        metrics.persistedBatches++;
+        metrics.lastPersistAt = now;
+      }
     }
   } catch (err) {
     persistError = err instanceof Error ? err.message : String(err);
     console.error('[ingest-store] DB persist failed:', err);
+    metrics.persistFailures++;
+    metrics.lastPersistError = String(persistError).slice(0, 300);
   }
 
   const result = {
@@ -428,6 +462,13 @@ async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyK
   };
   if (dedupeKey) {
     recentIdempotency.set(dedupeKey, { t: now, result });
+    if (db.hasDb()) {
+      try {
+        await db.setIdempotency(dedupeKey, result);
+      } catch (err) {
+        console.error('[ingest-store] DB idempotency write failed:', err);
+      }
+    }
   }
   return result;
 }
@@ -714,6 +755,7 @@ function samplesByDeviceForWindow(windowMs) {
 }
 
 async function getMapPositions(onlineMs, staleMs) {
+  metrics.mapPolls++;
   const rowingWindowMs = Math.min(staleMs, 120000);
   const now = Date.now();
 
@@ -768,6 +810,23 @@ async function getMapPositions(onlineMs, staleMs) {
         tiltDeg: rowing.tiltDeg ?? null,
       };
     });
+}
+
+function getMetrics() {
+  const uptimeSec = Math.max(1, Math.round((Date.now() - metrics.startedAt) / 1000));
+  return {
+    startedAt: metrics.startedAt,
+    uptimeSec,
+    requests: metrics.requests,
+    duplicates: metrics.duplicates,
+    droppedSamples: metrics.droppedSamples,
+    persistedBatches: metrics.persistedBatches,
+    persistFailures: metrics.persistFailures,
+    lastPersistError: metrics.lastPersistError,
+    lastPersistAt: metrics.lastPersistAt,
+    mapPolls: metrics.mapPolls,
+    requestRateHz: Math.round((metrics.requests / uptimeSec) * 100) / 100,
+  };
 }
 
 async function getTraccarSnapshot(onlineMs = 120000) {
@@ -994,6 +1053,7 @@ module.exports = {
   deleteStoredRange,
   deleteAllStoredData,
   getDataSecurityInfo,
+  getMetrics,
   checkAuth,
   cors,
   hasDb: db.hasDb,
