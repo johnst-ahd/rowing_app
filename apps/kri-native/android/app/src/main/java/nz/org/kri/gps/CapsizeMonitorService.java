@@ -51,6 +51,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
+    private static final int MAX_PENDING_BATCHES = 60;
+    private static final int MAX_PENDING_FLUSH_PER_CYCLE = 8;
+    private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -167,13 +170,18 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     @Override
     public void onLocationChanged(Location location) {
         if (!enableGps || location == null) return;
+        if (!isGpsFixUsable(location)) return;
         long t = System.currentTimeMillis();
         if (t - lastGpsPostMs < gpsIntervalMs) return;
         lastGpsPostMs = t;
         nativeGpsCount++;
         saveLastGpsToPrefs(location, t, nativeGpsCount);
         final Location loc = location;
-        uploadExecutor.execute(() -> postGpsToIngest(loc, t));
+        uploadExecutor.execute(() -> {
+            SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+            flushPendingIngest(p);
+            postGpsToIngest(loc, t);
+        });
     }
 
     @Override
@@ -323,9 +331,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
             JSONArray samples = new JSONArray();
             samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-            Log.d(TAG, "GPS ingest OK");
+            if (postBatch(p, sessionId, deviceId, samples)) {
+                Log.d(TAG, "GPS ingest OK");
+            } else {
+                Log.w(TAG, "GPS ingest queued for retry");
+            }
         } catch (Exception e) {
+            recordUploadResult(-1, 1, false);
             Log.e(TAG, "GPS ingest failed", e);
         }
     }
@@ -353,44 +365,146 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             sample.put("derived", derived);
             JSONArray samples = new JSONArray();
             samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-            Log.i(TAG, "Capsize ingest sent");
+            if (postBatch(p, sessionId, deviceId, samples)) {
+                Log.i(TAG, "Capsize ingest sent");
+            } else {
+                Log.w(TAG, "Capsize ingest queued for retry");
+            }
         } catch (Exception e) {
+            recordUploadResult(-1, 1, false);
             Log.e(TAG, "Capsize ingest failed", e);
         }
     }
 
-    private void postBatch(
+    private JSONObject buildBatch(
             SharedPreferences p, String sessionId, String deviceId, JSONArray samples)
             throws Exception {
-        String ingestUrl = p.getString("ingestUrl", "");
         JSONObject batch = new JSONObject();
         batch.put("sessionId", sessionId);
         batch.put("deviceId", deviceId);
         String athleteId = p.getString("athleteId", "");
         if (!athleteId.isEmpty()) batch.put("athleteId", athleteId);
         batch.put("samples", samples);
+        return batch;
+    }
 
-        String body = batch.toString();
-        URL url = new URL(ingestUrl);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(20000);
-        conn.setRequestMethod("POST");
-        conn.setDoOutput(true);
-        conn.setRequestProperty("Content-Type", "application/json");
-        String token = p.getString("ingestToken", "");
-        if (!token.isEmpty()) {
-            conn.setRequestProperty("Authorization", "Bearer " + token);
+    private boolean postBatch(
+            SharedPreferences p, String sessionId, String deviceId, JSONArray samples) {
+        try {
+            return postBatchJson(p, buildBatch(p, sessionId, deviceId, samples), true);
+        } catch (Exception e) {
+            Log.e(TAG, "postBatch build failed", e);
+            recordUploadResult(-1, samples.length(), false);
+            return false;
         }
-        try (OutputStream os = conn.getOutputStream()) {
-            os.write(body.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private boolean postBatchJson(SharedPreferences p, JSONObject batch, boolean requeueOnFailure) {
+        int sampleCount = 0;
+        try {
+            JSONArray samples = batch.getJSONArray("samples");
+            sampleCount = samples.length();
+            String ingestUrl = p.getString("ingestUrl", "");
+            if (ingestUrl.isEmpty()) {
+                recordUploadResult(-1, sampleCount, false);
+                return false;
+            }
+            String body = batch.toString();
+            URL url = new URL(ingestUrl);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(20000);
+            conn.setReadTimeout(20000);
+            conn.setRequestMethod("POST");
+            conn.setDoOutput(true);
+            conn.setRequestProperty("Content-Type", "application/json");
+            String token = p.getString("ingestToken", "");
+            if (!token.isEmpty()) {
+                conn.setRequestProperty("Authorization", "Bearer " + token);
+            }
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(body.getBytes(StandardCharsets.UTF_8));
+            }
+            int code = conn.getResponseCode();
+            conn.disconnect();
+            boolean ok = code >= 200 && code < 300;
+            recordUploadResult(code, sampleCount, ok);
+            if (!ok) {
+                Log.w(TAG, "Ingest HTTP " + code);
+                if (requeueOnFailure) enqueuePendingBatch(p, batch);
+            }
+            return ok;
+        } catch (Exception e) {
+            recordUploadResult(-1, sampleCount, false);
+            Log.e(TAG, "Ingest POST failed", e);
+            if (requeueOnFailure) enqueuePendingBatch(p, batch);
+            return false;
         }
-        int code = conn.getResponseCode();
-        conn.disconnect();
-        if (code < 200 || code >= 300) {
-            Log.w(TAG, "Ingest HTTP " + code);
+    }
+
+    private void enqueuePendingBatch(SharedPreferences p, JSONObject batch) {
+        try {
+            JSONArray queue = new JSONArray(p.getString(PENDING_BATCHES_KEY, "[]"));
+            queue.put(batch);
+            while (queue.length() > MAX_PENDING_BATCHES) {
+                queue.remove(0);
+            }
+            p.edit().putString(PENDING_BATCHES_KEY, queue.toString()).apply();
+        } catch (Exception e) {
+            Log.e(TAG, "enqueuePendingBatch failed", e);
         }
+    }
+
+    private void flushPendingIngest(SharedPreferences p) {
+        try {
+            JSONArray queue = new JSONArray(p.getString(PENDING_BATCHES_KEY, "[]"));
+            if (queue.length() == 0) return;
+            JSONArray remaining = new JSONArray();
+            int sent = 0;
+            for (int i = 0; i < queue.length(); i++) {
+                JSONObject batch = queue.getJSONObject(i);
+                if (postBatchJson(p, batch, false)) {
+                    sent++;
+                } else {
+                    remaining.put(batch);
+                }
+                if (sent >= MAX_PENDING_FLUSH_PER_CYCLE) {
+                    for (int j = i + 1; j < queue.length(); j++) {
+                        remaining.put(queue.getJSONObject(j));
+                    }
+                    break;
+                }
+            }
+            p.edit().putString(PENDING_BATCHES_KEY, remaining.toString()).apply();
+            if (sent > 0) {
+                Log.i(
+                    TAG,
+                    "Flushed "
+                        + sent
+                        + " pending ingest batch(es), "
+                        + remaining.length()
+                        + " left");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "flushPendingIngest failed", e);
+        }
+    }
+
+    private void recordUploadResult(int httpCode, int sampleCount, boolean ok) {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        int seq = p.getInt("uploadSeq", 0) + 1;
+        SharedPreferences.Editor ed =
+            p.edit()
+                .putInt("uploadSeq", seq)
+                .putLong("lastUploadT", System.currentTimeMillis())
+                .putBoolean("lastUploadOk", ok)
+                .putInt("lastUploadCode", httpCode)
+                .putInt("lastUploadSamples", sampleCount);
+        if (ok) {
+            ed.putInt("uploadOkCount", p.getInt("uploadOkCount", 0) + 1);
+        } else {
+            ed.putInt("uploadFailCount", p.getInt("uploadFailCount", 0) + 1);
+        }
+        ed.apply();
     }
 
     private void saveLastGpsToPrefs(Location location, long t, int count) {
@@ -417,6 +531,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
             .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
             .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
+            .putInt("uploadSeq", 0)
+            .putInt("uploadOkCount", 0)
+            .putInt("uploadFailCount", 0)
+            .putString(PENDING_BATCHES_KEY, "[]")
             .apply();
     }
 
@@ -474,6 +592,16 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     private void unregisterSensor() {
         if (sensorManager != null) sensorManager.unregisterListener(this);
+    }
+
+    /** Reject null-island / invalid coords only (accuracy filtered server-side for smoothing). */
+    private static boolean isGpsFixUsable(Location location) {
+        if (location == null) return false;
+        double lat = location.getLatitude();
+        double lon = location.getLongitude();
+        if (Math.abs(lat) < 1e-4 && Math.abs(lon) < 1e-4) return false;
+        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+        return true;
     }
 
     private void registerLocation() {

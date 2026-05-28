@@ -72,7 +72,7 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   athleteId: '',
   ingestUrl: DEFAULT_INGEST_URL,
   ingestToken: '',
-  gpsIntervalMs: 1000,
+  gpsIntervalMs: 2000,
   motionIntervalMs: 50,
   motionUploadIntervalMs: 500,
   uploadBatchMs: 5000,

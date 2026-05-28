@@ -83,6 +83,13 @@ public class CapsizeMonitorPlugin extends Plugin {
             upload.put("failCount", p.getInt("uploadFailCount", 0));
             ret.put("upload", upload);
         }
+        try {
+            org.json.JSONArray pending =
+                new org.json.JSONArray(p.getString("pendingIngestBatches", "[]"));
+            ret.put("pendingIngestBatches", pending.length());
+        } catch (Exception ignored) {
+            ret.put("pendingIngestBatches", 0);
+        }
         call.resolve(ret);
     }
 }
