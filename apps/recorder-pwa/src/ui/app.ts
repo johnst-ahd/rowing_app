@@ -330,6 +330,7 @@ export function mountApp(root: HTMLElement): void {
         <p class="ahd-footer__line">
           Altitude HD · ${appName} ·
           ${installLink}
+          <a href="${asset('dashboard.html')}" target="_blank" rel="noopener">Monitor</a> ·
           <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
         </p>
         ${version ? `<p class="ahd-footer__version">${esc(version)}</p>` : ''}
