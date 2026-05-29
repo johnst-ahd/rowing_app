@@ -51,6 +51,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
+    /** Keeps dashboard "online" when GPS fixes pause (independent of gpsIntervalMs). */
+    private static final long HEARTBEAT_INTERVAL_MS = 30_000L;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -84,6 +86,12 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private final float[] recentAz = new float[64];
     private final long[] recentT = new long[64];
     private int recentCount;
+    private final Runnable heartbeatRunnable =
+            () -> {
+                if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
+                uploadExecutor.execute(() -> postHeartbeatToIngest(System.currentTimeMillis()));
+                scheduleHeartbeat();
+            };
 
     @Override
     public void onCreate() {
@@ -112,6 +120,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (enableGps) {
             registerLocation();
         }
+        scheduleHeartbeat();
         Log.i(
             TAG,
             "Native session service started gps="
@@ -119,12 +128,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 + " motion="
                 + enableMotion
                 + " intervalMs="
-                + gpsIntervalMs);
+                + gpsIntervalMs
+                + " heartbeatMs="
+                + HEARTBEAT_INTERVAL_MS);
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
+        mainHandler.removeCallbacks(heartbeatRunnable);
         unregisterSensor();
         unregisterLocation();
         releaseWakeLock();
@@ -330,6 +342,32 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
     }
 
+    private void postHeartbeatToIngest(long t) {
+        if (enableGps && t - lastGpsPostMs < HEARTBEAT_INTERVAL_MS) {
+            return;
+        }
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        String ingestUrl = p.getString("ingestUrl", "");
+        String deviceId = p.getString("deviceId", "");
+        String sessionId = p.getString("sessionId", "");
+        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
+            return;
+        }
+        try {
+            JSONObject derived = new JSONObject();
+            derived.put("heartbeat", true);
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("derived", derived);
+            JSONArray samples = new JSONArray();
+            samples.put(sample);
+            postBatch(p, sessionId, deviceId, samples);
+            Log.d(TAG, "Heartbeat ingest OK");
+        } catch (Exception e) {
+            Log.e(TAG, "Heartbeat ingest failed", e);
+        }
+    }
+
     private void postCapsizeToIngest(long t, float ax, float ay, float az, int tiltDeg) {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         String ingestUrl = p.getString("ingestUrl", "");
@@ -465,6 +503,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         uprightX /= mag;
         uprightY /= mag;
         uprightZ /= mag;
+    }
+
+    private void scheduleHeartbeat() {
+        mainHandler.removeCallbacks(heartbeatRunnable);
+        mainHandler.postDelayed(heartbeatRunnable, HEARTBEAT_INTERVAL_MS);
     }
 
     private void registerSensor() {

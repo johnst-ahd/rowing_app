@@ -27,6 +27,8 @@ export type DerivedSample = {
   capsize?: boolean;
   /** Angle from calibrated upright (degrees). */
   tiltDeg?: number;
+  /** Session alive ping (no GPS required). */
+  heartbeat?: boolean;
 };
 
 export type TelemetrySample = {
