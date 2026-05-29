@@ -820,6 +820,100 @@ function getPositionsSnapshot(onlineMs = 30000) {
   };
 }
 
+/**
+ * Latest GPS fix from a sample list (same scan as sensorStats).
+ * @param {Sample[]} samples
+ */
+function latestGpsFromSamples(samples) {
+  let lastGps = null;
+  for (const s of samples) {
+    if (s.gps && s.gps.lat != null && s.gps.lon != null) {
+      lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc ?? null };
+    }
+  }
+  return lastGps;
+}
+
+/**
+ * @param {object} opts
+ * @param {string} opts.deviceId
+ * @param {{ t: number, lat: number, lon: number, acc?: number|null }} opts.fix
+ * @param {number} [opts.lastSeenMs]
+ * @param {boolean} [opts.online]
+ * @param {number} opts.now
+ * @param {string|null} [opts.athleteId]
+ * @param {number|null} [opts.hr]
+ */
+function buildMapPositionFromFix({
+  deviceId,
+  fix,
+  lastSeenMs,
+  online,
+  now,
+  athleteId,
+  hr,
+}) {
+  const fixMs = fix.t;
+  const track = gpsTracks.get(String(deviceId));
+  let lat = fix.lat;
+  let lon = fix.lon;
+  let accuracy = fix.acc ?? null;
+  if (track && Number.isFinite(track.t) && track.rawT >= fixMs - 2000) {
+    const projected = projectTrack(track, now);
+    lat = projected.latitude;
+    lon = projected.longitude;
+    accuracy = track.accuracy ?? accuracy;
+  }
+  const lastSeen = Math.max(fixMs, lastSeenMs || 0);
+  return {
+    deviceId: String(deviceId),
+    athleteId: athleteId || null,
+    latitude: lat,
+    longitude: lon,
+    accuracy,
+    fixMs,
+    fixAgeSec: Math.round((now - fixMs) / 1000),
+    lastSeenAgoSec: Math.round((now - lastSeen) / 1000),
+    online: Boolean(online),
+    hr: hr ?? null,
+  };
+}
+
+/** @param {object[][]} positionGroups later groups win on equal fixMs */
+function mergeMapPositionsByFixMs(positionGroups) {
+  /** @type {Map<string, object>} */
+  const byDevice = new Map();
+  for (const group of positionGroups) {
+    for (const p of group) {
+      if (p.latitude == null || p.longitude == null) continue;
+      const prev = byDevice.get(p.deviceId);
+      if (!prev || (p.fixMs ?? 0) >= (prev.fixMs ?? 0)) {
+        byDevice.set(p.deviceId, p);
+      }
+    }
+  }
+  return [...byDevice.values()];
+}
+
+function snapshotPositionsToMapFormat(memPositions, now, onlineMs) {
+  return memPositions.map((p) => {
+    const fixMs = new Date(p.fixTime).getTime();
+    const lastSeenMs = p.lastUpdate || fixMs;
+    return {
+      deviceId: String(p.uniqueId),
+      athleteId: p.athleteId || null,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      accuracy: p.accuracy,
+      fixMs,
+      fixAgeSec: Math.round((now - fixMs) / 1000),
+      lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+      online: now - lastSeenMs <= onlineMs,
+      hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
+    };
+  });
+}
+
 function attachRowingToMapPositions(positions, rowingByDevice) {
   for (const p of positions) {
     const rowing = rowingByDevice.get(p.deviceId);
@@ -923,8 +1017,40 @@ async function getMapPositions(onlineMs, staleMs) {
 
   if (db.hasDb()) {
     try {
-      const positions = await db.getMapPositions(onlineMs, staleMs);
+      const dbPositions = await db.getMapPositions(onlineMs, staleMs);
       const byDevice = await db.fetchRecentSamplesByDevice(telemetryWindowMs);
+
+      /** Latest GPS per device from the same sample window as device cards. */
+      const fromRecentSamples = [];
+      for (const entry of byDevice.values()) {
+        const lastGps = latestGpsFromSamples(entry.samples || []);
+        if (!lastGps) continue;
+        fromRecentSamples.push(
+          buildMapPositionFromFix({
+            deviceId: entry.deviceId,
+            fix: lastGps,
+            lastSeenMs: entry.lastSeenMs,
+            online: now - entry.lastSeenMs <= onlineMs,
+            now,
+            athleteId: entry.athleteId,
+          }),
+        );
+      }
+
+      /** In-memory ingest on this serverless instance (not yet visible via DISTINCT ON). */
+      const memSnapshot = getPositionsSnapshot(onlineMs);
+      const memPositions = snapshotPositionsToMapFormat(
+        memSnapshot.positions,
+        now,
+        onlineMs,
+      );
+
+      const positions = mergeMapPositionsByFixMs([
+        dbPositions,
+        fromRecentSamples,
+        memPositions,
+      ]);
+
       attachRowingToMapPositions(
         positions,
         rowingMetricsByDevice(byDevice, rowingWindowMs),
