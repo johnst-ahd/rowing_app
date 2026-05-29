@@ -512,6 +512,10 @@ async function poll() {
       );
     }
 
+    if (window.dashboardMonitorCharts?.onPoll) {
+      window.dashboardMonitorCharts.onPoll(data);
+    }
+
     const t = new Date(data.polledAt || Date.now()).toLocaleTimeString();
     status.textContent = `Updated ${t} · ${data.devices?.length ?? 0} device(s)`;
     status.classList.remove('err');
@@ -552,6 +556,9 @@ function init() {
     if (typeof window.reloadDashboardDataManage === 'function') {
       void window.reloadDashboardDataManage();
     }
+    if (window.dashboardMonitorCharts?.refreshStorage) {
+      void window.dashboardMonitorCharts.refreshStorage();
+    }
   });
   $('#token')?.addEventListener('change', () => {
     savePrefs();
@@ -560,6 +567,9 @@ function init() {
     }
     if (typeof window.reloadDashboardDataManage === 'function') {
       void window.reloadDashboardDataManage();
+    }
+    if (window.dashboardMonitorCharts?.refreshStorage) {
+      void window.dashboardMonitorCharts.refreshStorage();
     }
   });
   ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {

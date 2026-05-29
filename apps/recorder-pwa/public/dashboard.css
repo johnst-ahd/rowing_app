@@ -166,6 +166,44 @@
   gap: 1rem;
 }
 
+.monitor-stats-hint,
+.monitor-storage-intro {
+  margin: 0 0 0.75rem;
+}
+
+.monitor-stats-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.monitor-chart-wrap {
+  background: rgba(6, 20, 38, 0.55);
+  border: 1px solid var(--ahd-border);
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem 0.25rem;
+}
+
+.monitor-chart-wrap--storage {
+  padding: 0.5rem 0.75rem 0.35rem;
+}
+
+.monitor-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.monitor-chart--storage {
+  min-height: 200px;
+}
+
+#monitorStorageCaption {
+  margin-top: 0.5rem;
+  font-size: 13px;
+  color: var(--ahd-muted);
+}
+
 .empty {
   text-align: center;
   padding: 2.5rem 1rem;

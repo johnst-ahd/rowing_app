@@ -84,6 +84,55 @@
         <div class="devices-grid" id="devicesGrid"></div>
       </section>
 
+      <section class="hub-panel hub-panel--monitor-stats" id="monitorStatsPanel">
+        <h2 class="hub-section-title">Live stats over time</h2>
+        <p class="poll-line monitor-stats-hint" id="monitorStatsHint">
+          Collecting data from each refresh…
+        </p>
+        <div class="monitor-stats-charts">
+          <div class="monitor-chart-wrap">
+            <canvas
+              id="monitorChartOnline"
+              class="monitor-chart"
+              height="120"
+              aria-label="Online devices over time"
+            ></canvas>
+          </div>
+          <div class="monitor-chart-wrap">
+            <canvas
+              id="monitorChartIngest"
+              class="monitor-chart"
+              height="120"
+              aria-label="Average ingest rate over time"
+            ></canvas>
+          </div>
+          <div class="monitor-chart-wrap">
+            <canvas
+              id="monitorChartGpsAge"
+              class="monitor-chart"
+              height="120"
+              aria-label="Average GPS fix age over time"
+            ></canvas>
+          </div>
+        </div>
+      </section>
+
+      <section class="hub-panel hub-panel--monitor-storage" id="monitorStoragePanel">
+        <h2 class="hub-section-title">Database storage</h2>
+        <p class="poll-line monitor-storage-intro">
+          Postgres usage for uploaded telemetry (refreshes about every 30s).
+        </p>
+        <div class="monitor-chart-wrap monitor-chart-wrap--storage">
+          <canvas
+            id="monitorChartStorage"
+            class="monitor-chart monitor-chart--storage"
+            height="200"
+            aria-label="Database storage used, available, and total"
+          ></canvas>
+        </div>
+        <p class="poll-line" id="monitorStorageCaption"></p>
+      </section>
+
       <section class="hub-panel hub-panel--history" id="historyPanel">
         <h2 class="hub-section-title">Session history</h2>
         <p class="history-intro">
@@ -343,6 +392,7 @@
     ></script>
     <script src="/dashboard-history.js"></script>
     <script src="/dashboard-data-manage.js"></script>
+    <script src="/dashboard-monitor-charts.js"></script>
     <script src="/dashboard.js"></script>
   </body>
 </html>
