@@ -166,6 +166,14 @@
   gap: 1rem;
 }
 
+.monitor-chart-toolbar {
+  margin-bottom: 0.5rem;
+}
+
+.monitor-chart-toolbar .ahd-field {
+  min-width: 12rem;
+}
+
 .monitor-stats-hint {
   margin: 0 0 0.75rem;
 }

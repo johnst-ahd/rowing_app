@@ -3,9 +3,14 @@
  */
 (function () {
   const MAX_POINTS = 450;
+  const LS_DEVICE = 'rnz_monitor_chart_device';
 
   /** @type {{ t: number, online: number, ingestHz: number, gpsHz: number, gpsAgeSec: number, serverLagSec: number, delayedGps: number, capsize: number, strokeSpm: number, heartbeatHz: number, batteryPct: number }[]} */
-  const history = [];
+  const fleetHistory = [];
+  /** @type {Map<string, typeof fleetHistory>} */
+  const deviceHistory = new Map();
+
+  let selectedDeviceId = '';
 
   /** Clip z-scores to ±Z_CLIP for the shared chart scale. */
   const Z_CLIP = 2.5;
@@ -14,6 +19,7 @@
     {
       key: 'online',
       label: 'Online devices',
+      labelDevice: 'Online',
       color: '#4ade80',
       pick: (p) => p.online,
       format: (v) => String(Math.round(v)),
@@ -58,6 +64,7 @@
     {
       key: 'serverLagSec',
       label: 'Upload lag (s)',
+      labelDevice: 'Last seen (s)',
       color: '#f97316',
       pick: (p) => p.serverLagSec,
       format: (v) => v.toFixed(0),
@@ -65,6 +72,7 @@
     {
       key: 'delayedGps',
       label: 'Delayed GPS',
+      labelDevice: 'GPS delayed',
       color: '#fb7185',
       pick: (p) => p.delayedGps,
       format: (v) => String(Math.round(v)),
@@ -80,6 +88,7 @@
     {
       key: 'capsize',
       label: 'Capsize alerts',
+      labelDevice: 'Capsize',
       color: '#ef4444',
       pick: (p) => p.capsize,
       format: (v) => String(Math.round(v)),
@@ -89,6 +98,14 @@
 
   function $(sel) {
     return document.querySelector(sel);
+  }
+
+  function esc(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 
   function downsample(points, maxPoints) {
@@ -122,6 +139,53 @@
     return (clipped + Z_CLIP) / (2 * Z_CLIP);
   }
 
+  function fleetPoint(data) {
+    const health = data.health || {};
+    return {
+      t: data.polledAt || Date.now(),
+      online: health.onlineDevices ?? data.activeCount ?? 0,
+      ingestHz: health.avgIngestHz ?? 0,
+      gpsHz: health.avgGpsHz ?? 0,
+      gpsAgeSec: health.avgGpsAgeSec ?? 0,
+      serverLagSec: health.serverDataLagSec ?? 0,
+      delayedGps: health.delayedGpsDevices ?? 0,
+      capsize: health.capsizeDevices ?? 0,
+      strokeSpm: health.avgStrokeSpm ?? 0,
+      heartbeatHz: health.avgHeartbeatHz ?? 0,
+      batteryPct: health.avgBatteryPct ?? 0,
+    };
+  }
+
+  function devicePoint(d, t) {
+    const gpsAge = d.gps?.ageSec;
+    return {
+      t,
+      online: d.online ? 1 : 0,
+      ingestHz: d.ingestRateHz ?? 0,
+      gpsHz: d.gps?.rateHz ?? 0,
+      gpsAgeSec: gpsAge != null ? gpsAge : NaN,
+      serverLagSec: d.lastSeenAgoSec ?? 0,
+      delayedGps: gpsAge != null && gpsAge > 30 ? 1 : 0,
+      capsize: d.rowing?.capsize ? 1 : 0,
+      strokeSpm: d.rowing?.strokeRate ?? 0,
+      heartbeatHz: d.heartbeat?.rateHz ?? 0,
+      batteryPct: d.battery?.pct ?? NaN,
+    };
+  }
+
+  function activeHistory() {
+    if (!selectedDeviceId) return fleetHistory;
+    return deviceHistory.get(selectedDeviceId) || [];
+  }
+
+  function chartScopeLabel() {
+    return selectedDeviceId ? selectedDeviceId : 'fleet average';
+  }
+
+  function seriesLabel(s) {
+    return selectedDeviceId && s.labelDevice ? s.labelDevice : s.label;
+  }
+
   function visibleSeries(pts) {
     const latest = pts[pts.length - 1];
     return SERIES.filter((s) => {
@@ -147,11 +211,15 @@
     const pad = { l: 12, r: 12, t: 28, b: 22 };
     const plotW = w - pad.l - pad.r;
     const plotH = h - pad.t - pad.b;
+    const scope = chartScopeLabel();
 
     if (pts.length < 2) {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '13px system-ui, sans-serif';
-      ctx.fillText('Collecting data…', pad.l, h / 2);
+      const msg = selectedDeviceId
+        ? `Collecting data for ${selectedDeviceId}…`
+        : 'Collecting fleet data…';
+      ctx.fillText(msg, pad.l, h / 2);
       return;
     }
 
@@ -189,7 +257,7 @@
           const { mean, std } = seriesStandardStats(pts, s.pick);
           const z = Number.isFinite(val) ? zScore(val, mean, std) : NaN;
           const zText = Number.isFinite(z) ? `z ${z >= 0 ? '+' : ''}${z.toFixed(1)}` : 'z —';
-          return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(${zText}, window μ ${s.format(mean)})</span></span>`;
+          return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${seriesLabel(s)}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(${zText}, window μ ${s.format(mean)})</span></span>`;
         })
         .join('');
     }
@@ -227,36 +295,68 @@
     ctx.fillText(new Date(t1).toLocaleTimeString(), pad.l + plotW - 56, h - 6);
     ctx.fillStyle = '#e2e8f0';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('Live stats (standardised)', pad.l, 16);
+    ctx.fillText(`Live stats — ${scope} (standardised)`, pad.l, 16);
   }
 
   function renderStatsChart() {
-    const pts = downsample(history, MAX_POINTS);
+    const pts = downsample(activeHistory(), MAX_POINTS);
     drawCombinedChart($('#monitorChartCombined'), pts);
 
     const hint = $('#monitorStatsHint');
     if (hint && pts.length >= 2) {
       const spanMin = Math.round((pts[pts.length - 1].t - pts[0].t) / 60000);
-      hint.textContent = `Last ${spanMin} min · ${pts.length} samples · z-scores per metric vs window mean (±${Z_CLIP}σ); legend shows actual values`;
+      hint.textContent = `${chartScopeLabel()} · last ${spanMin} min · ${pts.length} samples · z-scores per metric vs window mean (±${Z_CLIP}σ); legend shows actual values`;
+    } else if (hint) {
+      hint.textContent = selectedDeviceId
+        ? `Waiting for polls from ${selectedDeviceId}…`
+        : 'Collecting fleet averages from each refresh…';
+    }
+  }
+
+  function trimHistory(arr) {
+    while (arr.length > MAX_POINTS) arr.shift();
+  }
+
+  function updateDeviceSelect(devices) {
+    const sel = $('#monitorChartDevice');
+    if (!sel) return;
+    const ids = [...new Set((devices || []).map((d) => d.deviceId).filter(Boolean))].sort();
+    const prev = sel.value || selectedDeviceId;
+    const options = ['<option value="">All devices (fleet average)</option>'];
+    for (const id of ids) {
+      options.push(`<option value="${esc(id)}">${esc(id)}</option>`);
+    }
+    sel.innerHTML = options.join('');
+    if (prev && (prev === '' || ids.includes(prev))) {
+      sel.value = prev;
+    } else {
+      sel.value = '';
+    }
+    selectedDeviceId = sel.value;
+    try {
+      localStorage.setItem(LS_DEVICE, selectedDeviceId);
+    } catch {
+      /* optional */
     }
   }
 
   function recordPollSnapshot(data) {
-    const health = data.health || {};
-    history.push({
-      t: data.polledAt || Date.now(),
-      online: health.onlineDevices ?? data.activeCount ?? 0,
-      ingestHz: health.avgIngestHz ?? 0,
-      gpsHz: health.avgGpsHz ?? 0,
-      gpsAgeSec: health.avgGpsAgeSec ?? 0,
-      serverLagSec: health.serverDataLagSec ?? 0,
-      delayedGps: health.delayedGpsDevices ?? 0,
-      capsize: health.capsizeDevices ?? 0,
-      strokeSpm: health.avgStrokeSpm ?? 0,
-      heartbeatHz: health.avgHeartbeatHz ?? 0,
-      batteryPct: health.avgBatteryPct ?? 0,
-    });
-    while (history.length > MAX_POINTS) history.shift();
+    const t = data.polledAt || Date.now();
+    fleetHistory.push(fleetPoint(data));
+    trimHistory(fleetHistory);
+
+    for (const d of data.devices || []) {
+      if (!d.deviceId) continue;
+      let series = deviceHistory.get(d.deviceId);
+      if (!series) {
+        series = [];
+        deviceHistory.set(d.deviceId, series);
+      }
+      series.push(devicePoint(d, t));
+      trimHistory(series);
+    }
+
+    updateDeviceSelect(data.devices);
     renderStatsChart();
   }
 
@@ -265,6 +365,24 @@
   }
 
   function init() {
+    const sel = $('#monitorChartDevice');
+    try {
+      const saved = localStorage.getItem(LS_DEVICE);
+      if (saved != null) selectedDeviceId = saved;
+    } catch {
+      /* optional */
+    }
+    if (sel) {
+      sel.addEventListener('change', () => {
+        selectedDeviceId = sel.value;
+        try {
+          localStorage.setItem(LS_DEVICE, selectedDeviceId);
+        } catch {
+          /* optional */
+        }
+        renderStatsChart();
+      });
+    }
     window.addEventListener('resize', renderStatsChart);
   }
 
