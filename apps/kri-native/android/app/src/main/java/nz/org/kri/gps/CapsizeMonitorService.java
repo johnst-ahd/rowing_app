@@ -57,6 +57,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long BATTERY_REPORT_INTERVAL_MS = 30L * 60L * 1000L;
     /** Motion-only uploads for dashboard stroke rate (independent of GPS fixes). */
     private static final long MOTION_POST_INTERVAL_MS = 2000L;
+    /** Accept polled last-known locations up to this age. */
+    private static final long GPS_STALE_LOCATION_MS = 120_000L;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -107,6 +109,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 uploadExecutor.execute(() -> postMotionToIngest(System.currentTimeMillis()));
                 scheduleMotionPost();
             };
+    private final Runnable gpsPollRunnable =
+            () -> {
+                pollLastKnownLocation();
+                scheduleGpsPoll();
+            };
 
     @Override
     public void onCreate() {
@@ -136,6 +143,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
         if (enableGps) {
             registerLocation();
+            scheduleGpsPoll();
         }
         uploadExecutor.execute(() -> postSessionStartTelemetry(System.currentTimeMillis()));
         scheduleHeartbeat();
@@ -159,6 +167,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     public void onDestroy() {
         mainHandler.removeCallbacks(heartbeatRunnable);
         mainHandler.removeCallbacks(motionPostRunnable);
+        mainHandler.removeCallbacks(gpsPollRunnable);
         unregisterSensor();
         unregisterLocation();
         releaseWakeLock();
@@ -623,6 +632,37 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) sensorManager.unregisterListener(this);
     }
 
+    private static Location pickNewerLocation(Location a, Location b) {
+        if (a == null) return b;
+        if (b == null) return a;
+        return a.getTime() >= b.getTime() ? a : b;
+    }
+
+    private void pollLastKnownLocation() {
+        if (!enableGps || locationManager == null) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        try {
+            Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            Location net = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+            Location best = pickNewerLocation(gps, net);
+            if (best == null) return;
+            long age = System.currentTimeMillis() - best.getTime();
+            if (age > GPS_STALE_LOCATION_MS) return;
+            onLocationChanged(best);
+        } catch (SecurityException e) {
+            Log.e(TAG, "GPS poll permission error", e);
+        }
+    }
+
+    private void scheduleGpsPoll() {
+        mainHandler.removeCallbacks(gpsPollRunnable);
+        if (!enableGps) return;
+        mainHandler.postDelayed(gpsPollRunnable, Math.max(500L, gpsIntervalMs));
+    }
+
     private void registerLocation() {
         if (locationManager == null) {
             Log.e(TAG, "No LocationManager");
@@ -633,6 +673,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "ACCESS_FINE_LOCATION not granted — native GPS disabled");
             return;
         }
+        unregisterLocation();
         long minTime = Math.max(500L, gpsIntervalMs);
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
