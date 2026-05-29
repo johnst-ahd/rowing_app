@@ -53,6 +53,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
     private static final int MAX_PENDING_BATCHES = 60;
     private static final int MAX_PENDING_FLUSH_PER_CYCLE = 8;
+    private static final int MAX_PENDING_FLUSH_ON_GPS = 2;
+    private static final long PENDING_FLUSH_INTERVAL_MS = 45_000L;
     private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
 
     private SensorManager sensorManager;
@@ -87,6 +89,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private final float[] recentAz = new float[64];
     private final long[] recentT = new long[64];
     private int recentCount;
+    private final Runnable pendingFlushRunnable =
+            () -> {
+                if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
+                uploadExecutor.execute(
+                        () -> {
+                            flushPendingIngest(
+                                    getSharedPreferences(PREFS, MODE_PRIVATE),
+                                    MAX_PENDING_FLUSH_PER_CYCLE);
+                            mainHandler.post(CapsizeMonitorService.this::schedulePendingFlush);
+                        });
+            };
 
     @Override
     public void onCreate() {
@@ -115,6 +128,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (enableGps) {
             registerLocation();
         }
+        schedulePendingFlush();
         Log.i(
             TAG,
             "Native session service started gps="
@@ -128,6 +142,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onDestroy() {
+        mainHandler.removeCallbacks(pendingFlushRunnable);
         unregisterSensor();
         unregisterLocation();
         releaseWakeLock();
@@ -179,8 +194,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         final Location loc = location;
         uploadExecutor.execute(() -> {
             SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-            flushPendingIngest(p);
             postGpsToIngest(loc, t);
+            flushPendingIngest(p, MAX_PENDING_FLUSH_ON_GPS);
         });
     }
 
@@ -455,6 +470,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private void flushPendingIngest(SharedPreferences p) {
+        flushPendingIngest(p, MAX_PENDING_FLUSH_PER_CYCLE);
+    }
+
+    private void flushPendingIngest(SharedPreferences p, int maxFlush) {
         try {
             JSONArray queue = new JSONArray(p.getString(PENDING_BATCHES_KEY, "[]"));
             if (queue.length() == 0) return;
@@ -467,7 +486,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 } else {
                     remaining.put(batch);
                 }
-                if (sent >= MAX_PENDING_FLUSH_PER_CYCLE) {
+                if (sent >= maxFlush) {
                     for (int j = i + 1; j < queue.length(); j++) {
                         remaining.put(queue.getJSONObject(j));
                     }
@@ -583,6 +602,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         uprightX /= mag;
         uprightY /= mag;
         uprightZ /= mag;
+    }
+
+    private void schedulePendingFlush() {
+        mainHandler.removeCallbacks(pendingFlushRunnable);
+        mainHandler.postDelayed(pendingFlushRunnable, PENDING_FLUSH_INTERVAL_MS);
     }
 
     private void registerSensor() {
