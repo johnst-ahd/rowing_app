@@ -25,8 +25,15 @@ import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.util.Log;
+import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
 import androidx.core.content.ContextCompat;
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -63,8 +70,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private SensorManager sensorManager;
     private Sensor accelerometer;
     private LocationManager locationManager;
+    private FusedLocationProviderClient fusedClient;
+    private LocationCallback fusedCallback;
     private PowerManager.WakeLock wakeLock;
     private ExecutorService uploadExecutor;
+    private ExecutorService gpsUploadExecutor;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private boolean enableGps;
@@ -123,7 +133,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
         }
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
+        fusedClient = LocationServices.getFusedLocationProviderClient(this);
         uploadExecutor = Executors.newSingleThreadExecutor();
+        gpsUploadExecutor = Executors.newSingleThreadExecutor();
         createNotificationChannel();
         loadUprightFromPrefs();
     }
@@ -174,6 +186,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (uploadExecutor != null) {
             uploadExecutor.shutdownNow();
         }
+        if (gpsUploadExecutor != null) {
+            gpsUploadExecutor.shutdownNow();
+        }
         super.onDestroy();
     }
 
@@ -209,6 +224,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onLocationChanged(Location location) {
+        deliverLocation(location);
+    }
+
+    private void deliverLocation(Location location) {
         if (!enableGps || location == null) return;
         long t = System.currentTimeMillis();
         if (t - lastGpsPostMs < gpsIntervalMs) return;
@@ -216,7 +235,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         nativeGpsCount++;
         saveLastGpsToPrefs(location, t, nativeGpsCount);
         final Location loc = location;
-        uploadExecutor.execute(() -> postGpsToIngest(loc, t));
+        if (gpsUploadExecutor == null || gpsUploadExecutor.isShutdown()) return;
+        gpsUploadExecutor.execute(() -> postGpsToIngest(loc, t));
     }
 
     @Override
@@ -651,7 +671,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             if (best == null) return;
             long age = System.currentTimeMillis() - best.getTime();
             if (age > GPS_STALE_LOCATION_MS) return;
-            onLocationChanged(best);
+            deliverLocation(best);
         } catch (SecurityException e) {
             Log.e(TAG, "GPS poll permission error", e);
         }
@@ -664,40 +684,85 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private void registerLocation() {
-        if (locationManager == null) {
-            Log.e(TAG, "No LocationManager");
-            return;
-        }
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "ACCESS_FINE_LOCATION not granted — native GPS disabled");
             return;
         }
         unregisterLocation();
+        registerFusedLocation();
+    }
+
+    private void registerFusedLocation() {
+        if (fusedClient == null) {
+            registerLegacyLocation();
+            return;
+        }
+        long interval = Math.max(500L, gpsIntervalMs);
+        LocationRequest request =
+                new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, interval)
+                        .setMinUpdateIntervalMillis(interval)
+                        .setMaxUpdateDelayMillis(interval * 2)
+                        .setWaitForAccurateLocation(false)
+                        .build();
+        fusedCallback =
+                new LocationCallback() {
+                    @Override
+                    public void onLocationResult(@NonNull LocationResult result) {
+                        Location loc = result.getLastLocation();
+                        if (loc != null) deliverLocation(loc);
+                    }
+                };
+        fusedClient
+                .requestLocationUpdates(request, fusedCallback, Looper.getMainLooper())
+                .addOnSuccessListener(
+                        unused -> Log.i(TAG, "Fused location registered (" + interval + "ms)"))
+                .addOnFailureListener(
+                        e -> {
+                            Log.w(TAG, "Fused location unavailable, using legacy", e);
+                            registerLegacyLocation();
+                        });
+        fusedClient
+                .getLastLocation()
+                .addOnSuccessListener(
+                        loc -> {
+                            if (loc != null) deliverLocation(loc);
+                        });
+    }
+
+    private void registerLegacyLocation() {
+        if (locationManager == null) {
+            Log.e(TAG, "No LocationManager");
+            return;
+        }
         long minTime = Math.max(500L, gpsIntervalMs);
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
+                        LocationManager.GPS_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
             }
             if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
+                        LocationManager.NETWORK_PROVIDER, minTime, 0f, this, mainHandler.getLooper());
             }
             Location last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
             if (last == null) {
                 last = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
             }
             if (last != null) {
-                onLocationChanged(last);
+                deliverLocation(last);
             }
-            Log.i(TAG, "Native location updates registered (" + minTime + "ms)");
+            Log.i(TAG, "Legacy location updates registered (" + minTime + "ms)");
         } catch (SecurityException e) {
             Log.e(TAG, "Location permission error", e);
         }
     }
 
     private void unregisterLocation() {
+        if (fusedClient != null && fusedCallback != null) {
+            fusedClient.removeLocationUpdates(fusedCallback);
+            fusedCallback = null;
+        }
         if (locationManager != null) {
             try {
                 locationManager.removeUpdates(this);
