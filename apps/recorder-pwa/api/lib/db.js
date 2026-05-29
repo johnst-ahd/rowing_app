@@ -639,8 +639,12 @@ async function getStorageStats() {
   if (!hasDb()) return null;
   const sql = await getSql();
   await initSchema();
+  const fromEnv =
+    process.env.POSTGRES_STORAGE_LIMIT_MB ?? process.env.STORAGE_LIMIT_MB;
+  const parsed =
+    fromEnv != null && String(fromEnv).trim() !== '' ? Number(fromEnv) : NaN;
   const limitMb =
-    Number(process.env.POSTGRES_STORAGE_LIMIT_MB || process.env.STORAGE_LIMIT_MB) || null;
+    Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 512;
   const result = await sql`
     SELECT
       (SELECT COUNT(*)::int FROM rnz_devices) AS device_count,

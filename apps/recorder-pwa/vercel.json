@@ -1,5 +1,8 @@
 {
   "version": 2,
+  "env": {
+    "POSTGRES_STORAGE_LIMIT_MB": "512"
+  },
   "framework": null,
   "installCommand": "cd ../.. && npm install",
   "buildCommand": "npm run build",

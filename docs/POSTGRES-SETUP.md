@@ -36,6 +36,17 @@ Vercel adds environment variables automatically, including:
 - `POSTGRES_URL_NON_POOLING` (optional backup)
 - Others from Neon (safe to leave as-is)
 
+### Storage quota on the dashboard (optional)
+
+The monitor **Database storage** bar shows **Used**, **Available**, and **Total** when a quota is set.
+
+1. **Settings** → **Environment Variables** → add:
+   - **Name:** `POSTGRES_STORAGE_LIMIT_MB`
+   - **Value:** `512` (matches typical Neon free tier; change if your plan differs)
+2. Or rely on the project default in `apps/recorder-pwa/vercel.json` (`512`).
+
+Redeploy after changing env vars.
+
 ---
 
 ## Step 4 — Redeploy
