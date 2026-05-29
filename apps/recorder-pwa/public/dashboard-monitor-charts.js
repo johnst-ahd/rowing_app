@@ -4,7 +4,7 @@
 (function () {
   const MAX_POINTS = 450;
 
-  /** @type {{ t: number, online: number, ingestHz: number, gpsAgeSec: number }[]} */
+  /** @type {{ t: number, online: number, ingestHz: number, gpsHz: number, gpsAgeSec: number, serverLagSec: number, delayedGps: number, capsize: number, strokeSpm: number }[]} */
   const history = [];
 
   const SERIES = [
@@ -14,6 +14,13 @@
       color: '#4ade80',
       pick: (p) => p.online,
       format: (v) => String(Math.round(v)),
+    },
+    {
+      key: 'gpsHz',
+      label: 'GPS (Hz)',
+      color: '#38bdf8',
+      pick: (p) => p.gpsHz,
+      format: (v) => v.toFixed(2),
     },
     {
       key: 'ingestHz',
@@ -28,6 +35,36 @@
       color: '#fbbf24',
       pick: (p) => p.gpsAgeSec,
       format: (v) => v.toFixed(1),
+    },
+    {
+      key: 'serverLagSec',
+      label: 'Upload lag (s)',
+      color: '#f97316',
+      pick: (p) => p.serverLagSec,
+      format: (v) => v.toFixed(0),
+    },
+    {
+      key: 'delayedGps',
+      label: 'Delayed GPS',
+      color: '#fb7185',
+      pick: (p) => p.delayedGps,
+      format: (v) => String(Math.round(v)),
+    },
+    {
+      key: 'strokeSpm',
+      label: 'Stroke (spm)',
+      color: '#a78bfa',
+      pick: (p) => p.strokeSpm,
+      format: (v) => (v > 0 ? String(Math.round(v)) : '—'),
+      hideWhenZero: true,
+    },
+    {
+      key: 'capsize',
+      label: 'Capsize alerts',
+      color: '#ef4444',
+      pick: (p) => p.capsize,
+      format: (v) => String(Math.round(v)),
+      hideWhenZero: true,
     },
   ];
 
@@ -54,6 +91,16 @@
     return { min, max: max === min ? min + 1 : max };
   }
 
+  function visibleSeries(pts) {
+    const latest = pts[pts.length - 1];
+    return SERIES.filter((s) => {
+      if (!s.hideWhenZero || !latest) return true;
+      const v = s.pick(latest);
+      if (pts.length < 2) return v > 0;
+      return pts.some((p) => s.pick(p) > 0);
+    });
+  }
+
   function drawCombinedChart(canvas, pts) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -77,6 +124,7 @@
       return;
     }
 
+    const active = visibleSeries(pts);
     const t0 = pts[0].t;
     const t1 = pts[pts.length - 1].t;
     const xAt = (t) => pad.l + ((t - t0) / (t1 - t0 || 1)) * plotW;
@@ -95,14 +143,16 @@
     const latest = pts[pts.length - 1];
     const legendEl = $('#monitorChartLegend');
     if (legendEl) {
-      legendEl.innerHTML = SERIES.map((s) => {
-        const val = s.pick(latest);
-        const range = seriesRange(pts, s.pick);
-        return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(max ${s.format(range.max)})</span></span>`;
-      }).join('');
+      legendEl.innerHTML = active
+        .map((s) => {
+          const val = s.pick(latest);
+          const range = seriesRange(pts, s.pick);
+          return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(max ${s.format(range.max)})</span></span>`;
+        })
+        .join('');
     }
 
-    for (const s of SERIES) {
+    for (const s of active) {
       const range = seriesRange(pts, s.pick);
       const span = range.max - range.min || 1;
       const linePts = pts
@@ -155,7 +205,12 @@
       t: data.polledAt || Date.now(),
       online: health.onlineDevices ?? data.activeCount ?? 0,
       ingestHz: health.avgIngestHz ?? 0,
+      gpsHz: health.avgGpsHz ?? 0,
       gpsAgeSec: health.avgGpsAgeSec ?? 0,
+      serverLagSec: health.serverDataLagSec ?? 0,
+      delayedGps: health.delayedGpsDevices ?? 0,
+      capsize: health.capsizeDevices ?? 0,
+      strokeSpm: health.avgStrokeSpm ?? 0,
     });
     while (history.length > MAX_POINTS) history.shift();
     renderStatsChart();

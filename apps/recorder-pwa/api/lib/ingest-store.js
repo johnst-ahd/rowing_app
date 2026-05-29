@@ -600,6 +600,12 @@ async function listDevices(opts = {}) {
   const ingestRates = onlineDevices
     .map((d) => d.ingestRateHz)
     .filter((v) => Number.isFinite(v));
+  const gpsRates = onlineDevices
+    .map((d) => d.gps?.rateHz)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const strokeRates = onlineDevices
+    .map((d) => d.rowing?.strokeRate)
+    .filter((v) => Number.isFinite(v) && v > 0);
   const maxLastSeenMs = devices.length
     ? Math.max(...devices.map((d) => d.lastSeenMs || 0))
     : null;
@@ -618,6 +624,12 @@ async function listDevices(opts = {}) {
       : null,
     avgIngestHz: ingestRates.length
       ? Math.round((ingestRates.reduce((a, b) => a + b, 0) / ingestRates.length) * 10) / 10
+      : null,
+    avgGpsHz: gpsRates.length
+      ? Math.round((gpsRates.reduce((a, b) => a + b, 0) / gpsRates.length) * 10) / 10
+      : null,
+    avgStrokeSpm: strokeRates.length
+      ? Math.round(strokeRates.reduce((a, b) => a + b, 0) / strokeRates.length)
       : null,
     serverDataLagSec:
       maxLastSeenMs != null ? Math.max(0, Math.round((now - maxLastSeenMs) / 1000)) : null,
