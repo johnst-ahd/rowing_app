@@ -34,6 +34,7 @@ import com.google.android.gms.location.LocationRequest;
 import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
+import com.google.android.gms.tasks.CancellationTokenSource;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -91,8 +92,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private boolean capsizeActive;
     private long capsizeSinceMs;
     private long lastCapsizeUploadMs;
-    private long lastGpsPostMs;
     private long lastBatteryReportMs;
+    private Location latestGpsLocation;
     private long lastMotionPostMs;
     private int nativeGpsCount;
     private int sampleCount;
@@ -119,10 +120,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 uploadExecutor.execute(() -> postMotionToIngest(System.currentTimeMillis()));
                 scheduleMotionPost();
             };
-    private final Runnable gpsPollRunnable =
+    private final Runnable gpsFlushRunnable =
             () -> {
-                pollLastKnownLocation();
-                scheduleGpsPoll();
+                requestGpsFlush();
+                scheduleGpsFlush();
             };
 
     @Override
@@ -155,7 +156,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
         if (enableGps) {
             registerLocation();
-            scheduleGpsPoll();
+            scheduleGpsFlush();
+            requestGpsFlush();
         }
         uploadExecutor.execute(() -> postSessionStartTelemetry(System.currentTimeMillis()));
         scheduleHeartbeat();
@@ -179,7 +181,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     public void onDestroy() {
         mainHandler.removeCallbacks(heartbeatRunnable);
         mainHandler.removeCallbacks(motionPostRunnable);
-        mainHandler.removeCallbacks(gpsPollRunnable);
+        mainHandler.removeCallbacks(gpsFlushRunnable);
         unregisterSensor();
         unregisterLocation();
         releaseWakeLock();
@@ -227,16 +229,14 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         deliverLocation(location);
     }
 
-    private void deliverLocation(Location location) {
+    private void cacheGpsLocation(Location location) {
         if (!enableGps || location == null) return;
-        long t = System.currentTimeMillis();
-        if (t - lastGpsPostMs < gpsIntervalMs) return;
-        lastGpsPostMs = t;
-        nativeGpsCount++;
-        saveLastGpsToPrefs(location, t, nativeGpsCount);
-        final Location loc = location;
-        if (gpsUploadExecutor == null || gpsUploadExecutor.isShutdown()) return;
-        gpsUploadExecutor.execute(() -> postGpsToIngest(loc, t));
+        latestGpsLocation = location;
+        saveLastGpsToPrefs(location, System.currentTimeMillis(), nativeGpsCount);
+    }
+
+    private void deliverLocation(Location location) {
+        cacheGpsLocation(location);
     }
 
     @Override
@@ -348,7 +348,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         uploadExecutor.execute(() -> postCapsizeToIngest(t, ax, ay, az, tiltDeg));
     }
 
-    private void postGpsToIngest(Location location, long t) {
+    private void postGpsToIngest(Location location) {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         String ingestUrl = p.getString("ingestUrl", "");
         String deviceId = p.getString("deviceId", "");
@@ -357,6 +357,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "Missing ingest config for GPS");
             return;
         }
+        long t = System.currentTimeMillis();
         try {
             JSONObject gps = new JSONObject();
             gps.put("lat", location.getLatitude());
@@ -376,14 +377,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             sample.put("t", t);
             sample.put("gps", gps);
 
-            if (enableMotion && (lastAx != 0f || lastAy != 0f || lastAz != 0f)) {
-                JSONObject motion = new JSONObject();
-                motion.put("ax", Math.round(lastAx * 100) / 100.0);
-                motion.put("ay", Math.round(lastAy * 100) / 100.0);
-                motion.put("az", Math.round(lastAz * 100) / 100.0);
-                sample.put("motion", motion);
-            }
-
             JSONArray samples = new JSONArray();
             samples.put(sample);
             postBatch(p, sessionId, deviceId, samples);
@@ -391,6 +384,48 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         } catch (Exception e) {
             Log.e(TAG, "GPS ingest failed", e);
         }
+    }
+
+    private void uploadLatestGps() {
+        Location loc = latestGpsLocation;
+        if (loc == null) return;
+        long fixAge = System.currentTimeMillis() - loc.getTime();
+        if (fixAge > GPS_STALE_LOCATION_MS) {
+            Log.w(TAG, "Skip GPS upload — fix age " + fixAge + "ms");
+            return;
+        }
+        if (gpsUploadExecutor == null || gpsUploadExecutor.isShutdown()) return;
+        nativeGpsCount++;
+        saveLastGpsToPrefs(loc, System.currentTimeMillis(), nativeGpsCount);
+        final Location uploadLoc = loc;
+        gpsUploadExecutor.execute(() -> postGpsToIngest(uploadLoc));
+    }
+
+    private void requestGpsFlush() {
+        if (!enableGps) return;
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        if (fusedClient != null) {
+            CancellationTokenSource cts = new CancellationTokenSource();
+            fusedClient
+                    .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.getToken())
+                    .addOnSuccessListener(
+                            loc -> {
+                                if (loc != null) cacheGpsLocation(loc);
+                                uploadLatestGps();
+                            })
+                    .addOnFailureListener(
+                            e -> {
+                                Log.w(TAG, "getCurrentLocation failed", e);
+                                cacheGpsFromLegacy();
+                                uploadLatestGps();
+                            });
+            return;
+        }
+        cacheGpsFromLegacy();
+        uploadLatestGps();
     }
 
     private void postSessionStartTelemetry(long t) {
@@ -449,9 +484,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private void postHeartbeatToIngest(long t) {
-        if (enableGps && t - lastGpsPostMs < HEARTBEAT_INTERVAL_MS) {
-            return;
-        }
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         String ingestUrl = p.getString("ingestUrl", "");
         String deviceId = p.getString("deviceId", "");
@@ -540,8 +572,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         String body = batch.toString();
         URL url = new URL(ingestUrl);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(20000);
-        conn.setReadTimeout(20000);
+        conn.setConnectTimeout(8000);
+        conn.setReadTimeout(8000);
         conn.setRequestMethod("POST");
         conn.setDoOutput(true);
         conn.setRequestProperty("Content-Type", "application/json");
@@ -658,7 +690,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return a.getTime() >= b.getTime() ? a : b;
     }
 
-    private void pollLastKnownLocation() {
+    private void cacheGpsFromLegacy() {
         if (!enableGps || locationManager == null) return;
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -668,19 +700,16 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Location gps = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
             Location net = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
             Location best = pickNewerLocation(gps, net);
-            if (best == null) return;
-            long age = System.currentTimeMillis() - best.getTime();
-            if (age > GPS_STALE_LOCATION_MS) return;
-            deliverLocation(best);
+            if (best != null) cacheGpsLocation(best);
         } catch (SecurityException e) {
-            Log.e(TAG, "GPS poll permission error", e);
+            Log.e(TAG, "GPS legacy cache error", e);
         }
     }
 
-    private void scheduleGpsPoll() {
-        mainHandler.removeCallbacks(gpsPollRunnable);
+    private void scheduleGpsFlush() {
+        mainHandler.removeCallbacks(gpsFlushRunnable);
         if (!enableGps) return;
-        mainHandler.postDelayed(gpsPollRunnable, Math.max(500L, gpsIntervalMs));
+        mainHandler.postDelayed(gpsFlushRunnable, Math.max(500L, gpsIntervalMs));
     }
 
     private void registerLocation() {
