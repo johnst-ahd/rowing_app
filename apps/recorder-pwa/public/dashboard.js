@@ -67,6 +67,22 @@ function fmtBatteryPct(pct) {
   return `${Math.round(pct)}%`;
 }
 
+function strokeDetail(d) {
+  const rowing = d.rowing || {};
+  const motion = d.motion || {};
+  if (rowing.strokeRateValid) return '15–50 spm';
+  if (!motion.present || (motion.count ?? 0) < 3) {
+    return 'Waiting for motion uploads';
+  }
+  if (!rowing.calibrated) {
+    return 'Hold boat still ~2s to calibrate';
+  }
+  if ((motion.rateHz ?? 0) < 0.4) {
+    return 'Collecting motion…';
+  }
+  return 'Row at 15–50 spm to detect';
+}
+
 function playCapsizeAlarm() {
   if (typeof window === 'undefined') return;
   if (window.__rnzCapsizeAlarmAt && Date.now() - window.__rnzCapsizeAlarmAt < 8000) return;
@@ -474,7 +490,7 @@ function renderDevice(d) {
       <div class="sensor ${rowing.strokeRateValid ? 'present' : motion.present ? 'present' : 'absent'}">
         <div class="name">Stroke rate</div>
         <div class="rate">${rowing.strokeRateValid ? fmtSpm(rowing.strokeRate) : '—'}</div>
-        <div class="detail">${rowing.strokeRateValid ? '15–50 spm' : motion.present ? 'Detecting…' : 'No motion'}</div>
+        <div class="detail">${strokeDetail(d)}</div>
       </div>
       <div class="sensor ${hr.present ? 'present' : 'absent'}">
         <div class="name">Heart rate</div>

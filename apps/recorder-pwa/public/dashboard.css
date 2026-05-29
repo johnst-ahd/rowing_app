@@ -162,7 +162,7 @@
 
 .devices-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
   gap: 1rem;
 }
 
@@ -226,6 +226,7 @@
   border: 1px solid var(--ahd-border);
   border-radius: 10px;
   padding: 1rem 1.1rem;
+  min-width: 0;
   border-left: 4px solid #64748b;
 }
 
@@ -392,26 +393,24 @@
 
 .sensors {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
   margin-bottom: 0.75rem;
+}
+
+.sensors--six {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (min-width: 640px) {
+  .sensors--six {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (min-width: 520px) {
   .sensors--four {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-@media (min-width: 720px) {
-  .sensors--six {
-    grid-template-columns: repeat(3, 1fr);
-  }
-}
-
-@media (min-width: 1024px) {
-  .sensors--six {
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -427,21 +426,35 @@
   background: rgba(10, 22, 40, 0.85);
   border: 1px solid rgba(0, 229, 255, 0.15);
   border-radius: 8px;
-  padding: 0.55rem 0.5rem;
+  padding: 0.55rem 0.45rem;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .sensor .name {
-  font-size: 0.65rem;
+  font-size: 0.62rem;
   color: var(--ahd-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
 }
 
 .sensor .rate {
-  font-size: 1.1rem;
+  font-size: 1rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+  line-height: 1.25;
+  margin: 0.15rem 0;
+}
+
+.sensor .detail {
+  font-size: 0.62rem;
+  line-height: 1.3;
+  min-height: 2.6em;
+  color: var(--ahd-muted);
+  word-break: break-word;
+  hyphens: auto;
 }
 
 .sensor.present .rate {
@@ -450,12 +463,6 @@
 
 .sensor.absent .rate {
   color: #64748b;
-}
-
-.sensor .detail {
-  font-size: 0.7rem;
-  color: var(--ahd-muted);
-  margin-top: 0.15rem;
 }
 
 .meta-row {

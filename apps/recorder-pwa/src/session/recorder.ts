@@ -371,6 +371,20 @@ export async function startRecorder(
 
   if (settings.enableGps) {
     if (IS_NATIVE && nativeCapsizeMonitorOn) {
+      if (settings.enableMotion && motionAnalyzer) {
+        const motionTelemetryMs = Math.max(2000, motionUploadMs);
+        const motionTelemetryTimer = setInterval(() => {
+          if (stopped || !latestMotion) return;
+          queueSample(
+            telemetrySample(Date.now(), {
+              motion: latestMotion,
+              derived: latestDerived,
+            }),
+          );
+          void pushBatch();
+        }, motionTelemetryMs);
+        stoppers.push(() => clearInterval(motionTelemetryTimer));
+      }
       const pulseMs = Math.max(500, settings.gpsIntervalMs);
       const nativeGpsUiTimer = setInterval(() => {
         if (stopped) return;
