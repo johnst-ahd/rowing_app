@@ -7,6 +7,9 @@
   /** @type {{ t: number, online: number, ingestHz: number, gpsHz: number, gpsAgeSec: number, serverLagSec: number, delayedGps: number, capsize: number, strokeSpm: number, heartbeatHz: number, batteryPct: number }[]} */
   const history = [];
 
+  /** Clip z-scores to ±Z_CLIP for the shared chart scale. */
+  const Z_CLIP = 2.5;
+
   const SERIES = [
     {
       key: 'online',
@@ -99,12 +102,24 @@
     return out;
   }
 
-  function seriesRange(pts, pick) {
+  function seriesStandardStats(pts, pick) {
     const vals = pts.map(pick).filter((v) => Number.isFinite(v));
-    if (!vals.length) return { min: 0, max: 1 };
-    const min = Math.min(...vals);
-    const max = Math.max(...vals);
-    return { min, max: max === min ? min + 1 : max };
+    if (!vals.length) return { mean: 0, std: 1 };
+    const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+    if (vals.length < 2) return { mean, std: 1 };
+    const variance = vals.reduce((s, v) => s + (v - mean) ** 2, 0) / vals.length;
+    const std = Math.sqrt(variance) || 1;
+    return { mean, std };
+  }
+
+  function zScore(y, mean, std) {
+    return (y - mean) / std;
+  }
+
+  /** Map z ∈ [-Z_CLIP, Z_CLIP] to 0–1 for plotting. */
+  function zToPlotNorm(z) {
+    const clipped = Math.max(-Z_CLIP, Math.min(Z_CLIP, z));
+    return (clipped + Z_CLIP) / (2 * Z_CLIP);
   }
 
   function visibleSeries(pts) {
@@ -145,6 +160,7 @@
     const t1 = pts[pts.length - 1].t;
     const xAt = (t) => pad.l + ((t - t0) / (t1 - t0 || 1)) * plotW;
     const yAt = (norm) => pad.t + plotH - norm * plotH;
+    const yZero = yAt(zToPlotNorm(0));
 
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
     ctx.lineWidth = 1;
@@ -156,26 +172,35 @@
       ctx.stroke();
     }
 
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(pad.l, yZero);
+    ctx.lineTo(pad.l + plotW, yZero);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
     const latest = pts[pts.length - 1];
     const legendEl = $('#monitorChartLegend');
     if (legendEl) {
       legendEl.innerHTML = active
         .map((s) => {
           const val = s.pick(latest);
-          const range = seriesRange(pts, s.pick);
-          return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(max ${s.format(range.max)})</span></span>`;
+          const { mean, std } = seriesStandardStats(pts, s.pick);
+          const z = Number.isFinite(val) ? zScore(val, mean, std) : NaN;
+          const zText = Number.isFinite(z) ? `z ${z >= 0 ? '+' : ''}${z.toFixed(1)}` : 'z —';
+          return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(${zText}, window μ ${s.format(mean)})</span></span>`;
         })
         .join('');
     }
 
     for (const s of active) {
-      const range = seriesRange(pts, s.pick);
-      const span = range.max - range.min || 1;
+      const { mean, std } = seriesStandardStats(pts, s.pick);
       const linePts = pts
         .map((p) => {
           const y = s.pick(p);
           if (!Number.isFinite(y)) return null;
-          return { t: p.t, norm: (y - range.min) / span };
+          return { t: p.t, norm: zToPlotNorm(zScore(y, mean, std)) };
         })
         .filter(Boolean);
 
@@ -195,13 +220,14 @@
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = '11px system-ui, sans-serif';
-    ctx.fillText('0%', pad.l, pad.t + plotH + 2);
-    ctx.fillText('100% (per metric)', pad.l, pad.t + 4);
+    ctx.fillText(`−${Z_CLIP}σ`, pad.l, pad.t + plotH + 2);
+    ctx.fillText(`+${Z_CLIP}σ`, pad.l, pad.t + 4);
+    ctx.fillText('0', pad.l + 4, yZero + 4);
     ctx.fillText(new Date(t0).toLocaleTimeString(), pad.l, h - 6);
     ctx.fillText(new Date(t1).toLocaleTimeString(), pad.l + plotW - 56, h - 6);
     ctx.fillStyle = '#e2e8f0';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText('Live stats (normalized)', pad.l, 16);
+    ctx.fillText('Live stats (standardised)', pad.l, 16);
   }
 
   function renderStatsChart() {
@@ -211,7 +237,7 @@
     const hint = $('#monitorStatsHint');
     if (hint && pts.length >= 2) {
       const spanMin = Math.round((pts[pts.length - 1].t - pts[0].t) / 60000);
-      hint.textContent = `Last ${spanMin} min · ${pts.length} samples · lines scaled independently (see legend for values)`;
+      hint.textContent = `Last ${spanMin} min · ${pts.length} samples · z-scores per metric vs window mean (±${Z_CLIP}σ); legend shows actual values`;
     }
   }
 
