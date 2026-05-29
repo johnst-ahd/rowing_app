@@ -40,7 +40,6 @@ public class CapsizeMonitorPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
-        SessionBootRecovery.markRecordingActive(getContext(), false);
         Intent intent = new Intent(getContext(), CapsizeMonitorService.class);
         getContext().stopService(intent);
         call.resolve();
@@ -90,12 +89,6 @@ public class CapsizeMonitorPlugin extends Plugin {
             ret.put("pendingIngestBatches", pending.length());
         } catch (Exception ignored) {
             ret.put("pendingIngestBatches", 0);
-        }
-        ret.put("recordingActive", p.getBoolean(SessionBootRecovery.KEY_RECORDING_ACTIVE, false));
-        ret.put("sessionId", p.getString("sessionId", ""));
-        ret.put("deviceId", p.getString("deviceId", ""));
-        if (p.contains("sessionStartedAtMs")) {
-            ret.put("sessionStartedAtMs", p.getLong("sessionStartedAtMs", 0L));
         }
         call.resolve(ret);
     }

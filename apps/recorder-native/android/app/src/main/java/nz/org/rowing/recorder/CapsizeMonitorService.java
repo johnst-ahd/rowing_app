@@ -550,8 +550,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
             .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
             .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
-            .putLong("sessionStartedAtMs", System.currentTimeMillis())
-            .putBoolean(SessionBootRecovery.KEY_RECORDING_ACTIVE, true)
             .putInt("uploadSeq", 0)
             .putInt("uploadOkCount", 0)
             .putInt("uploadFailCount", 0)
