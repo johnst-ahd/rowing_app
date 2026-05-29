@@ -556,9 +556,6 @@ function init() {
     if (typeof window.reloadDashboardDataManage === 'function') {
       void window.reloadDashboardDataManage();
     }
-    if (window.dashboardMonitorCharts?.refreshStorage) {
-      void window.dashboardMonitorCharts.refreshStorage();
-    }
   });
   $('#token')?.addEventListener('change', () => {
     savePrefs();
@@ -567,9 +564,6 @@ function init() {
     }
     if (typeof window.reloadDashboardDataManage === 'function') {
       void window.reloadDashboardDataManage();
-    }
-    if (window.dashboardMonitorCharts?.refreshStorage) {
-      void window.dashboardMonitorCharts.refreshStorage();
     }
   });
   ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {

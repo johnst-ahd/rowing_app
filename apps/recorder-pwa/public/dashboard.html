@@ -89,48 +89,15 @@
         <p class="poll-line monitor-stats-hint" id="monitorStatsHint">
           Collecting data from each refresh…
         </p>
-        <div class="monitor-stats-charts">
-          <div class="monitor-chart-wrap">
-            <canvas
-              id="monitorChartOnline"
-              class="monitor-chart"
-              height="120"
-              aria-label="Online devices over time"
-            ></canvas>
-          </div>
-          <div class="monitor-chart-wrap">
-            <canvas
-              id="monitorChartIngest"
-              class="monitor-chart"
-              height="120"
-              aria-label="Average ingest rate over time"
-            ></canvas>
-          </div>
-          <div class="monitor-chart-wrap">
-            <canvas
-              id="monitorChartGpsAge"
-              class="monitor-chart"
-              height="120"
-              aria-label="Average GPS fix age over time"
-            ></canvas>
-          </div>
-        </div>
-      </section>
-
-      <section class="hub-panel hub-panel--monitor-storage" id="monitorStoragePanel">
-        <h2 class="hub-section-title">Database storage</h2>
-        <p class="poll-line monitor-storage-intro">
-          Postgres usage for uploaded telemetry (refreshes about every 30s).
-        </p>
-        <div class="monitor-chart-wrap monitor-chart-wrap--storage">
+        <div class="monitor-chart-wrap">
+          <div class="monitor-chart-legend" id="monitorChartLegend" aria-live="polite"></div>
           <canvas
-            id="monitorChartStorage"
-            class="monitor-chart monitor-chart--storage"
-            height="200"
-            aria-label="Database storage used, available, and total"
+            id="monitorChartCombined"
+            class="monitor-chart monitor-chart--combined"
+            height="220"
+            aria-label="Combined live stats: online devices, ingest rate, and GPS age"
           ></canvas>
         </div>
-        <p class="poll-line" id="monitorStorageCaption"></p>
       </section>
 
       <section class="hub-panel hub-panel--history" id="historyPanel">

@@ -1,17 +1,35 @@
 /**
- * Live monitor charts — stats over time + database storage bar.
- * Loaded after dashboard-history.js (reuses drawLineChart pattern).
+ * Live monitor — combined stats chart (updates each poll).
  */
 (function () {
   const MAX_POINTS = 450;
-  const STORAGE_REFRESH_MS = 30_000;
 
-  /** @type {{ t: number, online: number, devices: number, ingestHz: number, gpsAgeSec: number, delayedGps: number, capsize: number }[]} */
+  /** @type {{ t: number, online: number, ingestHz: number, gpsAgeSec: number }[]} */
   const history = [];
 
-  let lastStorageFetch = 0;
-  /** @type {object | null} */
-  let lastStorageStats = null;
+  const SERIES = [
+    {
+      key: 'online',
+      label: 'Online devices',
+      color: '#4ade80',
+      pick: (p) => p.online,
+      format: (v) => String(Math.round(v)),
+    },
+    {
+      key: 'ingestHz',
+      label: 'Ingest (Hz)',
+      color: '#22d3ee',
+      pick: (p) => p.ingestHz,
+      format: (v) => v.toFixed(2),
+    },
+    {
+      key: 'gpsAgeSec',
+      label: 'GPS age (s)',
+      color: '#fbbf24',
+      pick: (p) => p.gpsAgeSec,
+      format: (v) => v.toFixed(1),
+    },
+  ];
 
   function $(sel) {
     return document.querySelector(sel);
@@ -28,40 +46,43 @@
     return out;
   }
 
-  function drawLineChart(canvas, series, opts) {
+  function seriesRange(pts, pick) {
+    const vals = pts.map(pick).filter((v) => Number.isFinite(v));
+    if (!vals.length) return { min: 0, max: 1 };
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    return { min, max: max === min ? min + 1 : max };
+  }
+
+  function drawCombinedChart(canvas, pts) {
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 600;
-    const h = canvas.clientHeight || 120;
+    const h = canvas.clientHeight || 220;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const pad = { l: 44, r: 12, t: 22, b: 28 };
+    const pad = { l: 12, r: 12, t: 36, b: 28 };
     const plotW = w - pad.l - pad.r;
     const plotH = h - pad.t - pad.b;
 
-    const valid = series.filter((p) => p.y != null && Number.isFinite(p.y));
-    if (valid.length < 2) {
+    if (pts.length < 2) {
       ctx.fillStyle = '#94a3b8';
       ctx.font = '13px system-ui, sans-serif';
-      ctx.fillText(opts.empty || 'Collecting data…', pad.l, h / 2);
+      ctx.fillText('Collecting data…', pad.l, h / 2);
       return;
     }
 
-    const t0 = valid[0].t;
-    const t1 = valid[valid.length - 1].t;
-    const yMin = opts.yMin != null ? opts.yMin : Math.min(...valid.map((p) => p.y));
-    const yMax = opts.yMax != null ? opts.yMax : Math.max(...valid.map((p) => p.y));
-    const ySpan = yMax - yMin || 1;
-
+    const t0 = pts[0].t;
+    const t1 = pts[pts.length - 1].t;
     const xAt = (t) => pad.l + ((t - t0) / (t1 - t0 || 1)) * plotW;
-    const yAt = (y) => pad.t + plotH - ((y - yMin) / ySpan) * plotH;
+    const yAt = (norm) => pad.t + plotH - norm * plotH;
 
-    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = pad.t + (plotH * i) / 4;
@@ -71,228 +92,84 @@
       ctx.stroke();
     }
 
-    ctx.strokeStyle = opts.color || '#22d3ee';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    valid.forEach((p, i) => {
-      const x = xAt(p.t);
-      const y = yAt(p.y);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    ctx.stroke();
+    const latest = pts[pts.length - 1];
+    const legendEl = $('#monitorChartLegend');
+    if (legendEl) {
+      legendEl.innerHTML = SERIES.map((s) => {
+        const val = s.pick(latest);
+        const range = seriesRange(pts, s.pick);
+        return `<span class="monitor-legend-item"><span class="monitor-legend-swatch" style="background:${s.color}"></span>${s.label}: <strong>${s.format(val)}</strong> <span class="monitor-legend-range">(max ${s.format(range.max)})</span></span>`;
+      }).join('');
+    }
+
+    for (const s of SERIES) {
+      const range = seriesRange(pts, s.pick);
+      const span = range.max - range.min || 1;
+      const linePts = pts
+        .map((p) => {
+          const y = s.pick(p);
+          if (!Number.isFinite(y)) return null;
+          return { t: p.t, norm: (y - range.min) / span };
+        })
+        .filter(Boolean);
+
+      if (linePts.length < 2) continue;
+
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      linePts.forEach((p, i) => {
+        const x = xAt(p.t);
+        const y = yAt(p.norm);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
 
     ctx.fillStyle = '#94a3b8';
     ctx.font = '11px system-ui, sans-serif';
-    ctx.fillText(opts.yLabel || '', 4, pad.t + 10);
-    ctx.fillText(`${opts.formatY?.(yMin) ?? yMin.toFixed(1)}`, 4, pad.t + plotH);
-    ctx.fillText(`${opts.formatY?.(yMax) ?? yMax.toFixed(1)}`, 4, pad.t + 12);
+    ctx.fillText('0%', pad.l, pad.t + plotH + 2);
+    ctx.fillText('100% (per metric)', pad.l, pad.t + 4);
     ctx.fillText(new Date(t0).toLocaleTimeString(), pad.l, h - 6);
     ctx.fillText(new Date(t1).toLocaleTimeString(), pad.l + plotW - 56, h - 6);
     ctx.fillStyle = '#e2e8f0';
     ctx.font = '12px system-ui, sans-serif';
-    ctx.fillText(opts.title || '', pad.l, 14);
+    ctx.fillText('Live stats (normalized)', pad.l, 16);
   }
 
-  function fmtBytes(n) {
-    if (n == null || !Number.isFinite(n)) return '—';
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let v = n;
-    let i = 0;
-    while (v >= 1024 && i < units.length - 1) {
-      v /= 1024;
-      i++;
-    }
-    return `${v.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
-  }
-
-  function drawStorageBarChart(canvas, stats) {
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth || 600;
-    const h = canvas.clientHeight || 200;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
-
-    const caption = $('#monitorStorageCaption');
-    if (!stats?.usedBytes) {
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = '13px system-ui, sans-serif';
-      ctx.fillText('Storage stats unavailable — check ingest token', 16, h / 2);
-      if (caption) caption.textContent = '';
-      return;
-    }
-
-    const used = Number(stats.usedBytes);
-    const limit =
-      stats.storageLimitBytes != null && stats.storageLimitBytes > 0
-        ? Number(stats.storageLimitBytes)
-        : null;
-    const available = limit != null ? Math.max(0, limit - used) : null;
-
-    const labels =
-      limit != null
-        ? [
-            { key: 'used', label: 'Used', value: used, color: '#22d3ee' },
-            { key: 'avail', label: 'Available', value: available, color: '#334155' },
-            { key: 'total', label: 'Total quota', value: limit, color: '#64748b' },
-          ]
-        : [{ key: 'used', label: 'Used', value: used, color: '#22d3ee' }];
-
-    const maxVal = Math.max(...labels.map((b) => b.value), 1);
-    const pad = { l: 16, r: 16, t: 28, b: 36 };
-    const chartW = w - pad.l - pad.r;
-    const chartH = h - pad.t - pad.b;
-    const barGap = 24;
-    const barW = Math.min(
-      120,
-      (chartW - barGap * (labels.length - 1)) / labels.length,
-    );
-    const groupW = labels.length * barW + (labels.length - 1) * barGap;
-    let x0 = pad.l + (chartW - groupW) / 2;
-
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '13px system-ui, sans-serif';
-    ctx.fillText('Database storage', pad.l, 18);
-
-    labels.forEach((bar) => {
-      const barH = (bar.value / maxVal) * chartH;
-      const x = x0;
-      const y = pad.t + chartH - barH;
-
-      ctx.fillStyle = bar.color;
-      ctx.fillRect(x, y, barW, barH);
-
-      ctx.strokeStyle = 'rgba(148, 163, 184, 0.35)';
-      ctx.strokeRect(x, pad.t, barW, chartH);
-
-      ctx.fillStyle = '#e2e8f0';
-      ctx.font = '12px system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(bar.label, x + barW / 2, h - 18);
-      ctx.fillText(fmtBytes(bar.value), x + barW / 2, h - 4);
-      ctx.textAlign = 'left';
-
-      x0 += barW + barGap;
-    });
-
-    if (caption) {
-      const pct =
-        stats.storageUsedPct != null
-          ? `${Number(stats.storageUsedPct).toFixed(1)}% of quota`
-          : '';
-      caption.textContent =
-        limit != null
-          ? `${fmtBytes(used)} used · ${fmtBytes(available)} available · ${fmtBytes(limit)} total ${pct ? `(${pct})` : ''}`
-          : `${fmtBytes(used)} used · set POSTGRES_STORAGE_LIMIT_MB on Vercel to show available & total`;
-    }
-  }
-
-  function renderStatsCharts() {
+  function renderStatsChart() {
     const pts = downsample(history, MAX_POINTS);
-    if (!pts.length) return;
-
-    drawLineChart(
-      $('#monitorChartOnline'),
-      pts.map((p) => ({ t: p.t, y: p.online })),
-      {
-        title: 'Online devices',
-        yLabel: 'count',
-        color: '#4ade80',
-        formatY: (v) => String(Math.round(v)),
-        yMin: 0,
-      },
-    );
-
-    drawLineChart(
-      $('#monitorChartIngest'),
-      pts.map((p) => ({ t: p.t, y: p.ingestHz })),
-      {
-        title: 'Avg ingest rate',
-        yLabel: 'Hz',
-        color: '#22d3ee',
-        formatY: (v) => v.toFixed(2),
-        yMin: 0,
-      },
-    );
-
-    drawLineChart(
-      $('#monitorChartGpsAge'),
-      pts.map((p) => ({ t: p.t, y: p.gpsAgeSec })),
-      {
-        title: 'Avg GPS fix age',
-        yLabel: 'sec',
-        color: '#fbbf24',
-        formatY: (v) => v.toFixed(1),
-        yMin: 0,
-      },
-    );
+    drawCombinedChart($('#monitorChartCombined'), pts);
 
     const hint = $('#monitorStatsHint');
     if (hint && pts.length >= 2) {
       const spanMin = Math.round((pts[pts.length - 1].t - pts[0].t) / 60000);
-      hint.textContent = `Last ${spanMin} min · ${pts.length} samples · updates each poll`;
+      hint.textContent = `Last ${spanMin} min · ${pts.length} samples · lines scaled independently (see legend for values)`;
     }
   }
 
   function recordPollSnapshot(data) {
     const health = data.health || {};
-    const now = data.polledAt || Date.now();
     history.push({
-      t: now,
+      t: data.polledAt || Date.now(),
       online: health.onlineDevices ?? data.activeCount ?? 0,
-      devices: data.deviceCount ?? 0,
       ingestHz: health.avgIngestHz ?? 0,
       gpsAgeSec: health.avgGpsAgeSec ?? 0,
-      delayedGps: health.delayedGpsDevices ?? 0,
-      capsize: health.capsizeDevices ?? 0,
     });
     while (history.length > MAX_POINTS) history.shift();
-    renderStatsCharts();
-  }
-
-  async function refreshStorageChart(force = false) {
-    const now = Date.now();
-    if (!force && now - lastStorageFetch < STORAGE_REFRESH_MS) {
-      drawStorageBarChart($('#monitorChartStorage'), lastStorageStats);
-      return;
-    }
-    lastStorageFetch = now;
-    const apiBase = window.dashboardApiBase?.() || window.location.origin;
-    const headers = window.dashboardHeaders?.() || { Accept: 'application/json' };
-    try {
-      const res = await fetch(`${apiBase}/api/history?storage=stats`, { headers });
-      if (!res.ok) throw new Error(`${res.status}`);
-      const data = await res.json();
-      lastStorageStats = data.stats || null;
-    } catch {
-      lastStorageStats = null;
-    }
-    drawStorageBarChart($('#monitorChartStorage'), lastStorageStats);
+    renderStatsChart();
   }
 
   function onPoll(data) {
     recordPollSnapshot(data);
-    void refreshStorageChart(false);
   }
 
   function init() {
-    window.addEventListener('resize', () => {
-      renderStatsCharts();
-      drawStorageBarChart($('#monitorChartStorage'), lastStorageStats);
-    });
-    void refreshStorageChart(true);
+    window.addEventListener('resize', renderStatsChart);
   }
 
-  window.dashboardMonitorCharts = {
-    onPoll,
-    refreshStorage: () => refreshStorageChart(true),
-    init,
-  };
+  window.dashboardMonitorCharts = { onPoll, init };
 
   init();
 })();
