@@ -23,6 +23,12 @@ const gpsTracks = globalThis.__rnzGpsTracks ?? new Map();
 globalThis.__rnzGpsTracks = gpsTracks;
 /** @type {Map<string, { t:number, result: object }>} */
 const recentIdempotency = globalThis.__rnzRecentIdempotency ?? new Map();
+/** @type {Map<string, { t: number }>} */
+const lastHeartbeatByDevice = globalThis.__rnzLastHeartbeat ?? new Map();
+globalThis.__rnzLastHeartbeat = lastHeartbeatByDevice;
+/** @type {Map<string, { t: number, pct: number }>} */
+const lastBatteryByDevice = globalThis.__rnzLastBattery ?? new Map();
+globalThis.__rnzLastBattery = lastBatteryByDevice;
 globalThis.__rnzRecentIdempotency = recentIdempotency;
 const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
 const metrics = globalThis.__rnzIngestMetrics ?? {
@@ -267,6 +273,43 @@ function projectTrack(track, nowMs) {
   };
 }
 
+/**
+ * @param {Sample[]} samples
+ * @returns {{ t: number, pct: number } | null}
+ */
+function latestBatteryFromSamples(samples) {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const d = samples[i]?.derived;
+    if (d && d.batteryPct != null && Number.isFinite(Number(d.batteryPct))) {
+      return {
+        t: samples[i].t,
+        pct: Math.max(0, Math.min(100, Math.round(Number(d.batteryPct)))),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {string} deviceId
+ * @param {Sample[]} samples
+ */
+function noteDeviceTelemetry(deviceId, samples) {
+  const id = String(deviceId);
+  for (const s of samples) {
+    if (s?.derived?.heartbeat === true) {
+      lastHeartbeatByDevice.set(id, { t: s.t });
+    }
+    const pct = s?.derived?.batteryPct;
+    if (pct != null && Number.isFinite(Number(pct))) {
+      lastBatteryByDevice.set(id, {
+        t: s.t,
+        pct: Math.max(0, Math.min(100, Math.round(Number(pct)))),
+      });
+    }
+  }
+}
+
 function sanitizeAndTrackSamples(deviceId, samples) {
   const out = [];
   let dropped = 0;
@@ -317,6 +360,8 @@ function sensorStats(samples, windowMs, deviceId) {
   let lastHr = null;
   let lastDerived = null;
   let capsizeInWindow = false;
+  let heartbeatCount = 0;
+  let lastHeartbeatT = null;
 
   for (const s of recent) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
@@ -334,6 +379,10 @@ function sensorStats(samples, windowMs, deviceId) {
     if (s.derived) {
       lastDerived = { t: s.t, ...s.derived };
       if (s.derived.capsize === true && afterClear(s.t)) capsizeInWindow = true;
+      if (s.derived.heartbeat === true) {
+        heartbeatCount++;
+        lastHeartbeatT = s.t;
+      }
     }
   }
 
@@ -382,6 +431,13 @@ function sensorStats(samples, windowMs, deviceId) {
       tiltDeg,
       calibrated: analyzed?.calibrated ?? false,
       ageSec: lastMotion ? Math.round((now - lastMotion.t) / 1000) : null,
+    },
+    heartbeat: {
+      present: heartbeatCount > 0,
+      rateHz: rate(heartbeatCount),
+      count: heartbeatCount,
+      lastT: lastHeartbeatT,
+      ageSec: lastHeartbeatT ? Math.round((now - lastHeartbeatT) / 1000) : null,
     },
     totalInWindow: recent.length,
     ingestRateHz: rate(recent.length),
@@ -444,6 +500,7 @@ async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyK
   if (athleteId) row.athleteId = String(athleteId);
   row.samples.push(...clean.samples);
   row.updatedAt = now;
+  noteDeviceTelemetry(deviceId, clean.samples);
   trimSampleRing(row);
   trimSessions();
 
@@ -510,6 +567,28 @@ function buildDeviceEntry(entry, windowMs, onlineMs, now) {
   const stats = sensorStats(entry.samples, windowMs, entry.deviceId);
   const lastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
   const online = now - lastSeenMs <= onlineMs;
+  const hbMem = lastHeartbeatByDevice.get(entry.deviceId);
+  const batFromSamples = latestBatteryFromSamples(entry.samples || []);
+  const batMem = lastBatteryByDevice.get(entry.deviceId);
+  const bat =
+    batFromSamples && batMem
+      ? batFromSamples.t >= batMem.t
+        ? batFromSamples
+        : batMem
+      : batFromSamples || batMem || null;
+  const lastHbT = Math.max(hbMem?.t ?? 0, stats.heartbeat?.lastT ?? 0);
+  const heartbeat = {
+    present: (stats.heartbeat?.count ?? 0) > 0 || lastHbT > 0,
+    rateHz: stats.heartbeat?.rateHz ?? 0,
+    count: stats.heartbeat?.count ?? 0,
+    ageSec: lastHbT ? Math.round((now - lastHbT) / 1000) : null,
+  };
+  const battery = bat
+    ? {
+        pct: bat.pct,
+        ageSec: Math.round((now - bat.t) / 1000),
+      }
+    : { pct: null, ageSec: null };
   return {
     deviceId: entry.deviceId,
     athleteId: entry.athleteId || null,
@@ -520,6 +599,8 @@ function buildDeviceEntry(entry, windowMs, onlineMs, now) {
     firstSeenMs: entry.firstSeenMs ?? entry.firstSeenAt ?? lastSeenMs,
     totalSamples: entry.samples.length,
     ...stats,
+    heartbeat,
+    battery,
   };
 }
 
@@ -574,7 +655,8 @@ async function listDevices(opts = {}) {
 
   if (hasPostgres) {
     try {
-      const fromDb = await db.fetchRecentSamplesByDevice(windowMs);
+      const fetchMs = Math.max(windowMs, 30 * 60 * 1000);
+      const fromDb = await db.fetchRecentSamplesByDevice(fetchMs);
       for (const entry of fromDb.values()) {
         const built = buildDeviceEntry(entry, windowMs, onlineMs, now);
         const prev = byDevice.get(entry.deviceId);
@@ -606,6 +688,15 @@ async function listDevices(opts = {}) {
   const strokeRates = onlineDevices
     .map((d) => d.rowing?.strokeRate)
     .filter((v) => Number.isFinite(v) && v > 0);
+  const heartbeatRates = onlineDevices
+    .map((d) => d.heartbeat?.rateHz)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const heartbeatAges = onlineDevices
+    .map((d) => d.heartbeat?.ageSec)
+    .filter((v) => Number.isFinite(v));
+  const batteryPcts = onlineDevices
+    .map((d) => d.battery?.pct)
+    .filter((v) => Number.isFinite(v));
   const maxLastSeenMs = devices.length
     ? Math.max(...devices.map((d) => d.lastSeenMs || 0))
     : null;
@@ -631,6 +722,17 @@ async function listDevices(opts = {}) {
     avgStrokeSpm: strokeRates.length
       ? Math.round(strokeRates.reduce((a, b) => a + b, 0) / strokeRates.length)
       : null,
+    avgHeartbeatHz: heartbeatRates.length
+      ? Math.round((heartbeatRates.reduce((a, b) => a + b, 0) / heartbeatRates.length) * 10) /
+        10
+      : null,
+    avgHeartbeatAgeSec: heartbeatAges.length
+      ? Math.round((heartbeatAges.reduce((a, b) => a + b, 0) / heartbeatAges.length) * 10) / 10
+      : null,
+    avgBatteryPct: batteryPcts.length
+      ? Math.round(batteryPcts.reduce((a, b) => a + b, 0) / batteryPcts.length)
+      : null,
+    minBatteryPct: batteryPcts.length ? Math.min(...batteryPcts) : null,
     serverDataLagSec:
       maxLastSeenMs != null ? Math.max(0, Math.round((now - maxLastSeenMs) / 1000)) : null,
   };
@@ -731,6 +833,37 @@ function attachRowingToMapPositions(positions, rowingByDevice) {
 }
 
 /**
+ * @param {object[]} positions
+ * @param {Map<string, { samples: Sample[] }>} byDevice
+ * @param {number} windowMs
+ */
+function attachTelemetryToMapPositions(positions, byDevice, windowMs) {
+  const now = Date.now();
+  for (const p of positions) {
+    const entry = byDevice.get(p.deviceId);
+    if (!entry) continue;
+    const stats = sensorStats(entry.samples || [], windowMs, p.deviceId);
+    const hbMem = lastHeartbeatByDevice.get(p.deviceId);
+    const batFromSamples = latestBatteryFromSamples(entry.samples || []);
+    const batMem = lastBatteryByDevice.get(p.deviceId);
+    const bat =
+      batFromSamples && batMem
+        ? batFromSamples.t >= batMem.t
+          ? batFromSamples
+          : batMem
+        : batFromSamples || batMem || null;
+    const lastHbT = Math.max(hbMem?.t ?? 0, stats.heartbeat?.lastT ?? 0);
+    p.heartbeatRateHz = stats.heartbeat?.rateHz ?? 0;
+    p.heartbeatAgeSec = lastHbT ? Math.round((now - lastHbT) / 1000) : null;
+    if (bat) {
+      p.batteryPct = bat.pct;
+      p.batteryAgeSec = Math.round((now - bat.t) / 1000);
+    }
+  }
+  return positions;
+}
+
+/**
  * @param {Map<string, { samples: Sample[] }>} byDevice
  * @param {number} windowMs
  */
@@ -785,16 +918,18 @@ function samplesByDeviceForWindow(windowMs) {
 async function getMapPositions(onlineMs, staleMs) {
   metrics.mapPolls++;
   const rowingWindowMs = Math.min(staleMs, 120000);
+  const telemetryWindowMs = Math.max(rowingWindowMs, 30 * 60 * 1000);
   const now = Date.now();
 
   if (db.hasDb()) {
     try {
       const positions = await db.getMapPositions(onlineMs, staleMs);
-      const byDevice = await db.fetchRecentSamplesByDevice(rowingWindowMs);
+      const byDevice = await db.fetchRecentSamplesByDevice(telemetryWindowMs);
       attachRowingToMapPositions(
         positions,
         rowingMetricsByDevice(byDevice, rowingWindowMs),
       );
+      attachTelemetryToMapPositions(positions, byDevice, rowingWindowMs);
       return positions;
     } catch (err) {
       console.error('[ingest-store] getMapPositions DB failed:', err);
@@ -802,12 +937,10 @@ async function getMapPositions(onlineMs, staleMs) {
   }
 
   const mem = getPositionsSnapshot(onlineMs);
-  const rowingByDevice = rowingMetricsByDevice(
-    samplesByDeviceForWindow(rowingWindowMs),
-    rowingWindowMs,
-  );
+  const telemetryByDevice = samplesByDeviceForWindow(telemetryWindowMs);
+  const rowingByDevice = rowingMetricsByDevice(telemetryByDevice, rowingWindowMs);
 
-  return mem.positions
+  const mapped = mem.positions
     .filter((p) => {
       const fixMs = new Date(p.fixTime).getTime();
       return (
@@ -838,6 +971,7 @@ async function getMapPositions(onlineMs, staleMs) {
         tiltDeg: rowing.tiltDeg ?? null,
       };
     });
+  return attachTelemetryToMapPositions(mapped, telemetryByDevice, rowingWindowMs);
 }
 
 function getMetrics() {

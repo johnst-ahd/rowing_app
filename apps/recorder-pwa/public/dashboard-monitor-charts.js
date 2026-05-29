@@ -4,7 +4,7 @@
 (function () {
   const MAX_POINTS = 450;
 
-  /** @type {{ t: number, online: number, ingestHz: number, gpsHz: number, gpsAgeSec: number, serverLagSec: number, delayedGps: number, capsize: number, strokeSpm: number }[]} */
+  /** @type {{ t: number, online: number, ingestHz: number, gpsHz: number, gpsAgeSec: number, serverLagSec: number, delayedGps: number, capsize: number, strokeSpm: number, heartbeatHz: number, batteryPct: number }[]} */
   const history = [];
 
   const SERIES = [
@@ -28,6 +28,22 @@
       color: '#22d3ee',
       pick: (p) => p.ingestHz,
       format: (v) => v.toFixed(2),
+    },
+    {
+      key: 'heartbeatHz',
+      label: 'Heartbeat (Hz)',
+      color: '#86efac',
+      pick: (p) => p.heartbeatHz,
+      format: (v) => v.toFixed(2),
+      hideWhenZero: true,
+    },
+    {
+      key: 'batteryPct',
+      label: 'Battery (%)',
+      color: '#fcd34d',
+      pick: (p) => p.batteryPct,
+      format: (v) => (v > 0 ? String(Math.round(v)) : '—'),
+      hideWhenZero: true,
     },
     {
       key: 'gpsAgeSec',
@@ -211,6 +227,8 @@
       delayedGps: health.delayedGpsDevices ?? 0,
       capsize: health.capsizeDevices ?? 0,
       strokeSpm: health.avgStrokeSpm ?? 0,
+      heartbeatHz: health.avgHeartbeatHz ?? 0,
+      batteryPct: health.avgBatteryPct ?? 0,
     });
     while (history.length > MAX_POINTS) history.shift();
     renderStatsChart();

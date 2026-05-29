@@ -17,6 +17,7 @@ import android.hardware.SensorManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.BatteryManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -52,7 +53,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
     /** Keeps dashboard "online" when GPS fixes pause (independent of gpsIntervalMs). */
-    private static final long HEARTBEAT_INTERVAL_MS = 30_000L;
+    private static final long HEARTBEAT_INTERVAL_MS = 10_000L;
+    private static final long BATTERY_REPORT_INTERVAL_MS = 30L * 60L * 1000L;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -76,6 +78,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private long capsizeSinceMs;
     private long lastCapsizeUploadMs;
     private long lastGpsPostMs;
+    private long lastBatteryReportMs;
     private int nativeGpsCount;
     private int sampleCount;
     private float lastAx;
@@ -112,6 +115,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             saveConfigFromIntent(intent);
         }
         loadSessionFlagsFromPrefs();
+        lastBatteryReportMs = 0L;
         startForeground(NOTIF_ID_FOREGROUND, buildForegroundNotification());
         acquireWakeLock();
         if (enableMotion) {
@@ -356,6 +360,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         try {
             JSONObject derived = new JSONObject();
             derived.put("heartbeat", true);
+            boolean reportBattery =
+                    lastBatteryReportMs == 0L
+                            || t - lastBatteryReportMs >= BATTERY_REPORT_INTERVAL_MS;
+            if (reportBattery) {
+                int batteryPct = readBatteryPct();
+                if (batteryPct >= 0) {
+                    derived.put("batteryPct", batteryPct);
+                    lastBatteryReportMs = t;
+                    Log.i(TAG, "Including battery " + batteryPct + "% on heartbeat");
+                }
+            }
             JSONObject sample = new JSONObject();
             sample.put("t", t);
             sample.put("derived", derived);
@@ -366,6 +381,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         } catch (Exception e) {
             Log.e(TAG, "Heartbeat ingest failed", e);
         }
+    }
+
+    private int readBatteryPct() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
+            if (bm != null) {
+                int level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY);
+                if (level >= 0 && level <= 100) return level;
+            }
+        }
+        return -1;
     }
 
     private void postCapsizeToIngest(long t, float ax, float ay, float az, int tiltDeg) {

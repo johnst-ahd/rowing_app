@@ -55,6 +55,18 @@ function fmtSpm(v) {
   return `${v} spm`;
 }
 
+function fmtAgoSec(sec) {
+  if (sec == null || !Number.isFinite(sec)) return '—';
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)}m ago`;
+  return `${Math.round(sec / 3600)}h ago`;
+}
+
+function fmtBatteryPct(pct) {
+  if (pct == null || !Number.isFinite(pct)) return '—';
+  return `${Math.round(pct)}%`;
+}
+
 function playCapsizeAlarm() {
   if (typeof window === 'undefined') return;
   if (window.__rnzCapsizeAlarmAt && Date.now() - window.__rnzCapsizeAlarmAt < 8000) return;
@@ -245,7 +257,15 @@ function popupHtml(p) {
   const cap = p.capsize
     ? `<br><strong class="map-popup-capsize">⚠ CAPSIZE — boat tipped</strong>`
     : '';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hr}${spm}${tilt}${cap}</div>`;
+  const hb =
+    p.heartbeatAgeSec != null
+      ? `<br>Heartbeat: ${p.heartbeatRateHz > 0 ? `${p.heartbeatRateHz} Hz · ` : ''}${p.heartbeatAgeSec}s ago`
+      : '';
+  const bat =
+    p.batteryPct != null
+      ? `<br>Battery: <strong>${fmtBatteryPct(p.batteryPct)}</strong>${p.batteryAgeSec != null ? ` · ${fmtAgoSec(p.batteryAgeSec)}` : ''}`
+      : '';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hb}${bat}${hr}${spm}${tilt}${cap}</div>`;
 }
 
 function updateMap(positions) {
@@ -365,6 +385,32 @@ function renderHealthBar(data) {
     const ingest = health.avgIngestHz != null ? `${health.avgIngestHz}Hz` : '—';
     latencyEl.textContent = `Latency: api ${pollMs}, map ${mapMs}, ingest ${ingest}`;
   }
+
+  const heartbeatEl = $('#heartbeatHealth');
+  if (heartbeatEl) {
+    const hbHz = health.avgHeartbeatHz;
+    const hbAge = health.avgHeartbeatAgeSec;
+    heartbeatEl.textContent =
+      hbHz != null || hbAge != null
+        ? `Heartbeat: ${hbHz != null ? `${hbHz} Hz avg` : '—'}${hbAge != null ? ` · ${hbAge}s ago avg` : ''}`
+        : 'Heartbeat: —';
+  }
+
+  const batteryEl = $('#batteryHealth');
+  if (batteryEl) {
+    const avg = health.avgBatteryPct;
+    const min = health.minBatteryPct;
+    if (avg != null) {
+      batteryEl.textContent =
+        min != null && min !== avg
+          ? `Battery: avg ${avg}% · min ${min}%`
+          : `Battery: ${avg}%`;
+      batteryEl.classList.toggle('hub-stats-item--danger', min != null && min <= 20);
+    } else {
+      batteryEl.textContent = 'Battery: —';
+      batteryEl.classList.remove('hub-stats-item--danger');
+    }
+  }
 }
 
 function renderDevice(d) {
@@ -378,6 +424,8 @@ function renderDevice(d) {
   const gps = d.gps || {};
   const hr = d.hr || {};
   const motion = d.motion || {};
+  const heartbeat = d.heartbeat || {};
+  const battery = d.battery || {};
 
   const badgeClass = rowing.capsize
     ? 'badge-pill--capsize'
@@ -407,11 +455,21 @@ function renderDevice(d) {
       </div>
       <span class="badge-pill ${badgeClass}">${badgeLabel}</span>
     </div>
-    <div class="sensors sensors--four">
+    <div class="sensors sensors--six">
       <div class="sensor ${gps.present ? 'present' : 'absent'}">
         <div class="name">GPS</div>
         <div class="rate">${gps.present ? fmtHz(gps.rateHz) : '—'}</div>
         <div class="detail">${gps.present ? `${gps.count} fixes / ${d.windowSec || 60}s` : 'No data'}</div>
+      </div>
+      <div class="sensor ${heartbeat.present ? 'present' : 'absent'}">
+        <div class="name">Heartbeat</div>
+        <div class="rate">${heartbeat.present ? fmtHz(heartbeat.rateHz) : '—'}</div>
+        <div class="detail">${heartbeat.ageSec != null ? `Last ${fmtAgoSec(heartbeat.ageSec)}` : 'No ping'}</div>
+      </div>
+      <div class="sensor ${battery.pct != null ? 'present' : 'absent'} ${battery.pct != null && battery.pct <= 20 ? 'sensor--low-battery' : ''}">
+        <div class="name">Battery</div>
+        <div class="rate">${fmtBatteryPct(battery.pct)}</div>
+        <div class="detail">${battery.ageSec != null ? `Reported ${fmtAgoSec(battery.ageSec)}` : 'Not reported'}</div>
       </div>
       <div class="sensor ${rowing.strokeRateValid ? 'present' : motion.present ? 'present' : 'absent'}">
         <div class="name">Stroke rate</div>

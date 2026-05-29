@@ -29,6 +29,8 @@ export type DerivedSample = {
   tiltDeg?: number;
   /** Session alive ping (no GPS required). */
   heartbeat?: boolean;
+  /** Device battery 0–100 (reported periodically). */
+  batteryPct?: number;
 };
 
 export type TelemetrySample = {
