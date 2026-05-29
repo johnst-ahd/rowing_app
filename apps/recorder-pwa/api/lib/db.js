@@ -77,6 +77,8 @@ async function initSchema() {
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS stroke_rate DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS capsize BOOLEAN`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS battery_pct SMALLINT`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS heartbeat BOOLEAN`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_unique_time
       ON rnz_samples (unique_id, t_ms DESC)
@@ -123,6 +125,20 @@ async function upsertSession(sessionId, deviceRef, uniqueId, athleteId) {
 }
 
 /**
+ * @param {import('@vercel/postgres').QueryResultRow} row
+ */
+function derivedFromRow(row) {
+  /** @type {Record<string, unknown>} */
+  const derived = {};
+  if (row.stroke_rate != null) derived.strokeRate = Number(row.stroke_rate);
+  if (row.capsize === true) derived.capsize = true;
+  if (row.tilt_deg != null) derived.tiltDeg = Number(row.tilt_deg);
+  if (row.battery_pct != null) derived.batteryPct = Number(row.battery_pct);
+  if (row.heartbeat === true) derived.heartbeat = true;
+  return Object.keys(derived).length ? derived : undefined;
+}
+
+/**
  * @param {Array<{ t: number, gps?: object, motion?: object, hr?: object, derived?: object }>} samples
  */
 async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
@@ -144,18 +160,23 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       stroke_rate: d.strokeRate ?? null,
       capsize: d.capsize === true ? true : d.capsize === false ? false : null,
       tilt_deg: d.tiltDeg ?? null,
+      battery_pct:
+        d.batteryPct != null && Number.isFinite(Number(d.batteryPct))
+          ? Math.round(Number(d.batteryPct))
+          : null,
+      heartbeat: d.heartbeat === true ? true : null,
     };
   });
   await sql`
     INSERT INTO rnz_samples (
       session_id, device_ref, unique_id, t_ms,
       latitude, longitude, accuracy, speed, course, altitude,
-      hr, ax, ay, az, stroke_rate, capsize, tilt_deg
+      hr, ax, ay, az, stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     )
     SELECT
       ${sessionId}::text, ${deviceRef}::int, ${uniqueId}::text,
       x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.altitude,
-      x.hr, x.ax, x.ay, x.az, x.stroke_rate, x.capsize, x.tilt_deg
+      x.hr, x.ax, x.ay, x.az, x.stroke_rate, x.capsize, x.tilt_deg, x.battery_pct, x.heartbeat
     FROM jsonb_to_recordset(${JSON.stringify(packed)}::jsonb) AS x(
       t_ms bigint,
       latitude double precision,
@@ -170,7 +191,9 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       az double precision,
       stroke_rate double precision,
       capsize boolean,
-      tilt_deg double precision
+      tilt_deg double precision,
+      battery_pct smallint,
+      heartbeat boolean
     )
   `;
 }
@@ -218,6 +241,8 @@ function rowToTraccarPosition(row) {
   if (row.stroke_rate != null) attrs.strokeRate = Number(row.stroke_rate);
   if (row.capsize === true) attrs.capsize = true;
   if (row.tilt_deg != null) attrs.tiltDeg = Number(row.tilt_deg);
+  if (row.battery_pct != null) attrs.batteryPct = Number(row.battery_pct);
+  if (row.heartbeat === true) attrs.heartbeat = true;
   return {
     id: Number(row.id),
     deviceId: Number(row.device_ref),
@@ -281,6 +306,7 @@ async function fetchRecentSamplesByDevice(windowMs) {
     SELECT s.unique_id, s.session_id, s.t_ms,
       s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude,
       s.hr, s.ax, s.ay, s.az, s.stroke_rate, s.capsize, s.tilt_deg,
+      s.battery_pct, s.heartbeat,
       d.athlete_id
     FROM rnz_samples s
     LEFT JOIN rnz_devices d ON d.unique_id = s.unique_id
@@ -312,17 +338,8 @@ async function fetchRecentSamplesByDevice(windowMs) {
       motion:
         row.ax != null ? { ax: row.ax, ay: row.ay, az: row.az } : undefined,
     };
-    if (
-      row.stroke_rate != null ||
-      row.capsize != null ||
-      row.tilt_deg != null
-    ) {
-      sample.derived = {
-        strokeRate: row.stroke_rate != null ? Number(row.stroke_rate) : undefined,
-        capsize: row.capsize === true,
-        tiltDeg: row.tilt_deg != null ? Number(row.tilt_deg) : undefined,
-      };
-    }
+    const derived = derivedFromRow(row);
+    if (derived) sample.derived = derived;
     if (!entry) {
       entry = {
         deviceId: uid,
@@ -591,7 +608,7 @@ async function getSessionFromDb(sessionId) {
   if (!meta.rows[0]) return null;
   const samples = await sql`
     SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
-      stroke_rate, capsize, tilt_deg
+      stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     FROM rnz_samples
     WHERE session_id = ${sessionId}
     ORDER BY t_ms ASC
@@ -622,15 +639,7 @@ async function getSessionFromDb(sessionId) {
         s.ax != null
           ? { ax: s.ax, ay: s.ay, az: s.az }
           : undefined,
-      derived:
-        s.stroke_rate != null || s.capsize != null || s.tilt_deg != null
-          ? {
-              strokeRate:
-                s.stroke_rate != null ? Number(s.stroke_rate) : undefined,
-              capsize: s.capsize === true,
-              tiltDeg: s.tilt_deg != null ? Number(s.tilt_deg) : undefined,
-            }
-          : undefined,
+      derived: derivedFromRow(s),
     })),
   };
 }
