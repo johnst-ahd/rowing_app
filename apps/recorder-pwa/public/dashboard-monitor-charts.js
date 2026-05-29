@@ -107,13 +107,13 @@
     if (!ctx) return;
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth || 600;
-    const h = canvas.clientHeight || 220;
+    const h = canvas.clientHeight || 110;
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    const pad = { l: 12, r: 12, t: 36, b: 28 };
+    const pad = { l: 12, r: 12, t: 28, b: 22 };
     const plotW = w - pad.l - pad.r;
     const plotH = h - pad.t - pad.b;
 
