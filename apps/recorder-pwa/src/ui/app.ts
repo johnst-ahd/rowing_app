@@ -8,7 +8,12 @@ import {
   type BackgroundStatus,
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
-import { startRecorder, type RecorderController } from '../session/recorder';
+import {
+  getNativeRecordingPulse,
+  stopNativeCapsizeMonitor,
+  type NativeRecordingPulse,
+} from '../lib/native-capsize-monitor';
+import { startRecorder, type RecorderController, type RecorderStats } from '../session/recorder';
 import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 import { repairOversizedPendingOutbox } from '../session/store';
@@ -54,6 +59,14 @@ export function mountApp(root: HTMLElement): void {
   let syncTimer: ReturnType<typeof setInterval> | null = null;
   let sessionStartedAt: number | null = null;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
+  let nativeResumePollTimer: ReturnType<typeof setInterval> | null = null;
+  let nativeResumedSession = false;
+  let nativeResumeStats: RecorderStats = {
+    gpsCount: 0,
+    motionCount: 0,
+    hrCount: 0,
+    pendingOutbox: 0,
+  };
   let controlsCollapsed = false;
   const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
   const strokeRateAvg = new MetricRollingAvg(STROKE_AVG_WINDOW_MS, 0);
@@ -214,6 +227,78 @@ export function mountApp(root: HTMLElement): void {
   function stopHudTimer(): void {
     if (hudTickTimer) clearInterval(hudTickTimer);
     hudTickTimer = null;
+  }
+
+  function stopNativeResumePoll(): void {
+    if (nativeResumePollTimer) clearInterval(nativeResumePollTimer);
+    nativeResumePollTimer = null;
+    nativeResumedSession = false;
+  }
+
+  async function refreshNativeResumeStats(): Promise<void> {
+    const pulse = await getNativeRecordingPulse();
+    if (!pulse) return;
+    nativeResumeStats = {
+      gpsCount: pulse.nativeGpsCount ?? 0,
+      motionCount: 0,
+      hrCount: 0,
+      pendingOutbox: pulse.pendingIngestBatches ?? 0,
+      lastGps: pulse.lastGps
+        ? {
+            t: pulse.lastGps.t,
+            lat: pulse.lastGps.lat,
+            lon: pulse.lastGps.lon,
+            spd: pulse.lastGps.spd,
+          }
+        : undefined,
+      speedMps: pulse.lastGps?.spd,
+    };
+  }
+
+  async function wireResumedNativeSession(pulse: NativeRecordingPulse): Promise<void> {
+    if (recording || !pulse.recordingActive || !pulse.sessionId) return;
+    const s = loadSettings();
+    nativeResumedSession = true;
+    recording = true;
+    controlsCollapsed = true;
+    sessionStartedAt =
+      pulse.sessionStartedAtMs && pulse.sessionStartedAtMs > 0
+        ? pulse.sessionStartedAtMs
+        : Date.now();
+    if (pulse.deviceId) markRecordingActive(pulse.sessionId, pulse.deviceId);
+
+    await refreshNativeResumeStats();
+    controller = {
+      sessionId: pulse.sessionId,
+      stop: async () => {
+        await stopNativeCapsizeMonitor();
+      },
+      getStats: () => nativeResumeStats,
+      flush: async () => {},
+      connectHr: async () => {
+        pushLog('HR not available on a resumed background session — stop and start fresh to connect HR.');
+      },
+    };
+
+    await startBackgroundSession(s, {
+      onFlush: async () => {},
+      onSync: runSync,
+      onLog: pushLog,
+      onStatus: (status) => {
+        backgroundStatus = status;
+        render();
+      },
+    });
+
+    const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;
+    const syncInterval = Math.max(4000, Math.min(batchMs, 12000));
+    syncTimer = setInterval(() => void runSync(false), syncInterval);
+    nativeResumePollTimer = setInterval(() => {
+      void refreshNativeResumeStats().then(() => updateLiveHud());
+    }, 2000);
+    void runSync(false);
+    render();
+    startHudTimer();
   }
 
   function setHudText(sel: string, text: string): void {
@@ -637,6 +722,14 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
       if (IS_NATIVE) {
+        const active = await getNativeRecordingPulse();
+        if (active?.recordingActive) {
+          pushLog(
+            'Session already recording (resumed in background). Stop session before starting a new one.',
+          );
+          if (!recording) await wireResumedNativeSession(active);
+          return;
+        }
         try {
           const p = await requestNativePermissions();
           if (p.notifications !== 'granted') {
@@ -699,7 +792,9 @@ export function mountApp(root: HTMLElement): void {
 
     root.querySelector('[data-action="stop"]')?.addEventListener('click', async () => {
       if (syncTimer) clearInterval(syncTimer);
+      syncTimer = null;
       stopHudTimer();
+      stopNativeResumePoll();
       sessionStartedAt = null;
       controlsCollapsed = false;
       speedAvg.clear();
@@ -772,6 +867,18 @@ export function mountApp(root: HTMLElement): void {
       `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
     );
     clearRecordingActive();
+  }
+  if (IS_NATIVE) {
+    void (async () => {
+      const pulse = await getNativeRecordingPulse();
+      if (pulse?.recordingActive && pulse.sessionId) {
+        pushLog(
+          `Session resumed after reboot (${pulse.deviceId ?? loadSettings().deviceId}, ${pulse.sessionId.slice(0, 8)}…) — GPS and capsize active without opening the app.`,
+        );
+        await wireResumedNativeSession(pulse);
+        refreshLogPre();
+      }
+    })();
   }
   if (IS_KRI) {
     pushLog(

@@ -16,6 +16,11 @@ export type NativeCapsizeMonitorConfig = {
 export type NativeRecordingPulse = {
   lastGps?: { t: number; lat: number; lon: number; spd?: number };
   nativeGpsCount?: number;
+  pendingIngestBatches?: number;
+  recordingActive?: boolean;
+  sessionId?: string;
+  deviceId?: string;
+  sessionStartedAtMs?: number;
 };
 
 export interface NativeCapsizeMonitorPlugin {
