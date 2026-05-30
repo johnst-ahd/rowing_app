@@ -64,7 +64,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final int MAX_PENDING_FLUSH_ON_GPS = 2;
     private static final long PENDING_FLUSH_INTERVAL_MS = 45_000L;
     /** Reject cached fixes older than this when uploading to ingest. */
-    private static final long GPS_MAX_UPLOAD_FIX_AGE_MS = 20_000L;
+    private static final long GPS_MAX_UPLOAD_FIX_AGE_MS = 45_000L;
+    /** If Android fix clock lags more than this, timestamp sample at receive time. */
+    private static final long GPS_STALE_FIX_CLOCK_MS = 8_000L;
     private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
 
     private SensorManager sensorManager;
@@ -92,6 +94,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private long lastCapsizeUploadMs;
     private long lastGpsUploadWallMs;
     private long lastUploadedFixTimeMs;
+    private double lastUploadedLat = Double.NaN;
+    private double lastUploadedLon = Double.NaN;
     private Location latestGpsLocation;
     private int nativeGpsCount;
     private int sampleCount;
@@ -213,7 +217,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void cacheGpsLocation(Location location) {
         if (!enableGps || location == null) return;
         latestGpsLocation = location;
-        saveLastGpsToPrefs(location, sampleTimeMs(location), nativeGpsCount);
+        saveLastGpsToPrefs(location, ingestTimeMs(location), nativeGpsCount);
     }
 
     private void deliverLocation(Location location) {
@@ -227,24 +231,34 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
     }
 
+    private static boolean sameCoords(Location a, double lat, double lon) {
+        if (a == null || !Number.isFinite(lat)) return false;
+        return Math.abs(a.getLatitude() - lat) < 1e-6 && Math.abs(a.getLongitude() - lon) < 1e-6;
+    }
+
     private void maybeUploadGpsFix(Location location) {
         if (!enableGps || location == null || !isGpsFixUsable(location)) return;
         if (!isGpsFixFresh(location)) return;
         long fixTime = location.getTime();
-        if (fixTime <= lastUploadedFixTimeMs) return;
         long now = System.currentTimeMillis();
         if (now - lastGpsUploadWallMs < Math.max(500L, gpsIntervalMs)) return;
+        if (fixTime <= lastUploadedFixTimeMs && sameCoords(location, lastUploadedLat, lastUploadedLon)) {
+            return;
+        }
         if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
 
         lastGpsUploadWallMs = now;
         lastUploadedFixTimeMs = fixTime;
+        lastUploadedLat = location.getLatitude();
+        lastUploadedLon = location.getLongitude();
         nativeGpsCount++;
-        saveLastGpsToPrefs(location, sampleTimeMs(location), nativeGpsCount);
+        saveLastGpsToPrefs(location, ingestTimeMs(location), nativeGpsCount);
         final Location uploadLoc = location;
+        final long ingestT = ingestTimeMs(location);
         uploadExecutor.execute(
                 () -> {
                     SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-                    postGpsToIngest(uploadLoc, sampleTimeMs(uploadLoc));
+                    postGpsToIngest(uploadLoc, ingestT);
                     flushPendingIngest(p, MAX_PENDING_FLUSH_ON_GPS);
                 });
     }
@@ -720,12 +734,17 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return true;
     }
 
-    /** Use the fix time from Android — not upload time — so dashboard age matches position. */
-    private static long sampleTimeMs(Location location) {
+    /**
+     * Ingest timestamp: prefer Android fix time when fresh; otherwise receive time so
+     * dashboard age does not climb when fix clock stalls but coords still update.
+     */
+    private static long ingestTimeMs(Location location) {
         long now = System.currentTimeMillis();
         if (location == null) return now;
         long fixTime = location.getTime();
         if (fixTime <= 0L || fixTime > now + 5_000L) return now;
+        long fixAge = now - fixTime;
+        if (fixAge > GPS_STALE_FIX_CLOCK_MS) return now;
         return fixTime;
     }
 
