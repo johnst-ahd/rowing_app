@@ -76,6 +76,10 @@
   color: #fca5a5;
 }
 
+.map-legend-item--smooth {
+  color: #facc15;
+}
+
 .map-status {
   margin: 8px 0 0;
 }
@@ -117,6 +121,18 @@
 .map-popup-compare {
   font-size: 12px;
   color: #64748b;
+}
+
+.map-marker--smooth {
+  width: 13px;
+  height: 13px;
+  background: #facc15;
+  border: 2px solid #3b82f6;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
+.map-marker-wrap--smooth {
+  z-index: 850 !important;
 }
 
 .map-marker--amber {

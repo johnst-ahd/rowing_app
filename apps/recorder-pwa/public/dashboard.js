@@ -9,13 +9,18 @@ const ONLINE_SEC = 120;
 /** GPS fix age thresholds (seconds) for map/card colours. */
 const GPS_LIVE_SEC = 30;
 const GPS_STALE_SEC = 300;
+/** Server-smoothed overlay marker (trial). */
+const SMOOTH_TRIAL_DEVICE = 'H6';
 
 const $ = (sel) => document.querySelector(sel);
 
 let map = null;
 let markersLayer = null;
+let smoothMarkersLayer = null;
 /** @type {Map<string, L.Marker>} */
 const deviceMarkers = new Map();
+/** @type {Map<string, L.Marker>} */
+const smoothDeviceMarkers = new Map();
 let mapAutoFitDone = false;
 let mapUserInteracted = false;
 let mapIgnoreMoveEvents = false;
@@ -279,6 +284,7 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
+  smoothMarkersLayer = L.layerGroup().addTo(map);
 
   const onUserMapMove = () => {
     if (!mapIgnoreMoveEvents) mapUserInteracted = true;
@@ -314,6 +320,20 @@ function gpsStatusLabel(state) {
   if (state === 'live') return 'GPS live (≤30s)';
   if (state === 'amber') return 'GPS delayed (30s–5min)';
   return 'Last known (>5min)';
+}
+
+function smoothMarkerIcon() {
+  return L.divIcon({
+    className: 'map-marker-wrap map-marker-wrap--smooth',
+    html: `<span class="map-marker map-marker--smooth" aria-hidden="true"></span>`,
+    iconSize: [13, 13],
+    iconAnchor: [6.5, 6.5],
+  });
+}
+
+function smoothPopupHtml(p) {
+  const age = p.smoothFixAgeSec ?? p.fixAgeSec;
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Filter age ${age}s · trial overlay for H6</div>`;
 }
 
 function markerIcon(state, capsize = false) {
@@ -364,9 +384,10 @@ function popupHtml(p) {
 
 function updateMap(positions) {
   initMap();
-  if (!map || !markersLayer) return;
+  if (!map || !markersLayer || !smoothMarkersLayer) return;
 
   const seen = new Set();
+  const smoothSeen = new Set();
   const latlngs = [];
 
   for (const p of positions) {
@@ -388,12 +409,41 @@ function updateMap(positions) {
       markersLayer.addLayer(marker);
       deviceMarkers.set(p.deviceId, marker);
     }
+
+    if (p.deviceId === SMOOTH_TRIAL_DEVICE) {
+      const slat = p.smoothLatitude ?? p.latitude;
+      const slon = p.smoothLongitude ?? p.longitude;
+      if (slat != null && slon != null) {
+        smoothSeen.add(p.deviceId);
+        const smoothLatlng = L.latLng(slat, slon);
+        const smoothIcon = smoothMarkerIcon();
+        let smoothMarker = smoothDeviceMarkers.get(p.deviceId);
+        if (smoothMarker) {
+          smoothMarker.setLatLng(smoothLatlng);
+          smoothMarker.setIcon(smoothIcon);
+          smoothMarker.setPopupContent(smoothPopupHtml(p));
+        } else {
+          smoothMarker = L.marker(smoothLatlng, { icon: smoothIcon }).bindPopup(
+            smoothPopupHtml(p),
+          );
+          smoothMarkersLayer.addLayer(smoothMarker);
+          smoothDeviceMarkers.set(p.deviceId, smoothMarker);
+        }
+      }
+    }
   }
 
   for (const [id, marker] of deviceMarkers) {
     if (!seen.has(id)) {
       markersLayer.removeLayer(marker);
       deviceMarkers.delete(id);
+    }
+  }
+
+  for (const [id, marker] of smoothDeviceMarkers) {
+    if (!smoothSeen.has(id)) {
+      smoothMarkersLayer.removeLayer(marker);
+      smoothDeviceMarkers.delete(id);
     }
   }
 
