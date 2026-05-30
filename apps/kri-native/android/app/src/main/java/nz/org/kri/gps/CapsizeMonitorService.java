@@ -60,10 +60,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long CALIBRATE_WINDOW_MS = 2500L;
     private static final long CAPSIZE_HOLD_MS = 400L;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
+    /** Batched ingest — fewer HTTP posts while GPS still samples at gpsIntervalMs. */
+    private static final long UPLOAD_FLUSH_INTERVAL_MS = 3_000L;
+    private static final int UPLOAD_FLUSH_MAX_SAMPLES = 12;
     /** Keeps dashboard "online" when GPS fixes pause (independent of gpsIntervalMs). */
     private static final long HEARTBEAT_INTERVAL_MS = 10_000L;
     private static final long BATTERY_REPORT_INTERVAL_MS = 30L * 60L * 1000L;
-    /** Motion-only uploads for dashboard stroke rate (independent of GPS fixes). */
+    /** Motion samples queued into the ingest batch (no separate HTTP). */
     private static final long MOTION_POST_INTERVAL_MS = 2000L;
     /** Reject cached fixes older than this when uploading to ingest. */
     private static final long GPS_MAX_UPLOAD_FIX_AGE_MS = 45_000L;
@@ -77,8 +80,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private LocationCallback fusedCallback;
     private PowerManager.WakeLock wakeLock;
     private ExecutorService uploadExecutor;
-    private ExecutorService gpsUploadExecutor;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    private JSONArray ingestBuffer = new JSONArray();
+    private long lastIngestFlushMs;
+    private long lastSuccessfulUploadMs;
 
     private boolean enableGps;
     private boolean enableMotion = true;
@@ -111,10 +117,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private final float[] recentAz = new float[64];
     private final long[] recentT = new long[64];
     private int recentCount;
+    private final Runnable ingestFlushRunnable =
+            () -> {
+                runOnUpload(() -> maybeAutoFlushIngest(false));
+                scheduleIngestFlush();
+            };
     private final Runnable heartbeatRunnable =
             () -> {
                 if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
-                uploadExecutor.execute(() -> postHeartbeatToIngest(System.currentTimeMillis()));
+                uploadExecutor.execute(() -> enqueueHeartbeatSample(System.currentTimeMillis()));
                 scheduleHeartbeat();
             };
     private final Runnable motionPostRunnable =
@@ -123,7 +134,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                     scheduleMotionPost();
                     return;
                 }
-                uploadExecutor.execute(() -> postMotionToIngest(System.currentTimeMillis()));
+                uploadExecutor.execute(() -> enqueueMotionSample(System.currentTimeMillis()));
                 scheduleMotionPost();
             };
     private final Runnable gpsFlushRunnable =
@@ -142,7 +153,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         fusedClient = LocationServices.getFusedLocationProviderClient(this);
         uploadExecutor = Executors.newSingleThreadExecutor();
-        gpsUploadExecutor = Executors.newSingleThreadExecutor();
         createNotificationChannel();
         loadUprightFromPrefs();
     }
@@ -155,6 +165,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         loadSessionFlagsFromPrefs();
         lastBatteryReportMs = 0L;
         lastMotionPostMs = 0L;
+        lastIngestFlushMs = 0L;
+        lastSuccessfulUploadMs = 0L;
+        ingestBuffer = new JSONArray();
         startForeground(NOTIF_ID_FOREGROUND, buildForegroundNotification());
         acquireWakeLock();
         if (enableMotion) {
@@ -165,8 +178,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             scheduleGpsFlush();
             requestGpsFlush();
         }
-        uploadExecutor.execute(() -> postSessionStartTelemetry(System.currentTimeMillis()));
+        uploadExecutor.execute(() -> enqueueSessionStartSample(System.currentTimeMillis()));
         scheduleHeartbeat();
+        scheduleIngestFlush();
         if (enableMotion) {
             scheduleMotionPost();
         }
@@ -185,6 +199,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onDestroy() {
+        mainHandler.removeCallbacks(ingestFlushRunnable);
         mainHandler.removeCallbacks(heartbeatRunnable);
         mainHandler.removeCallbacks(motionPostRunnable);
         mainHandler.removeCallbacks(gpsFlushRunnable);
@@ -192,10 +207,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         unregisterLocation();
         releaseWakeLock();
         if (uploadExecutor != null) {
-            uploadExecutor.shutdownNow();
-        }
-        if (gpsUploadExecutor != null) {
-            gpsUploadExecutor.shutdownNow();
+            uploadExecutor.execute(this::flushIngestBufferNow);
+            uploadExecutor.shutdown();
+            try {
+                uploadExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
         }
         super.onDestroy();
     }
@@ -276,7 +294,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (fixTime <= lastUploadedFixTimeMs && sameCoords(location, lastUploadedLat, lastUploadedLon)) {
             return;
         }
-        if (gpsUploadExecutor == null || gpsUploadExecutor.isShutdown()) return;
+        if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
 
         lastGpsUploadWallMs = now;
         lastUploadedFixTimeMs = fixTime;
@@ -285,7 +303,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         nativeGpsCount++;
         saveLastGpsToPrefs(location, ingestTimeMs(location), nativeGpsCount);
         final Location uploadLoc = location;
-        gpsUploadExecutor.execute(() -> postGpsToIngest(uploadLoc));
+        runOnUpload(() -> enqueueGpsSample(uploadLoc));
     }
 
     @Override
@@ -394,20 +412,59 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         showAlertNotification();
         if (t - lastCapsizeUploadMs < CAPSIZE_UPLOAD_MIN_INTERVAL_MS) return;
         lastCapsizeUploadMs = t;
-        uploadExecutor.execute(() -> postCapsizeToIngest(t, ax, ay, az, tiltDeg));
+        uploadExecutor.execute(() -> enqueueCapsizeSample(t, ax, ay, az, tiltDeg));
     }
 
-    private void postGpsToIngest(Location location) {
+    private void runOnUpload(Runnable task) {
+        if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
+        uploadExecutor.execute(task);
+    }
+
+    private void scheduleIngestFlush() {
+        mainHandler.removeCallbacks(ingestFlushRunnable);
+        mainHandler.postDelayed(ingestFlushRunnable, UPLOAD_FLUSH_INTERVAL_MS);
+    }
+
+    private void offerIngestSample(JSONObject sample, boolean flushNow) {
+        ingestBuffer.put(sample);
+        maybeAutoFlushIngest(flushNow);
+    }
+
+    private void maybeAutoFlushIngest(boolean force) {
+        if (ingestBuffer.length() == 0) return;
+        long now = System.currentTimeMillis();
+        if (force
+                || ingestBuffer.length() >= UPLOAD_FLUSH_MAX_SAMPLES
+                || now - lastIngestFlushMs >= UPLOAD_FLUSH_INTERVAL_MS) {
+            flushIngestBufferNow();
+        }
+    }
+
+    private void flushIngestBufferNow() {
+        if (ingestBuffer.length() == 0) return;
+        JSONArray toSend = ingestBuffer;
+        ingestBuffer = new JSONArray();
+        lastIngestFlushMs = System.currentTimeMillis();
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         String ingestUrl = p.getString("ingestUrl", "");
         String deviceId = p.getString("deviceId", "");
         String sessionId = p.getString("sessionId", "");
         if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
-            Log.e(TAG, "Missing ingest config for GPS");
+            Log.e(TAG, "Missing ingest config — dropping " + toSend.length() + " buffered sample(s)");
             return;
         }
-        long t = ingestTimeMs(location);
         try {
+            postBatch(p, sessionId, deviceId, toSend);
+            lastSuccessfulUploadMs = System.currentTimeMillis();
+            Log.d(TAG, "Ingest batch OK (" + toSend.length() + " samples)");
+        } catch (Exception e) {
+            Log.e(TAG, "Ingest batch failed", e);
+        }
+    }
+
+    private void enqueueGpsSample(Location location) {
+        try {
+            long t = ingestTimeMs(location);
             JSONObject gps = new JSONObject();
             gps.put("lat", location.getLatitude());
             gps.put("lon", location.getLongitude());
@@ -421,17 +478,97 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             if (location.hasAltitude()) {
                 gps.put("alt", Math.round(location.getAltitude() * 10) / 10.0);
             }
-
             JSONObject sample = new JSONObject();
             sample.put("t", t);
             sample.put("gps", gps);
-
-            JSONArray samples = new JSONArray();
-            samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-            Log.d(TAG, "GPS ingest OK");
+            offerIngestSample(sample, false);
         } catch (Exception e) {
-            Log.e(TAG, "GPS ingest failed", e);
+            Log.e(TAG, "GPS sample enqueue failed", e);
+        }
+    }
+
+    private void enqueueSessionStartSample(long t) {
+        try {
+            JSONObject derived = new JSONObject();
+            derived.put("heartbeat", true);
+            int batteryPct = readBatteryPct();
+            if (batteryPct >= 0) {
+                derived.put("batteryPct", batteryPct);
+                lastBatteryReportMs = t;
+                Log.i(TAG, "Session start battery " + batteryPct + "%");
+            }
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("derived", derived);
+            offerIngestSample(sample, true);
+        } catch (Exception e) {
+            Log.e(TAG, "Session start telemetry failed", e);
+        }
+    }
+
+    private void enqueueMotionSample(long t) {
+        if (t - lastMotionPostMs < MOTION_POST_INTERVAL_MS) return;
+        if (lastAx == 0f && lastAy == 0f && lastAz == 0f) return;
+        lastMotionPostMs = t;
+        try {
+            JSONObject motion = new JSONObject();
+            motion.put("ax", Math.round(lastAx * 100) / 100.0);
+            motion.put("ay", Math.round(lastAy * 100) / 100.0);
+            motion.put("az", Math.round(lastAz * 100) / 100.0);
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("motion", motion);
+            offerIngestSample(sample, false);
+        } catch (Exception e) {
+            Log.e(TAG, "Motion sample enqueue failed", e);
+        }
+    }
+
+    private void enqueueHeartbeatSample(long t) {
+        if (lastSuccessfulUploadMs > 0L
+                && t - lastSuccessfulUploadMs < HEARTBEAT_INTERVAL_MS - 1000L) {
+            return;
+        }
+        try {
+            JSONObject derived = new JSONObject();
+            derived.put("heartbeat", true);
+            boolean reportBattery =
+                    lastBatteryReportMs == 0L
+                            || t - lastBatteryReportMs >= BATTERY_REPORT_INTERVAL_MS;
+            if (reportBattery) {
+                int batteryPct = readBatteryPct();
+                if (batteryPct >= 0) {
+                    derived.put("batteryPct", batteryPct);
+                    lastBatteryReportMs = t;
+                    Log.i(TAG, "Including battery " + batteryPct + "% on heartbeat");
+                }
+            }
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("derived", derived);
+            offerIngestSample(sample, false);
+        } catch (Exception e) {
+            Log.e(TAG, "Heartbeat sample enqueue failed", e);
+        }
+    }
+
+    private void enqueueCapsizeSample(long t, float ax, float ay, float az, int tiltDeg) {
+        try {
+            JSONObject derived = new JSONObject();
+            derived.put("capsize", true);
+            derived.put("tiltDeg", tiltDeg);
+            JSONObject motion = new JSONObject();
+            motion.put("ax", Math.round(ax * 100) / 100.0);
+            motion.put("ay", Math.round(ay * 100) / 100.0);
+            motion.put("az", Math.round(az * 100) / 100.0);
+            JSONObject sample = new JSONObject();
+            sample.put("t", t);
+            sample.put("motion", motion);
+            sample.put("derived", derived);
+            offerIngestSample(sample, true);
+            Log.i(TAG, "Capsize ingest queued");
+        } catch (Exception e) {
+            Log.e(TAG, "Capsize ingest failed", e);
         }
     }
 
@@ -471,95 +608,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         onResult.accept(null);
     }
 
-    private void postSessionStartTelemetry(long t) {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String ingestUrl = p.getString("ingestUrl", "");
-        String deviceId = p.getString("deviceId", "");
-        String sessionId = p.getString("sessionId", "");
-        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
-            return;
-        }
-        try {
-            JSONObject derived = new JSONObject();
-            derived.put("heartbeat", true);
-            int batteryPct = readBatteryPct();
-            if (batteryPct >= 0) {
-                derived.put("batteryPct", batteryPct);
-                lastBatteryReportMs = t;
-                Log.i(TAG, "Session start battery " + batteryPct + "%");
-            }
-            JSONObject sample = new JSONObject();
-            sample.put("t", t);
-            sample.put("derived", derived);
-            JSONArray samples = new JSONArray();
-            samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-        } catch (Exception e) {
-            Log.e(TAG, "Session start telemetry failed", e);
-        }
-    }
-
-    private void postMotionToIngest(long t) {
-        if (t - lastMotionPostMs < MOTION_POST_INTERVAL_MS) return;
-        if (lastAx == 0f && lastAy == 0f && lastAz == 0f) return;
-        lastMotionPostMs = t;
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String ingestUrl = p.getString("ingestUrl", "");
-        String deviceId = p.getString("deviceId", "");
-        String sessionId = p.getString("sessionId", "");
-        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
-            return;
-        }
-        try {
-            JSONObject motion = new JSONObject();
-            motion.put("ax", Math.round(lastAx * 100) / 100.0);
-            motion.put("ay", Math.round(lastAy * 100) / 100.0);
-            motion.put("az", Math.round(lastAz * 100) / 100.0);
-            JSONObject sample = new JSONObject();
-            sample.put("t", t);
-            sample.put("motion", motion);
-            JSONArray samples = new JSONArray();
-            samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-        } catch (Exception e) {
-            Log.e(TAG, "Motion ingest failed", e);
-        }
-    }
-
-    private void postHeartbeatToIngest(long t) {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String ingestUrl = p.getString("ingestUrl", "");
-        String deviceId = p.getString("deviceId", "");
-        String sessionId = p.getString("sessionId", "");
-        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
-            return;
-        }
-        try {
-            JSONObject derived = new JSONObject();
-            derived.put("heartbeat", true);
-            boolean reportBattery =
-                    lastBatteryReportMs == 0L
-                            || t - lastBatteryReportMs >= BATTERY_REPORT_INTERVAL_MS;
-            if (reportBattery) {
-                int batteryPct = readBatteryPct();
-                if (batteryPct >= 0) {
-                    derived.put("batteryPct", batteryPct);
-                    lastBatteryReportMs = t;
-                    Log.i(TAG, "Including battery " + batteryPct + "% on heartbeat");
-                }
-            }
-            JSONObject sample = new JSONObject();
-            sample.put("t", t);
-            sample.put("derived", derived);
-            JSONArray samples = new JSONArray();
-            samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-            Log.d(TAG, "Heartbeat ingest OK");
-        } catch (Exception e) {
-            Log.e(TAG, "Heartbeat ingest failed", e);
-        }
-    }
-
     private int readBatteryPct() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
@@ -569,36 +617,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             }
         }
         return -1;
-    }
-
-    private void postCapsizeToIngest(long t, float ax, float ay, float az, int tiltDeg) {
-        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-        String ingestUrl = p.getString("ingestUrl", "");
-        String deviceId = p.getString("deviceId", "");
-        String sessionId = p.getString("sessionId", "");
-        if (ingestUrl.isEmpty() || deviceId.isEmpty() || sessionId.isEmpty()) {
-            Log.e(TAG, "Missing ingest config");
-            return;
-        }
-        try {
-            JSONObject derived = new JSONObject();
-            derived.put("capsize", true);
-            derived.put("tiltDeg", tiltDeg);
-            JSONObject motion = new JSONObject();
-            motion.put("ax", Math.round(ax * 100) / 100.0);
-            motion.put("ay", Math.round(ay * 100) / 100.0);
-            motion.put("az", Math.round(az * 100) / 100.0);
-            JSONObject sample = new JSONObject();
-            sample.put("t", t);
-            sample.put("motion", motion);
-            sample.put("derived", derived);
-            JSONArray samples = new JSONArray();
-            samples.put(sample);
-            postBatch(p, sessionId, deviceId, samples);
-            Log.i(TAG, "Capsize ingest sent");
-        } catch (Exception e) {
-            Log.e(TAG, "Capsize ingest failed", e);
-        }
     }
 
     private void postBatch(
