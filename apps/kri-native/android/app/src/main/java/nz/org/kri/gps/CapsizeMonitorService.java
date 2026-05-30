@@ -262,7 +262,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private static boolean sameCoords(Location a, double lat, double lon) {
-        if (a == null || !Number.isFinite(lat)) return false;
+        if (a == null || !Double.isFinite(lat)) return false;
         return Math.abs(a.getLatitude() - lat) < 1e-6 && Math.abs(a.getLongitude() - lon) < 1e-6;
     }
 
@@ -727,7 +727,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (sensorManager != null) sensorManager.unregisterListener(this);
     }
 
-  /**
+    /**
      * Ingest timestamp: prefer Android fix time when fresh; otherwise receive time so
      * dashboard age does not climb when fix clock stalls but coords still update.
      */
