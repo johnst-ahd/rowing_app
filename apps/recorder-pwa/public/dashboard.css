@@ -166,6 +166,96 @@
   gap: 1rem;
 }
 
+.devices-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.devices-section-head .hub-section-title {
+  margin: 0;
+}
+
+.devices-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.devices-toolbar-btn {
+  font-size: 0.8rem;
+  padding: 0.35rem 0.65rem;
+}
+
+.device-card--collapsed {
+  padding: 0.55rem 0.85rem;
+}
+
+.device-card--collapsed .device-head {
+  margin-bottom: 0;
+}
+
+.device-card--collapsed .device-card__body {
+  display: none;
+}
+
+.device-card--collapsed .device-head .sub {
+  display: none;
+}
+
+.device-card:not(.device-card--collapsed) .device-summary {
+  display: none;
+}
+
+.device-summary {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--ahd-muted);
+  line-height: 1.35;
+}
+
+.device-collapse-btn {
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0.15rem;
+  border: none;
+  background: transparent;
+  color: var(--ahd-accent);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.device-collapse-btn:hover {
+  color: var(--ahd-text);
+}
+
+.device-collapse-icon {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+}
+
+.device-card--collapsed .device-collapse-icon {
+  transform: rotate(-45deg);
+}
+
+.device-card:not(.device-card--collapsed) .device-collapse-icon {
+  transform: rotate(45deg);
+}
+
+.device-head__main {
+  flex: 1;
+  min-width: 0;
+}
+
 .monitor-chart-toolbar {
   margin-bottom: 0.5rem;
 }
@@ -373,6 +463,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 0.5rem;
   margin-bottom: 0.75rem;
 }
 

@@ -1,6 +1,7 @@
 const LS_TOKEN = 'rnz_dashboard_token';
 const LS_POLL = 'rnz_dashboard_poll_ms';
 const LS_STALE = 'rnz_dashboard_stale_sec';
+const LS_DEVICE_COLLAPSE = 'rnz_device_collapse';
 
 const MAP_CENTER = [-37.9305, 175.5485];
 const MAP_ZOOM = 12;
@@ -65,6 +66,61 @@ function fmtAgoSec(sec) {
 function fmtBatteryPct(pct) {
   if (pct == null || !Number.isFinite(pct)) return '—';
   return `${Math.round(pct)}%`;
+}
+
+/** @type {Record<string, boolean>} */
+let deviceCollapse = loadDeviceCollapse();
+
+function loadDeviceCollapse() {
+  try {
+    const raw = localStorage.getItem(LS_DEVICE_COLLAPSE);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveDeviceCollapse() {
+  localStorage.setItem(LS_DEVICE_COLLAPSE, JSON.stringify(deviceCollapse));
+}
+
+function isDeviceCollapsed(d) {
+  const id = String(d.deviceId);
+  if (Object.prototype.hasOwnProperty.call(deviceCollapse, id)) {
+    return Boolean(deviceCollapse[id]);
+  }
+  return !d.online && !d.rowing?.capsize;
+}
+
+function setDeviceCollapsed(deviceId, collapsed) {
+  deviceCollapse[String(deviceId)] = collapsed;
+  saveDeviceCollapse();
+}
+
+function deviceSummaryLine(d) {
+  const parts = [];
+  const gps = d.gps || {};
+  if (gps.present) {
+    parts.push(`GPS ${fmtHz(gps.rateHz)}`);
+    if (gps.ageSec != null) parts.push(`${gps.ageSec}s ago`);
+  } else {
+    parts.push('No GPS');
+  }
+  if (d.battery?.pct != null) parts.push(`${fmtBatteryPct(d.battery.pct)} bat`);
+  if (d.rowing?.capsize) parts.push('CAPSIZE');
+  else if (d.rowing?.strokeRateValid) parts.push(`${fmtSpm(d.rowing.strokeRate)}`);
+  parts.push(`seen ${d.lastSeenAgoSec}s ago`);
+  return parts.join(' · ');
+}
+
+function applyDeviceCardCollapse(card, collapsed) {
+  card.classList.toggle('device-card--collapsed', collapsed);
+  const btn = card.querySelector('.device-collapse-btn');
+  if (btn) {
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    const id = card.dataset.deviceId || 'device';
+    btn.setAttribute('aria-label', collapsed ? `Expand ${id}` : `Collapse ${id}`);
+  }
 }
 
 function strokeDetail(d) {
@@ -478,7 +534,9 @@ function renderDevice(d) {
   const gpsState = rowing.capsize
     ? 'capsize'
     : gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec);
-  card.className = `device-card device-card--${gpsState}`;
+  const collapsed = isDeviceCollapsed(d);
+  card.className = `device-card device-card--${gpsState}${collapsed ? ' device-card--collapsed' : ''}`;
+  card.dataset.deviceId = d.deviceId;
 
   const gps = d.gps || {};
   const hr = d.hr || {};
@@ -508,50 +566,56 @@ function renderDevice(d) {
 
   card.innerHTML = `
     <div class="device-head">
-      <div>
+      <button type="button" class="device-collapse-btn" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? `Expand ${esc(d.deviceId)}` : `Collapse ${esc(d.deviceId)}`}">
+        <span class="device-collapse-icon" aria-hidden="true"></span>
+      </button>
+      <div class="device-head__main">
         <h2>${esc(d.deviceId)}</h2>
         <div class="sub">${d.athleteId ? esc(d.athleteId) : 'No athlete ID'} · session ${esc(d.sessionId.slice(0, 8))}…</div>
+        <p class="device-summary">${esc(deviceSummaryLine(d))}</p>
       </div>
       <span class="badge-pill ${badgeClass}">${badgeLabel}</span>
     </div>
-    <div class="sensors sensors--six">
-      <div class="sensor ${gps.present ? 'present' : 'absent'}">
-        <div class="name">GPS</div>
-        <div class="rate">${gps.present ? fmtHz(gps.rateHz) : '—'}</div>
-        <div class="detail">${gps.present ? `${gps.count} fixes / ${d.windowSec || 60}s` : 'No data'}</div>
+    <div class="device-card__body">
+      <div class="sensors sensors--six">
+        <div class="sensor ${gps.present ? 'present' : 'absent'}">
+          <div class="name">GPS</div>
+          <div class="rate">${gps.present ? fmtHz(gps.rateHz) : '—'}</div>
+          <div class="detail">${gps.present ? `${gps.count} fixes / ${d.windowSec || 60}s` : 'No data'}</div>
+        </div>
+        <div class="sensor ${heartbeat.present ? 'present' : 'absent'}">
+          <div class="name">Heartbeat</div>
+          <div class="rate">${heartbeat.present ? fmtHz(heartbeat.rateHz) : '—'}</div>
+          <div class="detail">${heartbeat.ageSec != null ? `Last ${fmtAgoSec(heartbeat.ageSec)}` : 'No ping'}</div>
+        </div>
+        <div class="sensor ${battery.pct != null ? 'present' : 'absent'} ${battery.pct != null && battery.pct <= 20 ? 'sensor--low-battery' : ''}">
+          <div class="name">Battery</div>
+          <div class="rate">${fmtBatteryPct(battery.pct)}</div>
+          <div class="detail">${battery.ageSec != null ? `Reported ${fmtAgoSec(battery.ageSec)}` : 'Not reported'}</div>
+        </div>
+        <div class="sensor ${rowing.strokeRateValid ? 'present' : motion.present ? 'present' : 'absent'}">
+          <div class="name">Stroke rate</div>
+          <div class="rate">${rowing.strokeRateValid ? fmtSpm(rowing.strokeRate) : '—'}</div>
+          <div class="detail">${strokeDetail(d)}</div>
+        </div>
+        <div class="sensor ${hr.present ? 'present' : 'absent'}">
+          <div class="name">Heart rate</div>
+          <div class="rate">${hr.present ? fmtHz(hr.rateHz) : '—'}</div>
+          <div class="detail">${hr.last ? `${hr.last.bpm} bpm · ${hr.ageSec}s ago` : 'Not present'}</div>
+        </div>
+        <div class="sensor ${motion.present ? 'present' : 'absent'} ${rowing.capsize ? 'sensor--capsize' : ''}">
+          <div class="name">${rowing.capsize ? 'Capsize' : 'Tilt'}</div>
+          <div class="rate">${rowing.tiltDeg != null ? `${rowing.tiltDeg}°` : '—'}</div>
+          <div class="detail">${rowing.capsize ? 'Boat tipped' : motion.present ? `${motion.count} samples` : 'Not present'}</div>
+        </div>
       </div>
-      <div class="sensor ${heartbeat.present ? 'present' : 'absent'}">
-        <div class="name">Heartbeat</div>
-        <div class="rate">${heartbeat.present ? fmtHz(heartbeat.rateHz) : '—'}</div>
-        <div class="detail">${heartbeat.ageSec != null ? `Last ${fmtAgoSec(heartbeat.ageSec)}` : 'No ping'}</div>
+      <div class="meta-row">
+        <span>Ingest <strong>${fmtHz(d.ingestRateHz)}</strong></span>
+        <span>Total samples <strong>${d.totalSamples}</strong></span>
+        <span>Last seen <strong>${d.lastSeenAgoSec}s ago</strong></span>
       </div>
-      <div class="sensor ${battery.pct != null ? 'present' : 'absent'} ${battery.pct != null && battery.pct <= 20 ? 'sensor--low-battery' : ''}">
-        <div class="name">Battery</div>
-        <div class="rate">${fmtBatteryPct(battery.pct)}</div>
-        <div class="detail">${battery.ageSec != null ? `Reported ${fmtAgoSec(battery.ageSec)}` : 'Not reported'}</div>
-      </div>
-      <div class="sensor ${rowing.strokeRateValid ? 'present' : motion.present ? 'present' : 'absent'}">
-        <div class="name">Stroke rate</div>
-        <div class="rate">${rowing.strokeRateValid ? fmtSpm(rowing.strokeRate) : '—'}</div>
-        <div class="detail">${strokeDetail(d)}</div>
-      </div>
-      <div class="sensor ${hr.present ? 'present' : 'absent'}">
-        <div class="name">Heart rate</div>
-        <div class="rate">${hr.present ? fmtHz(hr.rateHz) : '—'}</div>
-        <div class="detail">${hr.last ? `${hr.last.bpm} bpm · ${hr.ageSec}s ago` : 'Not present'}</div>
-      </div>
-      <div class="sensor ${motion.present ? 'present' : 'absent'} ${rowing.capsize ? 'sensor--capsize' : ''}">
-        <div class="name">${rowing.capsize ? 'Capsize' : 'Tilt'}</div>
-        <div class="rate">${rowing.tiltDeg != null ? `${rowing.tiltDeg}°` : '—'}</div>
-        <div class="detail">${rowing.capsize ? 'Boat tipped' : motion.present ? `${motion.count} samples` : 'Not present'}</div>
-      </div>
+      ${coords ? `<div class="coords">${coords}${gps.ageSec != null ? ` · GPS ${gps.ageSec}s ago` : ''}</div>` : ''}
     </div>
-    <div class="meta-row">
-      <span>Ingest <strong>${fmtHz(d.ingestRateHz)}</strong></span>
-      <span>Total samples <strong>${d.totalSamples}</strong></span>
-      <span>Last seen <strong>${d.lastSeenAgoSec}s ago</strong></span>
-    </div>
-    ${coords ? `<div class="coords">${coords}${gps.ageSec != null ? ` · GPS ${gps.ageSec}s ago` : ''}</div>` : ''}
   `;
   return card;
 }
@@ -668,6 +732,35 @@ function init() {
   if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
 
   initMap();
+
+  $('#devicesGrid')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('.device-collapse-btn');
+    if (!btn) return;
+    const card = btn.closest('.device-card');
+    const id = card?.dataset.deviceId;
+    if (!id) return;
+    const collapsed = !card.classList.contains('device-card--collapsed');
+    setDeviceCollapsed(id, collapsed);
+    applyDeviceCardCollapse(card, collapsed);
+  });
+
+  $('#devicesCollapseAllBtn')?.addEventListener('click', () => {
+    document.querySelectorAll('.device-card').forEach((card) => {
+      const id = card.dataset.deviceId;
+      if (!id) return;
+      setDeviceCollapsed(id, true);
+      applyDeviceCardCollapse(card, true);
+    });
+  });
+
+  $('#devicesExpandAllBtn')?.addEventListener('click', () => {
+    document.querySelectorAll('.device-card').forEach((card) => {
+      const id = card.dataset.deviceId;
+      if (!id) return;
+      setDeviceCollapsed(id, false);
+      applyDeviceCardCollapse(card, false);
+    });
+  });
 
   $('#refreshBtn')?.addEventListener('click', () => void poll());
   $('#clearCapsizeBtn')?.addEventListener('click', () => void clearCapsizeAlert());
