@@ -7,9 +7,10 @@ const MAX_SAMPLES_PER_SESSION = 50000;
 const RING_TRIM_TO = 3000;
 const MAX_GPS_ACCURACY_M = 150;
 const MAX_TRACK_SPEED_MPS = 25;
-const MAX_TRACK_ACCEL_MPS2 = 8;
-/** Short prediction window keeps smoothed trail near real time. */
-const MAX_PREDICT_MS = 3000;
+/** Recent fixes averaged for smooth coords (no velocity extrapolation). */
+const GPS_SMOOTH_WINDOW = 6;
+/** Keep smoothed marker within this distance of the latest raw fix. */
+const MAX_SMOOTH_OFFSET_M = 18;
 
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
@@ -19,7 +20,7 @@ globalThis.__rnzIngestSessions = sessions;
 /** @type {Map<string, number>} */
 const capsizeClearAt = globalThis.__rnzCapsizeClearAt ?? new Map();
 globalThis.__rnzCapsizeClearAt = capsizeClearAt;
-/** @type {Map<string, GpsTrack>} */
+/** @type {Map<string, GpsSmoothState>} */
 const gpsTracks = globalThis.__rnzGpsTracks ?? new Map();
 globalThis.__rnzGpsTracks = gpsTracks;
 /** @type {Map<string, { t:number, result: object }>} */
@@ -48,15 +49,10 @@ globalThis.__rnzIngestMetrics = metrics;
 /**
  * @typedef {{
  *   t: number,
- *   rawT: number,
  *   lat: number,
  *   lon: number,
- *   vLat: number,
- *   vLon: number,
- *   speedMps: number,
- *   courseDeg: number | null,
- *   accuracy: number | null,
- * }} GpsTrack
+ *   ring: { t: number, lat: number, lon: number, w: number }[],
+ * }} GpsSmoothState
  */
 
 function getCapsizeClearAt(deviceId) {
@@ -144,140 +140,84 @@ function distanceMeters(aLat, aLon, bLat, bLon) {
   return Math.hypot(dLatM, dLonM);
 }
 
-function velocityFromSpeedHeading(spd, hdg, lat) {
-  if (spd == null || hdg == null) return null;
-  const r = (hdg * Math.PI) / 180;
-  const vNorth = Math.cos(r) * spd;
-  const vEast = Math.sin(r) * spd;
-  return {
-    vLat: vNorth / metersPerDegLat(),
-    vLon: vEast / metersPerDegLon(lat),
-    speedMps: spd,
-  };
-}
-
-function blend(a, b, w) {
-  return a * (1 - w) + b * w;
+function weightForAccuracy(acc) {
+  const a = acc != null && Number.isFinite(acc) ? Math.max(1, acc) : 12;
+  return 1 / (a * a);
 }
 
 /**
- * Light alpha-beta filter — tuned for low lag (higher alpha/beta than legacy smoothing).
+ * @param {{ lat: number, lon: number, w: number }[]} ring
+ */
+function weightedCentroid(ring) {
+  let wSum = 0;
+  let lat = 0;
+  let lon = 0;
+  for (const p of ring) {
+    wSum += p.w;
+    lat += p.lat * p.w;
+    lon += p.lon * p.w;
+  }
+  if (wSum <= 0) {
+    const last = ring[ring.length - 1];
+    return { lat: last.lat, lon: last.lon };
+  }
+  return { lat: lat / wSum, lon: lon / wSum };
+}
+
+function resetGpsSmoothState(fix) {
+  const w = weightForAccuracy(fix.acc);
+  const point = { t: fix.t, lat: fix.lat, lon: fix.lon, w };
+  return { t: fix.t, lat: fix.lat, lon: fix.lon, ring: [point] };
+}
+
+/**
+ * Accuracy-weighted rolling average of recent fixes — damps jitter without predicting ahead.
  * @param {string} deviceId
- * @param {{ t:number, lat:number, lon:number, acc:number|null, spd:number|null, hdg:number|null }} fix
+ * @param {{ t:number, lat:number, lon:number, acc:number|null }} fix
  */
 function updateGpsTrack(deviceId, fix) {
   const key = String(deviceId);
   const prev = gpsTracks.get(key);
   if (!prev) {
-    const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, fix.lat);
-    gpsTracks.set(key, {
-      t: fix.t,
-      rawT: fix.t,
-      lat: fix.lat,
-      lon: fix.lon,
-      vLat: vh?.vLat ?? 0,
-      vLon: vh?.vLon ?? 0,
-      speedMps: vh?.speedMps ?? 0,
-      courseDeg: fix.hdg ?? null,
-      accuracy: fix.acc,
-    });
+    gpsTracks.set(key, resetGpsSmoothState(fix));
     return true;
   }
 
-  const dt = (fix.t - prev.t) / 1000;
-  if (!Number.isFinite(dt) || dt <= 0) return false;
-  if (dt > 30) {
-    const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, fix.lat);
-    gpsTracks.set(key, {
-      t: fix.t,
-      rawT: fix.t,
-      lat: fix.lat,
-      lon: fix.lon,
-      vLat: vh?.vLat ?? 0,
-      vLon: vh?.vLon ?? 0,
-      speedMps: vh?.speedMps ?? 0,
-      courseDeg: fix.hdg ?? null,
-      accuracy: fix.acc,
-    });
+  const dtSec = (fix.t - prev.t) / 1000;
+  if (!Number.isFinite(dtSec) || dtSec < 0) return false;
+  if (dtSec > 30) {
+    gpsTracks.set(key, resetGpsSmoothState(fix));
     return true;
   }
 
-  const predLat = prev.lat + prev.vLat * dt;
-  const predLon = prev.lon + prev.vLon * dt;
-  const innovationM = distanceMeters(fix.lat, fix.lon, predLat, predLon);
-  const obsSpeed = innovationM / dt;
-  const accel = Math.abs(obsSpeed - prev.speedMps) / Math.max(0.25, dt);
-  if (obsSpeed > MAX_TRACK_SPEED_MPS || accel > MAX_TRACK_ACCEL_MPS2) {
-    return false;
+  if (dtSec === 0) {
+    const last = prev.ring[prev.ring.length - 1];
+    if (last) {
+      last.lat = fix.lat;
+      last.lon = fix.lon;
+      last.w = weightForAccuracy(fix.acc);
+    }
+    const { lat, lon } = weightedCentroid(prev.ring);
+    gpsTracks.set(key, { t: fix.t, lat, lon, ring: prev.ring });
+    return true;
   }
 
-  const acc = fix.acc ?? 12;
-  const alpha = acc <= 8 ? 0.85 : acc <= 20 ? 0.65 : 0.45;
-  const beta = acc <= 8 ? 0.28 : acc <= 20 ? 0.18 : 0.1;
-  const residLat = fix.lat - predLat;
-  const residLon = fix.lon - predLon;
-  const nextLat = predLat + alpha * residLat;
-  const nextLon = predLon + alpha * residLon;
-  let nextVLat = prev.vLat + (beta * residLat) / dt;
-  let nextVLon = prev.vLon + (beta * residLon) / dt;
-
-  const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, nextLat);
-  if (vh) {
-    nextVLat = blend(nextVLat, vh.vLat, 0.45);
-    nextVLon = blend(nextVLon, vh.vLon, 0.45);
+  const jumpM = distanceMeters(fix.lat, fix.lon, prev.lat, prev.lon);
+  if (jumpM / dtSec > MAX_TRACK_SPEED_MPS) {
+    gpsTracks.set(key, resetGpsSmoothState(fix));
+    return true;
   }
-  const speedMps = Math.hypot(
-    nextVLat * metersPerDegLat(),
-    nextVLon * metersPerDegLon(nextLat),
-  );
 
-  gpsTracks.set(key, {
-    t: fix.t,
-    rawT: fix.t,
-    lat: nextLat,
-    lon: nextLon,
-    vLat: nextVLat,
-    vLon: nextVLon,
-    speedMps: Number.isFinite(speedMps) ? speedMps : 0,
-    courseDeg: fix.hdg ?? prev.courseDeg ?? null,
-    accuracy: fix.acc ?? prev.accuracy ?? null,
-  });
+  const w = weightForAccuracy(fix.acc);
+  const ring = [...prev.ring, { t: fix.t, lat: fix.lat, lon: fix.lon, w }];
+  if (ring.length > GPS_SMOOTH_WINDOW) {
+    ring.splice(0, ring.length - GPS_SMOOTH_WINDOW);
+  }
+  const { lat, lon } = weightedCentroid(ring);
+  gpsTracks.set(key, { t: fix.t, lat, lon, ring });
   return true;
 }
 
-function projectTrack(track, nowMs) {
-  const dt = Math.max(0, Math.min(MAX_PREDICT_MS, nowMs - track.t)) / 1000;
-  const lat = track.lat + track.vLat * dt;
-  const lon = track.lon + track.vLon * dt;
-  const speed = track.speedMps ?? 0;
-  const course =
-    track.courseDeg != null
-      ? track.courseDeg
-      : speed > 0.1
-        ? ((Math.atan2(
-            track.vLon * metersPerDegLon(lat),
-            track.vLat * metersPerDegLat(),
-          ) *
-            180) /
-            Math.PI +
-            360) %
-          360
-        : null;
-  return {
-    latitude: lat,
-    longitude: lon,
-    speed: speed > 0.01 ? speed : null,
-    course,
-    projected: dt > 0,
-    predictedAgeMs: Math.round(dt * 1000),
-  };
-}
-
-/**
- * Attach low-latency smoothed coords; primary lat/lon stay raw for map colour markers.
- * @param {object[]} rawPositions
- * @param {number} now
- */
 /** Replay recent GPS samples so map polls warm the filter (serverless-safe). */
 function warmGpsTracksFromSamplesByDevice(byDevice) {
   if (!byDevice) return;
@@ -295,12 +235,16 @@ function warmGpsTracksFromSamplesByDevice(byDevice) {
   }
 }
 
-function attachSmoothMapCoords(rawPositions, now) {
+/**
+ * Attach smoothed coords; primary lat/lon stay raw for map colour markers.
+ * @param {object[]} rawPositions
+ */
+function attachSmoothMapCoords(rawPositions) {
   return rawPositions.map((p) => {
     const track = gpsTracks.get(String(p.deviceId));
     const rawLat = p.latitude;
     const rawLon = p.longitude;
-    if (!track || !Number.isFinite(track.t)) {
+    if (!track || !Number.isFinite(track.t) || rawLat == null || rawLon == null) {
       return {
         ...p,
         smoothLatitude: rawLat,
@@ -309,17 +253,35 @@ function attachSmoothMapCoords(rawPositions, now) {
         smoothed: false,
       };
     }
-    const projected = projectTrack(track, now);
-    const smoothLat = projected.latitude;
-    const smoothLon = projected.longitude;
-    const smoothAgeSec = Math.round((now - track.t) / 1000);
-    const offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
+
+    let smoothLat = track.lat;
+    let smoothLon = track.lon;
+    let offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
+    if (offsetM > MAX_SMOOTH_OFFSET_M && offsetM > 0) {
+      const scale = MAX_SMOOTH_OFFSET_M / offsetM;
+      smoothLat = rawLat + (smoothLat - rawLat) * scale;
+      smoothLon = rawLon + (smoothLon - rawLon) * scale;
+      offsetM = MAX_SMOOTH_OFFSET_M;
+    }
+
+    const fixMs = Number(p.fixMs);
+    if (Number.isFinite(fixMs) && fixMs > track.t + 500) {
+      smoothLat = rawLat + (smoothLat - rawLat) * 0.35;
+      smoothLon = rawLon + (smoothLon - rawLon) * 0.35;
+      offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
+    }
+
+    const smoothAgeSec =
+      Number.isFinite(fixMs) && fixMs > 0
+        ? Math.max(0, Math.round((Date.now() - fixMs) / 1000))
+        : p.fixAgeSec;
+
     return {
       ...p,
       smoothLatitude: smoothLat,
       smoothLongitude: smoothLon,
       smoothFixAgeSec: smoothAgeSec,
-      smoothed: offsetM > 2,
+      smoothed: offsetM > 1.5,
     };
   });
 }
@@ -1175,7 +1137,7 @@ async function getMapPositions(onlineMs, staleMs) {
         registryPositions,
       ]);
       warmGpsTracksFromSamplesByDevice(byDevice);
-      const positions = attachSmoothMapCoords(rawMerged, now);
+      const positions = attachSmoothMapCoords(rawMerged);
 
       attachRowingToMapPositions(
         positions,
@@ -1195,7 +1157,7 @@ async function getMapPositions(onlineMs, staleMs) {
     getRawMemoryMapPositions(onlineMs, now),
   ]);
   warmGpsTracksFromSamplesByDevice(telemetryByDevice);
-  const mapped = attachSmoothMapCoords(rawMerged, now).map((p) => {
+  const mapped = attachSmoothMapCoords(rawMerged).map((p) => {
     const rowing = rowingByDevice.get(p.deviceId) || {};
     return {
       ...p,
