@@ -483,6 +483,8 @@ function mergeMapWithDeviceGps(devices, positions) {
     const prev = byId.get(d.deviceId);
     const rawAge = prev?.rawFixAgeSec ?? prev?.fixAgeSec ?? Number.POSITIVE_INFINITY;
     if (devAge >= rawAge) continue;
+    const promoteDisplay =
+      !prev?.smoothed || devAge < (prev?.fixAgeSec ?? Number.POSITIVE_INFINITY);
     byId.set(d.deviceId, {
       ...(prev || {}),
       deviceId: d.deviceId,
@@ -494,10 +496,12 @@ function mergeMapWithDeviceGps(devices, positions) {
       accuracy: gps.acc ?? prev?.accuracy ?? null,
       lastSeenAgoSec: d.lastSeenAgoSec ?? prev?.lastSeenAgoSec ?? devAge,
       online: d.online ?? prev?.online ?? false,
-      latitude: prev?.latitude ?? gps.lat,
-      longitude: prev?.longitude ?? gps.lon,
-      fixAgeSec: prev?.fixAgeSec ?? devAge,
-      fixMs: prev?.fixMs ?? Date.now() - devAge * 1000,
+      latitude: promoteDisplay ? gps.lat : (prev?.latitude ?? gps.lat),
+      longitude: promoteDisplay ? gps.lon : (prev?.longitude ?? gps.lon),
+      fixAgeSec: promoteDisplay ? devAge : (prev?.fixAgeSec ?? devAge),
+      fixMs: promoteDisplay
+        ? Date.now() - devAge * 1000
+        : (prev?.fixMs ?? Date.now() - devAge * 1000),
       hr: prev?.hr ?? d.hr?.last?.bpm ?? null,
       strokeRate: prev?.strokeRate ?? d.rowing?.strokeRate ?? null,
       strokeRateValid: prev?.strokeRateValid ?? d.rowing?.strokeRateValid ?? false,

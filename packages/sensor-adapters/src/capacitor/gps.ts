@@ -44,7 +44,7 @@ function startForegroundGpsWatcher(
   timer = setInterval(() => {
     if (stopped) return;
     if (last) {
-      onReading({ ...last, t: Date.now() });
+      onReading({ ...last });
       return;
     }
     void Geolocation.getCurrentPosition({

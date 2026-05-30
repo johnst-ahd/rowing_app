@@ -65,8 +65,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long BATTERY_REPORT_INTERVAL_MS = 30L * 60L * 1000L;
     /** Motion-only uploads for dashboard stroke rate (independent of GPS fixes). */
     private static final long MOTION_POST_INTERVAL_MS = 2000L;
-    /** Accept polled last-known locations up to this age. */
-    private static final long GPS_STALE_LOCATION_MS = 120_000L;
+    /** Reject cached fixes older than this when uploading to ingest. */
+    private static final long GPS_MAX_UPLOAD_FIX_AGE_MS = 20_000L;
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -232,7 +232,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void cacheGpsLocation(Location location) {
         if (!enableGps || location == null) return;
         latestGpsLocation = location;
-        saveLastGpsToPrefs(location, System.currentTimeMillis(), nativeGpsCount);
+        saveLastGpsToPrefs(location, sampleTimeMs(location), nativeGpsCount);
     }
 
     private void deliverLocation(Location location) {
@@ -357,7 +357,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "Missing ingest config for GPS");
             return;
         }
-        long t = System.currentTimeMillis();
+        long t = sampleTimeMs(location);
         try {
             JSONObject gps = new JSONObject();
             gps.put("lat", location.getLatitude());
@@ -390,13 +390,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         Location loc = latestGpsLocation;
         if (loc == null) return;
         long fixAge = System.currentTimeMillis() - loc.getTime();
-        if (fixAge > GPS_STALE_LOCATION_MS) {
+        if (fixAge > GPS_MAX_UPLOAD_FIX_AGE_MS) {
             Log.w(TAG, "Skip GPS upload — fix age " + fixAge + "ms");
             return;
         }
         if (gpsUploadExecutor == null || gpsUploadExecutor.isShutdown()) return;
         nativeGpsCount++;
-        saveLastGpsToPrefs(loc, System.currentTimeMillis(), nativeGpsCount);
+        saveLastGpsToPrefs(loc, sampleTimeMs(loc), nativeGpsCount);
         final Location uploadLoc = loc;
         gpsUploadExecutor.execute(() -> postGpsToIngest(uploadLoc));
     }
@@ -688,6 +688,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (a == null) return b;
         if (b == null) return a;
         return a.getTime() >= b.getTime() ? a : b;
+    }
+
+    /** Use the fix time from Android — not upload time — so dashboard age matches position. */
+    private static long sampleTimeMs(Location location) {
+        long now = System.currentTimeMillis();
+        if (location == null) return now;
+        long fixTime = location.getTime();
+        if (fixTime <= 0L || fixTime > now + 5_000L) return now;
+        return fixTime;
     }
 
     private void cacheGpsFromLegacy() {
