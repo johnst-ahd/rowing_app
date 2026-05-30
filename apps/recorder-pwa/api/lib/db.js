@@ -79,9 +79,18 @@ async function initSchema() {
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS battery_pct SMALLINT`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS heartbeat BOOLEAN`;
+  await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_t_ms BIGINT`;
+  await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`;
+  await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION`;
+  await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_accuracy DOUBLE PRECISION`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_unique_time
       ON rnz_samples (unique_id, t_ms DESC)
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_rnz_samples_gps_time
+      ON rnz_samples (unique_id, t_ms DESC)
+      WHERE latitude IS NOT NULL AND longitude IS NOT NULL
   `;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_device_ref_time
@@ -91,6 +100,26 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_rnz_idempotency_created
       ON rnz_idempotency (created_at DESC)
   `;
+
+  if (!globalThis.__rnzRegistryGpsBackfill) {
+    globalThis.__rnzRegistryGpsBackfill = true;
+    await sql`
+      UPDATE rnz_devices d
+      SET last_gps_t_ms = s.t_ms,
+          last_lat = s.latitude,
+          last_lon = s.longitude,
+          last_gps_accuracy = s.accuracy
+      FROM (
+        SELECT DISTINCT ON (unique_id)
+          unique_id, t_ms, latitude, longitude, accuracy
+        FROM rnz_samples
+        WHERE latitude IS NOT NULL AND longitude IS NOT NULL
+        ORDER BY unique_id, t_ms DESC
+      ) s
+      WHERE d.unique_id = s.unique_id
+        AND (d.last_gps_t_ms IS NULL OR d.last_gps_t_ms < s.t_ms)
+    `;
+  }
 
   schemaReady = true;
 }
@@ -198,12 +227,49 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   `;
 }
 
+/**
+ * @param {Array<{ t: number, gps?: object }>} samples
+ */
+async function updateDeviceLatestGps(uniqueId, samples) {
+  let best = null;
+  for (const s of samples) {
+    const lat = s.gps?.lat;
+    const lon = s.gps?.lon;
+    if (lat == null || lon == null) continue;
+    const t = Number(s.t);
+    if (!Number.isFinite(t)) continue;
+    if (!best || t >= best.t) {
+      best = {
+        t,
+        lat: Number(lat),
+        lon: Number(lon),
+        acc:
+          s.gps?.acc != null && Number.isFinite(Number(s.gps.acc))
+            ? Number(s.gps.acc)
+            : null,
+      };
+    }
+  }
+  if (!best) return;
+  const sql = await getSql();
+  await sql`
+    UPDATE rnz_devices
+    SET last_gps_t_ms = ${best.t},
+        last_lat = ${best.lat},
+        last_lon = ${best.lon},
+        last_gps_accuracy = ${best.acc}
+    WHERE unique_id = ${String(uniqueId)}
+      AND (last_gps_t_ms IS NULL OR last_gps_t_ms <= ${best.t})
+  `;
+}
+
 async function persistBatch(sessionId, deviceId, athleteId, samples) {
   if (!hasDb() || !samples.length) return false;
   await initSchema();
   const dev = await ensureDevice(deviceId, athleteId);
   await upsertSession(sessionId, dev.id, deviceId, athleteId);
   await insertSamples(sessionId, dev.id, deviceId, samples);
+  await updateDeviceLatestGps(deviceId, samples);
   return true;
 }
 
@@ -363,6 +429,44 @@ async function fetchRecentSamplesByDevice(windowMs) {
 }
 
 /**
+ * Latest GPS fix per device from registry (one row read — works across serverless instances).
+ */
+async function getRegistryMapPositions(onlineMs, staleMs) {
+  const sql = await getSql();
+  await initSchema();
+  const now = Date.now();
+  const staleCutoff = now - staleMs;
+  const rows = await sql`
+    SELECT unique_id, athlete_id, last_seen_at,
+      last_gps_t_ms, last_lat, last_lon, last_gps_accuracy
+    FROM rnz_devices
+    WHERE last_gps_t_ms IS NOT NULL
+      AND last_lat IS NOT NULL
+      AND last_lon IS NOT NULL
+      AND last_gps_t_ms >= ${staleCutoff}
+  `;
+  return rows.rows.map((row) => {
+    const fixMs = Number(row.last_gps_t_ms);
+    const lastSeenMs = Math.max(
+      fixMs,
+      new Date(row.last_seen_at).getTime(),
+    );
+    return {
+      deviceId: String(row.unique_id),
+      athleteId: row.athlete_id || null,
+      latitude: row.last_lat,
+      longitude: row.last_lon,
+      accuracy: row.last_gps_accuracy,
+      fixMs,
+      fixAgeSec: Math.round((now - fixMs) / 1000),
+      lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+      online: now - lastSeenMs <= onlineMs,
+      hr: null,
+    };
+  });
+}
+
+/**
  * Latest GPS fix per device for dashboard map (within stale window).
  */
 async function getMapPositions(onlineMs, staleMs) {
@@ -399,6 +503,30 @@ async function getMapPositions(onlineMs, staleMs) {
       hr: row.hr,
     };
   });
+}
+
+/** @returns {Promise<Map<string, { t: number, lat: number, lon: number, acc: number|null }>>} */
+async function getRegistryGpsByDevice() {
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT unique_id, last_gps_t_ms, last_lat, last_lon, last_gps_accuracy
+    FROM rnz_devices
+    WHERE last_gps_t_ms IS NOT NULL
+      AND last_lat IS NOT NULL
+      AND last_lon IS NOT NULL
+  `;
+  /** @type {Map<string, { t: number, lat: number, lon: number, acc: number|null }>} */
+  const byDevice = new Map();
+  for (const row of rows.rows) {
+    byDevice.set(String(row.unique_id), {
+      t: Number(row.last_gps_t_ms),
+      lat: row.last_lat,
+      lon: row.last_lon,
+      acc: row.last_gps_accuracy,
+    });
+  }
+  return byDevice;
 }
 
 async function listRegistryDevices() {
@@ -806,6 +934,8 @@ module.exports = {
   persistBatch,
   fetchRecentSamplesByDevice,
   getMapPositions,
+  getRegistryMapPositions,
+  getRegistryGpsByDevice,
   getTraccarSnapshot,
   getRoutePositions,
   resolveDevice,

@@ -657,11 +657,53 @@ async function listDevices(opts = {}) {
     try {
       const fetchMs = Math.max(windowMs, 30 * 60 * 1000);
       const fromDb = await db.fetchRecentSamplesByDevice(fetchMs);
+      const registryGps = await db.getRegistryGpsByDevice();
       for (const entry of fromDb.values()) {
         const built = buildDeviceEntry(entry, windowMs, onlineMs, now);
         const prev = byDevice.get(entry.deviceId);
-        if (!prev || built.lastSeenMs > prev.lastSeenMs) {
-          byDevice.set(entry.deviceId, built);
+        const patched = applyRegistryGpsToDevice(
+          built,
+          registryGps.get(entry.deviceId),
+          now,
+        );
+        if (!prev || patched.lastSeenMs > prev.lastSeenMs) {
+          byDevice.set(entry.deviceId, patched);
+        }
+      }
+      for (const [deviceId, regFix] of registryGps) {
+        if (byDevice.has(deviceId)) continue;
+        const patched = applyRegistryGpsToDevice(
+          buildDeviceEntry(
+            {
+              deviceId,
+              athleteId: null,
+              sessionId: '',
+              samples: [
+                {
+                  t: regFix.t,
+                  gps: {
+                    lat: regFix.lat,
+                    lon: regFix.lon,
+                    acc: regFix.acc,
+                  },
+                },
+              ],
+              lastSeenMs: regFix.t,
+              firstSeenMs: regFix.t,
+            },
+            windowMs,
+            onlineMs,
+            now,
+          ),
+          regFix,
+          now,
+        );
+        byDevice.set(deviceId, patched);
+      }
+      for (const [deviceId, dev] of byDevice) {
+        const regFix = registryGps.get(deviceId);
+        if (regFix) {
+          byDevice.set(deviceId, applyRegistryGpsToDevice(dev, regFix, now));
         }
       }
       warning = null;
@@ -914,6 +956,28 @@ function snapshotPositionsToMapFormat(memPositions, now, onlineMs) {
   });
 }
 
+function applyRegistryGpsToDevice(device, registryFix, now) {
+  if (!registryFix) return device;
+  const gps = device.gps || {};
+  const currentT = gps.last?.t ?? 0;
+  if (registryFix.t <= currentT) return device;
+  const ageSec = Math.round((now - registryFix.t) / 1000);
+  return {
+    ...device,
+    gps: {
+      ...gps,
+      present: true,
+      last: {
+        t: registryFix.t,
+        lat: registryFix.lat,
+        lon: registryFix.lon,
+        acc: registryFix.acc,
+      },
+      ageSec,
+    },
+  };
+}
+
 function attachRowingToMapPositions(positions, rowingByDevice) {
   for (const p of positions) {
     const rowing = rowingByDevice.get(p.deviceId);
@@ -1017,6 +1081,7 @@ async function getMapPositions(onlineMs, staleMs) {
 
   if (db.hasDb()) {
     try {
+      const registryPositions = await db.getRegistryMapPositions(onlineMs, staleMs);
       const dbPositions = await db.getMapPositions(onlineMs, staleMs);
       const byDevice = await db.fetchRecentSamplesByDevice(telemetryWindowMs);
 
@@ -1049,6 +1114,7 @@ async function getMapPositions(onlineMs, staleMs) {
         dbPositions,
         fromRecentSamples,
         memPositions,
+        registryPositions,
       ]);
 
       attachRowingToMapPositions(

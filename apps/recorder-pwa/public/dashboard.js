@@ -352,6 +352,47 @@ function updateMap(positions) {
   }
 }
 
+function mergeMapWithDeviceGps(devices, positions) {
+  /** @type {Map<string, object>} */
+  const byId = new Map();
+  for (const p of positions || []) {
+    if (p.latitude != null && p.longitude != null) {
+      byId.set(p.deviceId, { ...p });
+    }
+  }
+  for (const d of devices || []) {
+    const gps = d.gps?.last;
+    if (gps?.lat == null || gps?.lon == null) continue;
+    const devAge = d.gps?.ageSec;
+    if (devAge == null || !Number.isFinite(devAge)) continue;
+    const prev = byId.get(d.deviceId);
+    const mapAge = prev?.fixAgeSec ?? Number.POSITIVE_INFINITY;
+    if (devAge >= mapAge) continue;
+    byId.set(d.deviceId, {
+      ...(prev || {}),
+      deviceId: d.deviceId,
+      athleteId: d.athleteId ?? prev?.athleteId ?? null,
+      latitude: gps.lat,
+      longitude: gps.lon,
+      accuracy: gps.acc ?? prev?.accuracy ?? null,
+      fixAgeSec: devAge,
+      fixMs: Date.now() - devAge * 1000,
+      lastSeenAgoSec: d.lastSeenAgoSec ?? prev?.lastSeenAgoSec ?? devAge,
+      online: d.online ?? prev?.online ?? false,
+      hr: prev?.hr ?? d.hr?.last?.bpm ?? null,
+      strokeRate: prev?.strokeRate ?? d.rowing?.strokeRate ?? null,
+      strokeRateValid: prev?.strokeRateValid ?? d.rowing?.strokeRateValid ?? false,
+      capsize: prev?.capsize ?? d.rowing?.capsize ?? false,
+      tiltDeg: prev?.tiltDeg ?? d.rowing?.tiltDeg ?? null,
+      heartbeatRateHz: prev?.heartbeatRateHz ?? d.heartbeat?.rateHz ?? 0,
+      heartbeatAgeSec: prev?.heartbeatAgeSec ?? d.heartbeat?.ageSec ?? null,
+      batteryPct: prev?.batteryPct ?? d.battery?.pct ?? null,
+      batteryAgeSec: prev?.batteryAgeSec ?? d.battery?.ageSec ?? null,
+    });
+  }
+  return [...byId.values()];
+}
+
 async function fetchMapPositions() {
   const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}`;
   const started = performance.now();
@@ -362,8 +403,10 @@ async function fetchMapPositions() {
   }
   const data = await res.json();
   lastMapDurationMs = Math.round(performance.now() - started);
-  updateMap(Array.isArray(data.positions) ? data.positions : []);
-  return data;
+  return {
+    ...data,
+    positions: Array.isArray(data.positions) ? data.positions : [],
+  };
 }
 
 function renderHealthBar(data) {
@@ -545,6 +588,12 @@ async function poll() {
         mapStatus.textContent = `Map error: ${mapResult.reason?.message || mapResult.reason}`;
       }
     }
+
+    const mapPositions = mergeMapWithDeviceGps(
+      data.devices,
+      mapResult.status === 'fulfilled' ? mapResult.value.positions : [],
+    );
+    updateMap(mapPositions);
 
     const warnEl = $('#storageWarning');
     if (warnEl) {
