@@ -886,7 +886,7 @@ function latestGpsFromSamples(samples) {
  * @param {string|null} [opts.athleteId]
  * @param {number|null} [opts.hr]
  */
-function buildMapPositionFromFix({
+function buildRawMapPositionFromFix({
   deviceId,
   fix,
   lastSeenMs,
@@ -896,29 +896,90 @@ function buildMapPositionFromFix({
   hr,
 }) {
   const fixMs = fix.t;
-  const track = gpsTracks.get(String(deviceId));
-  let lat = fix.lat;
-  let lon = fix.lon;
-  let accuracy = fix.acc ?? null;
-  if (track && Number.isFinite(track.t) && track.rawT >= fixMs - 2000) {
-    const projected = projectTrack(track, now);
-    lat = projected.latitude;
-    lon = projected.longitude;
-    accuracy = track.accuracy ?? accuracy;
-  }
   const lastSeen = Math.max(fixMs, lastSeenMs || 0);
   return {
     deviceId: String(deviceId),
     athleteId: athleteId || null,
-    latitude: lat,
-    longitude: lon,
-    accuracy,
+    latitude: fix.lat,
+    longitude: fix.lon,
+    accuracy: fix.acc ?? null,
     fixMs,
     fixAgeSec: Math.round((now - fixMs) / 1000),
     lastSeenAgoSec: Math.round((now - lastSeen) / 1000),
     online: Boolean(online),
     hr: hr ?? null,
   };
+}
+
+/** @deprecated alias — map display applies smoothing separately */
+function buildMapPositionFromFix(opts) {
+  return buildRawMapPositionFromFix(opts);
+}
+
+function applySmoothedMapCoords(position, now) {
+  const track = gpsTracks.get(String(position.deviceId));
+  let lat = position.latitude;
+  let lon = position.longitude;
+  let smoothed = false;
+  if (track && Number.isFinite(track.t)) {
+    const projected = projectTrack(track, now);
+    lat = projected.latitude;
+    lon = projected.longitude;
+    smoothed = true;
+  }
+  return { latitude: lat, longitude: lon, smoothed };
+}
+
+/**
+ * Green marker = smoothed/projected; blue marker fields = latest raw ingest fix.
+ * @param {object[]} rawPositions merged raw fixes (newest fixMs per device)
+ * @param {number} now
+ */
+function buildDualGpsMapPositions(rawPositions, now) {
+  return rawPositions.map((p) => {
+    const smooth = applySmoothedMapCoords(p, now);
+    return {
+      ...p,
+      rawLatitude: p.latitude,
+      rawLongitude: p.longitude,
+      rawFixMs: p.fixMs,
+      rawFixAgeSec: p.fixAgeSec,
+      latitude: smooth.latitude,
+      longitude: smooth.longitude,
+      smoothed: smooth.smoothed,
+    };
+  });
+}
+
+function getRawMemoryMapPositions(onlineMs, now) {
+  const out = [];
+  for (const row of sessions.values()) {
+    let lastGps = null;
+    for (let i = row.samples.length - 1; i >= 0; i--) {
+      const s = row.samples[i];
+      if (s.gps?.lat != null && s.gps?.lon != null) {
+        lastGps = s;
+        break;
+      }
+    }
+    if (!lastGps) continue;
+    out.push(
+      buildRawMapPositionFromFix({
+        deviceId: row.deviceId,
+        fix: {
+          t: lastGps.t,
+          lat: lastGps.gps.lat,
+          lon: lastGps.gps.lon,
+          acc: lastGps.gps.acc ?? null,
+        },
+        lastSeenMs: row.updatedAt,
+        online: now - row.updatedAt <= onlineMs,
+        now,
+        athleteId: row.athleteId || null,
+      }),
+    );
+  }
+  return out;
 }
 
 /** @param {object[][]} positionGroups later groups win on equal fixMs */
@@ -1085,13 +1146,12 @@ async function getMapPositions(onlineMs, staleMs) {
       const dbPositions = await db.getMapPositions(onlineMs, staleMs);
       const byDevice = await db.fetchRecentSamplesByDevice(telemetryWindowMs);
 
-      /** Latest GPS per device from the same sample window as device cards. */
-      const fromRecentSamples = [];
+      const fromRecentRaw = [];
       for (const entry of byDevice.values()) {
         const lastGps = latestGpsFromSamples(entry.samples || []);
         if (!lastGps) continue;
-        fromRecentSamples.push(
-          buildMapPositionFromFix({
+        fromRecentRaw.push(
+          buildRawMapPositionFromFix({
             deviceId: entry.deviceId,
             fix: lastGps,
             lastSeenMs: entry.lastSeenMs,
@@ -1102,20 +1162,13 @@ async function getMapPositions(onlineMs, staleMs) {
         );
       }
 
-      /** In-memory ingest on this serverless instance (not yet visible via DISTINCT ON). */
-      const memSnapshot = getPositionsSnapshot(onlineMs);
-      const memPositions = snapshotPositionsToMapFormat(
-        memSnapshot.positions,
-        now,
-        onlineMs,
-      );
-
-      const positions = mergeMapPositionsByFixMs([
+      const rawMerged = mergeMapPositionsByFixMs([
         dbPositions,
-        fromRecentSamples,
-        memPositions,
+        fromRecentRaw,
+        getRawMemoryMapPositions(onlineMs, now),
         registryPositions,
       ]);
+      const positions = buildDualGpsMapPositions(rawMerged, now);
 
       attachRowingToMapPositions(
         positions,
@@ -1128,41 +1181,22 @@ async function getMapPositions(onlineMs, staleMs) {
     }
   }
 
-  const mem = getPositionsSnapshot(onlineMs);
   const telemetryByDevice = samplesByDeviceForWindow(telemetryWindowMs);
   const rowingByDevice = rowingMetricsByDevice(telemetryByDevice, rowingWindowMs);
 
-  const mapped = mem.positions
-    .filter((p) => {
-      const fixMs = new Date(p.fixTime).getTime();
-      return (
-        Number.isFinite(fixMs) &&
-        now - fixMs <= staleMs &&
-        p.latitude != null &&
-        p.longitude != null
-      );
-    })
-    .map((p) => {
-      const fixMs = new Date(p.fixTime).getTime();
-      const lastSeenMs = p.lastUpdate || fixMs;
-      const rowing = rowingByDevice.get(String(p.uniqueId)) || {};
-      return {
-        deviceId: String(p.uniqueId),
-        athleteId: p.athleteId || null,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        accuracy: p.accuracy,
-        fixMs,
-        fixAgeSec: Math.round((now - fixMs) / 1000),
-        lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
-        online: Boolean(p.online),
-        hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
-        strokeRate: rowing.strokeRate ?? null,
-        strokeRateValid: Boolean(rowing.strokeRateValid),
-        capsize: Boolean(rowing.capsize),
-        tiltDeg: rowing.tiltDeg ?? null,
-      };
-    });
+  const rawMerged = mergeMapPositionsByFixMs([
+    getRawMemoryMapPositions(onlineMs, now),
+  ]);
+  const mapped = buildDualGpsMapPositions(rawMerged, now).map((p) => {
+    const rowing = rowingByDevice.get(p.deviceId) || {};
+    return {
+      ...p,
+      strokeRate: rowing.strokeRate ?? null,
+      strokeRateValid: Boolean(rowing.strokeRateValid),
+      capsize: Boolean(rowing.capsize),
+      tiltDeg: rowing.tiltDeg ?? null,
+    };
+  });
   return attachTelemetryToMapPositions(mapped, telemetryByDevice, rowingWindowMs);
 }
 

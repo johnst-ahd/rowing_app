@@ -14,8 +14,11 @@ const $ = (sel) => document.querySelector(sel);
 
 let map = null;
 let markersLayer = null;
+let rawMarkersLayer = null;
 /** @type {Map<string, L.Marker>} */
 const deviceMarkers = new Map();
+/** @type {Map<string, L.Marker>} */
+const rawDeviceMarkers = new Map();
 let mapDidFit = false;
 let lastPollDurationMs = null;
 let lastMapDurationMs = null;
@@ -277,6 +280,7 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
+  rawMarkersLayer = L.layerGroup().addTo(map);
 }
 
 /** @returns {'live' | 'amber' | 'lost'} */
@@ -306,6 +310,15 @@ function markerIcon(state, capsize = false) {
   });
 }
 
+function rawMarkerIcon() {
+  return L.divIcon({
+    className: 'map-marker-wrap map-marker-wrap--raw',
+    html: '<span class="map-marker map-marker--raw" aria-hidden="true"></span>',
+    iconSize: [12, 12],
+    iconAnchor: [6, 6],
+  });
+}
+
 function setCapsizeUiActive(hasCapsize) {
   document.querySelector('.hub-panel--map')?.classList.toggle(
     'hub-panel--map-capsize',
@@ -317,9 +330,32 @@ function setCapsizeUiActive(hasCapsize) {
   );
 }
 
+function rawPopupHtml(p) {
+  const rawAge = p.rawFixAgeSec ?? p.fixAgeSec;
+  const smoothAge = p.fixAgeSec;
+  const sepM =
+    p.rawLatitude != null &&
+    p.latitude != null &&
+    Math.hypot(p.rawLatitude - p.latitude, p.rawLongitude - p.longitude) > 0.00001
+      ? `<br>Offset: ~${Math.round(
+          Math.hypot(
+            (p.rawLatitude - p.latitude) * 111320,
+            (p.rawLongitude - p.longitude) * 111320 * 0.7,
+          ),
+        )} m`
+      : '';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)} · raw GPS</strong><br>Fix ${rawAge}s ago${sepM}<br><span class="map-popup-compare">Smoothed (green): ${smoothAge}s ago</span></div>`;
+}
+
 function popupHtml(p) {
   const state = gpsFixState(p.fixAgeSec);
   const status = gpsStatusLabel(state);
+  const rawAge = p.rawFixAgeSec;
+  const compare =
+    rawAge != null && rawAge !== p.fixAgeSec
+      ? `<br>Raw GPS (blue): ${rawAge}s ago`
+      : '';
+  const smoothNote = p.smoothed ? '<br>Position: server-smoothed' : '';
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
   const spm =
     p.strokeRate != null && p.strokeRate > 0
@@ -337,12 +373,12 @@ function popupHtml(p) {
     p.batteryPct != null
       ? `<br>Battery: <strong>${fmtBatteryPct(p.batteryPct)}</strong>${p.batteryAgeSec != null ? ` · ${fmtAgoSec(p.batteryAgeSec)}` : ''}`
       : '';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hb}${bat}${hr}${spm}${tilt}${cap}</div>`;
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}${smoothNote}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${compare}${hb}${bat}${hr}${spm}${tilt}${cap}</div>`;
 }
 
 function updateMap(positions) {
   initMap();
-  if (!map || !markersLayer) return;
+  if (!map || !markersLayer || !rawMarkersLayer) return;
 
   const seen = new Set();
   const latlngs = [];
@@ -366,12 +402,35 @@ function updateMap(positions) {
       markersLayer.addLayer(marker);
       deviceMarkers.set(p.deviceId, marker);
     }
+
+    const rawLat = p.rawLatitude ?? p.latitude;
+    const rawLon = p.rawLongitude ?? p.longitude;
+    if (rawLat != null && rawLon != null) {
+      const rawLatLng = L.latLng(rawLat, rawLon);
+      let rawMarker = rawDeviceMarkers.get(p.deviceId);
+      if (rawMarker) {
+        rawMarker.setLatLng(rawLatLng);
+        rawMarker.setPopupContent(rawPopupHtml(p));
+      } else {
+        rawMarker = L.marker(rawLatLng, { icon: rawMarkerIcon(), zIndexOffset: 200 }).bindPopup(
+          rawPopupHtml(p),
+        );
+        rawMarkersLayer.addLayer(rawMarker);
+        rawDeviceMarkers.set(p.deviceId, rawMarker);
+      }
+    }
   }
 
   for (const [id, marker] of deviceMarkers) {
     if (!seen.has(id)) {
       markersLayer.removeLayer(marker);
       deviceMarkers.delete(id);
+    }
+  }
+  for (const [id, marker] of rawDeviceMarkers) {
+    if (!seen.has(id)) {
+      rawMarkersLayer.removeLayer(marker);
+      rawDeviceMarkers.delete(id);
     }
   }
 
@@ -422,19 +481,23 @@ function mergeMapWithDeviceGps(devices, positions) {
     const devAge = d.gps?.ageSec;
     if (devAge == null || !Number.isFinite(devAge)) continue;
     const prev = byId.get(d.deviceId);
-    const mapAge = prev?.fixAgeSec ?? Number.POSITIVE_INFINITY;
-    if (devAge >= mapAge) continue;
+    const rawAge = prev?.rawFixAgeSec ?? prev?.fixAgeSec ?? Number.POSITIVE_INFINITY;
+    if (devAge >= rawAge) continue;
     byId.set(d.deviceId, {
       ...(prev || {}),
       deviceId: d.deviceId,
       athleteId: d.athleteId ?? prev?.athleteId ?? null,
-      latitude: gps.lat,
-      longitude: gps.lon,
+      rawLatitude: gps.lat,
+      rawLongitude: gps.lon,
+      rawFixAgeSec: devAge,
+      rawFixMs: Date.now() - devAge * 1000,
       accuracy: gps.acc ?? prev?.accuracy ?? null,
-      fixAgeSec: devAge,
-      fixMs: Date.now() - devAge * 1000,
       lastSeenAgoSec: d.lastSeenAgoSec ?? prev?.lastSeenAgoSec ?? devAge,
       online: d.online ?? prev?.online ?? false,
+      latitude: prev?.latitude ?? gps.lat,
+      longitude: prev?.longitude ?? gps.lon,
+      fixAgeSec: prev?.fixAgeSec ?? devAge,
+      fixMs: prev?.fixMs ?? Date.now() - devAge * 1000,
       hr: prev?.hr ?? d.hr?.last?.bpm ?? null,
       strokeRate: prev?.strokeRate ?? d.rowing?.strokeRate ?? null,
       strokeRateValid: prev?.strokeRateValid ?? d.rowing?.strokeRateValid ?? false,
@@ -444,6 +507,7 @@ function mergeMapWithDeviceGps(devices, positions) {
       heartbeatAgeSec: prev?.heartbeatAgeSec ?? d.heartbeat?.ageSec ?? null,
       batteryPct: prev?.batteryPct ?? d.battery?.pct ?? null,
       batteryAgeSec: prev?.batteryAgeSec ?? d.battery?.ageSec ?? null,
+      smoothed: prev?.smoothed ?? false,
     });
   }
   return [...byId.values()];
