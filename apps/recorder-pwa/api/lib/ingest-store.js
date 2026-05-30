@@ -5,11 +5,6 @@ const MAX_SAMPLES_PER_REQUEST = 500;
 const MAX_SESSIONS = 200;
 const MAX_SAMPLES_PER_SESSION = 50000;
 const RING_TRIM_TO = 3000;
-const MAX_GPS_ACCURACY_M = 150;
-const MAX_TRACK_SPEED_MPS = 22;
-const MAX_TRACK_ACCEL_MPS2 = 6;
-const MAX_PREDICT_MS = 8000;
-
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
 globalThis.__rnzIngestSessions = sessions;
@@ -18,9 +13,6 @@ globalThis.__rnzIngestSessions = sessions;
 /** @type {Map<string, number>} */
 const capsizeClearAt = globalThis.__rnzCapsizeClearAt ?? new Map();
 globalThis.__rnzCapsizeClearAt = capsizeClearAt;
-/** @type {Map<string, GpsTrack>} */
-const gpsTracks = globalThis.__rnzGpsTracks ?? new Map();
-globalThis.__rnzGpsTracks = gpsTracks;
 /** @type {Map<string, { t:number, result: object }>} */
 const recentIdempotency = globalThis.__rnzRecentIdempotency ?? new Map();
 /** @type {Map<string, { t: number }>} */
@@ -43,20 +35,6 @@ const metrics = globalThis.__rnzIngestMetrics ?? {
   mapPolls: 0,
 };
 globalThis.__rnzIngestMetrics = metrics;
-
-/**
- * @typedef {{
- *   t: number,
- *   rawT: number,
- *   lat: number,
- *   lon: number,
- *   vLat: number,
- *   vLon: number,
- *   speedMps: number,
- *   courseDeg: number | null,
- *   accuracy: number | null,
- * }} GpsTrack
- */
 
 function getCapsizeClearAt(deviceId) {
   if (!deviceId) return null;
@@ -106,7 +84,7 @@ function isValidGpsCoords(lat, lon) {
   return true;
 }
 
-function gpsFromSample(sample, { forTrack = false } = {}) {
+function gpsFromSample(sample) {
   if (!sample || typeof sample !== 'object' || !sample.gps) return null;
   const lat = Number(sample.gps.lat);
   const lon = Number(sample.gps.lon);
@@ -115,7 +93,6 @@ function gpsFromSample(sample, { forTrack = false } = {}) {
     sample.gps.acc != null && Number.isFinite(Number(sample.gps.acc))
       ? Number(sample.gps.acc)
       : null;
-  if (forTrack && acc != null && acc > MAX_GPS_ACCURACY_M) return null;
   const t = Number(sample.t);
   if (!Number.isFinite(t)) return null;
   const spd =
@@ -127,150 +104,6 @@ function gpsFromSample(sample, { forTrack = false } = {}) {
       ? Number(sample.gps.hdg)
       : null;
   return { t, lat, lon, acc, spd, hdg };
-}
-
-function metersPerDegLat() {
-  return 111320;
-}
-
-function metersPerDegLon(lat) {
-  return Math.max(1, 111320 * Math.cos((lat * Math.PI) / 180));
-}
-
-function distanceMeters(aLat, aLon, bLat, bLon) {
-  const dLatM = (aLat - bLat) * metersPerDegLat();
-  const dLonM = (aLon - bLon) * metersPerDegLon((aLat + bLat) / 2);
-  return Math.hypot(dLatM, dLonM);
-}
-
-function velocityFromSpeedHeading(spd, hdg, lat) {
-  if (spd == null || hdg == null) return null;
-  const r = (hdg * Math.PI) / 180;
-  const vNorth = Math.cos(r) * spd;
-  const vEast = Math.sin(r) * spd;
-  return {
-    vLat: vNorth / metersPerDegLat(),
-    vLon: vEast / metersPerDegLon(lat),
-    speedMps: spd,
-  };
-}
-
-function blend(a, b, w) {
-  return a * (1 - w) + b * w;
-}
-
-/**
- * @param {string} deviceId
- * @param {{ t:number, lat:number, lon:number, acc:number|null, spd:number|null, hdg:number|null }} fix
- */
-function updateGpsTrack(deviceId, fix) {
-  const key = String(deviceId);
-  const prev = gpsTracks.get(key);
-  if (!prev) {
-    const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, fix.lat);
-    gpsTracks.set(key, {
-      t: fix.t,
-      rawT: fix.t,
-      lat: fix.lat,
-      lon: fix.lon,
-      vLat: vh?.vLat ?? 0,
-      vLon: vh?.vLon ?? 0,
-      speedMps: vh?.speedMps ?? 0,
-      courseDeg: fix.hdg ?? null,
-      accuracy: fix.acc,
-    });
-    return true;
-  }
-
-  const dt = (fix.t - prev.t) / 1000;
-  if (!Number.isFinite(dt) || dt <= 0) {
-    return false;
-  }
-  if (dt > 30) {
-    const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, fix.lat);
-    gpsTracks.set(key, {
-      t: fix.t,
-      rawT: fix.t,
-      lat: fix.lat,
-      lon: fix.lon,
-      vLat: vh?.vLat ?? 0,
-      vLon: vh?.vLon ?? 0,
-      speedMps: vh?.speedMps ?? 0,
-      courseDeg: fix.hdg ?? null,
-      accuracy: fix.acc,
-    });
-    return true;
-  }
-
-  const predLat = prev.lat + prev.vLat * dt;
-  const predLon = prev.lon + prev.vLon * dt;
-  const innovationM = distanceMeters(fix.lat, fix.lon, predLat, predLon);
-  const obsSpeed = innovationM / dt;
-  const accel = Math.abs(obsSpeed - prev.speedMps) / Math.max(0.25, dt);
-  if (obsSpeed > MAX_TRACK_SPEED_MPS || accel > MAX_TRACK_ACCEL_MPS2) {
-    return false;
-  }
-
-  const acc = fix.acc ?? 12;
-  const alpha = acc <= 8 ? 0.7 : acc <= 20 ? 0.45 : 0.25;
-  const beta = acc <= 8 ? 0.16 : acc <= 20 ? 0.1 : 0.05;
-  const residLat = fix.lat - predLat;
-  const residLon = fix.lon - predLon;
-  const nextLat = predLat + alpha * residLat;
-  const nextLon = predLon + alpha * residLon;
-  let nextVLat = prev.vLat + (beta * residLat) / dt;
-  let nextVLon = prev.vLon + (beta * residLon) / dt;
-
-  const vh = velocityFromSpeedHeading(fix.spd, fix.hdg, nextLat);
-  if (vh) {
-    nextVLat = blend(nextVLat, vh.vLat, 0.35);
-    nextVLon = blend(nextVLon, vh.vLon, 0.35);
-  }
-  const speedMps = Math.hypot(
-    nextVLat * metersPerDegLat(),
-    nextVLon * metersPerDegLon(nextLat),
-  );
-
-  gpsTracks.set(key, {
-    t: fix.t,
-    rawT: fix.t,
-    lat: nextLat,
-    lon: nextLon,
-    vLat: nextVLat,
-    vLon: nextVLon,
-    speedMps: Number.isFinite(speedMps) ? speedMps : 0,
-    courseDeg: fix.hdg ?? prev.courseDeg ?? null,
-    accuracy: fix.acc ?? prev.accuracy ?? null,
-  });
-  return true;
-}
-
-function projectTrack(track, nowMs) {
-  const dt = Math.max(0, Math.min(MAX_PREDICT_MS, nowMs - track.t)) / 1000;
-  const lat = track.lat + track.vLat * dt;
-  const lon = track.lon + track.vLon * dt;
-  const speed = track.speedMps ?? 0;
-  const course =
-    track.courseDeg != null
-      ? track.courseDeg
-      : speed > 0.1
-        ? ((Math.atan2(
-            track.vLon * metersPerDegLon(lat),
-            track.vLat * metersPerDegLat(),
-          ) *
-            180) /
-            Math.PI +
-            360) %
-          360
-        : null;
-  return {
-    latitude: lat,
-    longitude: lon,
-    speed: speed > 0.01 ? speed : null,
-    course,
-    projected: dt > 0,
-    predictedAgeMs: Math.round(dt * 1000),
-  };
 }
 
 /**
@@ -330,9 +163,6 @@ function sanitizeAndTrackSamples(deviceId, samples) {
           continue;
         }
         next = rest;
-      } else {
-        const trackFix = gpsFromSample(sample, { forTrack: true });
-        if (trackFix) updateGpsTrack(deviceId, trackFix);
       }
     }
     out.push(next);
@@ -812,32 +642,22 @@ function getPositionsSnapshot(onlineMs = 30000) {
     if (!lastGps) continue;
 
     const fixMs = lastGps.t;
-    const track = gpsTracks.get(String(row.deviceId));
-    const projected =
-      track && Number.isFinite(track.t) ? projectTrack(track, now) : null;
     const pos = {
       uniqueId: row.deviceId,
       deviceId: row.deviceId,
       sessionId,
       athleteId: row.athleteId || null,
-      latitude: projected?.latitude ?? lastGps.gps.lat,
-      longitude: projected?.longitude ?? lastGps.gps.lon,
-      accuracy: track?.accuracy ?? lastGps.gps.acc ?? null,
-      speed: projected?.speed ?? lastGps.gps.spd ?? null,
-      course: projected?.course ?? lastGps.gps.hdg ?? null,
+      latitude: lastGps.gps.lat,
+      longitude: lastGps.gps.lon,
+      accuracy: lastGps.gps.acc ?? null,
+      speed: lastGps.gps.spd ?? null,
+      course: lastGps.gps.hdg ?? null,
       altitude: lastGps.gps.alt ?? null,
       fixTime: new Date(fixMs).toISOString(),
       deviceTime: new Date(fixMs).toISOString(),
       lastUpdate: row.updatedAt,
       online: now - row.updatedAt <= onlineMs,
       attributes: {
-        ...(projected
-          ? {
-              smoothed: true,
-              projected: projected.projected,
-              predictedAgeMs: projected.predictedAgeMs,
-            }
-          : {}),
         ...(lastHr ? { hr: lastHr.hr.bpm, heartRate: lastHr.hr.bpm } : {}),
         ...(lastMotion
           ? {
@@ -911,44 +731,9 @@ function buildRawMapPositionFromFix({
   };
 }
 
-/** @deprecated alias — map display applies smoothing separately */
+/** @deprecated alias */
 function buildMapPositionFromFix(opts) {
   return buildRawMapPositionFromFix(opts);
-}
-
-function applySmoothedMapCoords(position, now) {
-  const track = gpsTracks.get(String(position.deviceId));
-  let lat = position.latitude;
-  let lon = position.longitude;
-  let smoothed = false;
-  if (track && Number.isFinite(track.t)) {
-    const projected = projectTrack(track, now);
-    lat = projected.latitude;
-    lon = projected.longitude;
-    smoothed = true;
-  }
-  return { latitude: lat, longitude: lon, smoothed };
-}
-
-/**
- * Green marker = smoothed/projected; blue marker fields = latest raw ingest fix.
- * @param {object[]} rawPositions merged raw fixes (newest fixMs per device)
- * @param {number} now
- */
-function buildDualGpsMapPositions(rawPositions, now) {
-  return rawPositions.map((p) => {
-    const smooth = applySmoothedMapCoords(p, now);
-    return {
-      ...p,
-      rawLatitude: p.latitude,
-      rawLongitude: p.longitude,
-      rawFixMs: p.fixMs,
-      rawFixAgeSec: p.fixAgeSec,
-      latitude: smooth.latitude,
-      longitude: smooth.longitude,
-      smoothed: smooth.smoothed,
-    };
-  });
 }
 
 function getRawMemoryMapPositions(onlineMs, now) {
@@ -1168,7 +953,7 @@ async function getMapPositions(onlineMs, staleMs) {
         getRawMemoryMapPositions(onlineMs, now),
         registryPositions,
       ]);
-      const positions = buildDualGpsMapPositions(rawMerged, now);
+      const positions = rawMerged;
 
       attachRowingToMapPositions(
         positions,
@@ -1187,7 +972,7 @@ async function getMapPositions(onlineMs, staleMs) {
   const rawMerged = mergeMapPositionsByFixMs([
     getRawMemoryMapPositions(onlineMs, now),
   ]);
-  const mapped = buildDualGpsMapPositions(rawMerged, now).map((p) => {
+  const mapped = rawMerged.map((p) => {
     const rowing = rowingByDevice.get(p.deviceId) || {};
     return {
       ...p,
@@ -1220,29 +1005,7 @@ function getMetrics() {
 async function getTraccarSnapshot(onlineMs = 120000) {
   if (db.hasDb()) {
     try {
-      const snap = await db.getTraccarSnapshot(onlineMs);
-      const now = Date.now();
-      snap.positions = (snap.positions || []).map((p) => {
-        const key = String(p.deviceName || p.attributes?.uniqueId || p.deviceId || '');
-        const track = gpsTracks.get(key);
-        if (!track) return p;
-        const projected = projectTrack(track, now);
-        return {
-          ...p,
-          latitude: projected.latitude,
-          longitude: projected.longitude,
-          speed: projected.speed ?? p.speed,
-          course: projected.course ?? p.course,
-          accuracy: track.accuracy ?? p.accuracy,
-          attributes: {
-            ...(p.attributes || {}),
-            smoothed: true,
-            projected: projected.projected,
-            predictedAgeMs: projected.predictedAgeMs,
-          },
-        };
-      });
-      return snap;
+      return await db.getTraccarSnapshot(onlineMs);
     } catch (err) {
       console.error('[ingest-store] DB snapshot failed:', err);
     }
