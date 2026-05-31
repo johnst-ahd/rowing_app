@@ -1,4 +1,9 @@
-import { loadSettings, saveSettings, settingsFromForm } from '../lib/settings';
+import {
+  loadSettings,
+  sampleRateSecFromSettings,
+  saveSettings,
+  settingsFromForm,
+} from '../lib/settings';
 import {
   clearRecordingActive,
   getInterruptedRecording,
@@ -12,7 +17,6 @@ import { startRecorder, type RecorderController } from '../session/recorder';
 import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 import { repairOversizedPendingOutbox } from '../session/store';
-import { testIngestConnection } from '../upload/telemetry-api';
 import {
   formatSplit500m,
   hrToT,
@@ -55,6 +59,7 @@ export function mountApp(root: HTMLElement): void {
   let sessionStartedAt: number | null = null;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
   let controlsCollapsed = false;
+  let logExpanded = false;
   const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
   const strokeRateAvg = new MetricRollingAvg(STROKE_AVG_WINDOW_MS, 0);
   const settings = loadSettings();
@@ -149,9 +154,11 @@ export function mountApp(root: HTMLElement): void {
 
   function logPanelHtml(): string {
     return `
-      <section class="hub-panel log">
-        <h2>Log</h2>
-        <pre>${logLines.join('\n') || 'Ready.'}</pre>
+      <section class="hub-panel log ${logExpanded ? 'log--open' : 'log--closed'}">
+        <button type="button" class="log-toggle hub-btn hub-btn--ghost" data-action="toggle-log" aria-expanded="${logExpanded}">
+          Log ${logExpanded ? '▲ hide' : '▼ show'}
+        </button>
+        ${logExpanded ? `<pre>${logLines.join('\n') || 'Ready.'}</pre>` : ''}
       </section>
     `;
   }
@@ -231,10 +238,13 @@ export function mountApp(root: HTMLElement): void {
     const spm = stats?.strokeRate;
     if (spm != null && spm > 0) strokeRateAvg.push(spm);
     const avgSpm = strokeRateAvg.average();
-    setHudText(
-      '[data-hud-spm]',
-      avgSpm != null && avgSpm > 0 ? String(Math.round(avgSpm)) : '—',
-    );
+    const displaySpm =
+      spm != null && spm > 0
+        ? String(Math.round(spm))
+        : avgSpm != null && avgSpm > 0
+          ? String(Math.round(avgSpm))
+          : '—';
+    setHudText('[data-hud-spm]', displaySpm);
 
     setHudText('[data-hud-hr]', stats?.lastHr != null ? String(stats.lastHr) : '—');
 
@@ -297,7 +307,7 @@ export function mountApp(root: HTMLElement): void {
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands hub-topbar-brands--kri">
-            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="56" height="56" />
+            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="96" height="96" />
             <div class="hub-kri-titles">
               <p class="hub-kicker">KRI Safety System</p>
               <p class="hub-tagline">GPS + capsize safety${IS_NATIVE ? ' · Native app' : ''}</p>
@@ -311,9 +321,9 @@ export function mountApp(root: HTMLElement): void {
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="${asset('assets/rnz/rnz-logo-white.png')}" alt="Rowing New Zealand" class="hub-rnz-logo" width="200" height="80" />
+            <img src="${asset('assets/rnz/rnz-logo-white.png')}" alt="Rowing New Zealand" class="hub-rnz-logo hub-rnz-logo--recorder" width="280" height="112" />
           </div>
-          <p class="hub-tagline">GPS, heart rate and accelerometer recorder for RNZ ingest${IS_NATIVE ? ' · Native app' : ''}</p>
+          <p class="hub-tagline hub-tagline--title">Row Recorder${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
       </header>
     `;
@@ -408,9 +418,9 @@ export function mountApp(root: HTMLElement): void {
             <span class="session-metric__value" data-hud-timer>0:00</span>
             <span class="session-metric__label">Time</span>
           </div>
-          <div class="session-metric">
+          <div class="session-metric session-metric--spm">
             <span class="session-metric__value" data-hud-spm>—</span>
-            <span class="session-metric__label">Stroke /min <span class="session-metric__sub">15s avg</span></span>
+            <span class="session-metric__label">Strokes /min</span>
           </div>
           <div class="session-metric">
             <span class="session-metric__value" data-hud-hr>—</span>
@@ -454,8 +464,6 @@ export function mountApp(root: HTMLElement): void {
               <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
             `
         }
-        <button type="button" class="hub-btn hub-btn--ghost" data-action="sync">Upload queue now</button>
-        <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-queue">Clear upload queue</button>
         <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
       </section>
       ${
@@ -476,21 +484,8 @@ export function mountApp(root: HTMLElement): void {
               }
             </section>
           `
-          : `
-            <section class="hub-panel">
-              <p class="hint">Set a <strong>Device ID</strong> in Settings, then start a session. Live timer, stroke rate, HR, and pace appear at the top while recording.</p>
-            </section>
-          `
+          : ''
       }
-      <section class="hub-panel toggles-hint">
-        <p class="hint">Sensors: GPS ${settings.enableGps ? 'on' : 'off'} · Motion ${settings.enableMotion ? 'on' : 'off'} · HR ${settings.enableHr ? 'on' : 'off'}</p>
-        <p class="hint">Device: <strong>${esc(settings.deviceId || '(not set)')}</strong></p>
-        ${
-          recording
-            ? `<p class="hint hint--background">Native app: <strong>Location → Always</strong>, notifications, battery <strong>Unrestricted</strong>. Do not force-close while recording.</p>`
-            : ''
-        }
-      </section>
       ${logPanelHtml()}
     `;
   }
@@ -523,13 +518,14 @@ export function mountApp(root: HTMLElement): void {
 
   function settingsHtml(): string {
     const s = loadSettings();
+    const sampleSec = sampleRateSecFromSettings(s);
     return `
       <div class="ahd-recorder-shell">
         ${hubHeader()}
         <div class="hub-stats-bar">
           <span class="hub-stats-item hub-stats-item--accent">Settings</span>
         </div>
-        <div class="ahd-recorder-main">
+        <div class="ahd-recorder-main ahd-recorder-main--settings">
           <div class="ahd-toolbar">
             <h1>Settings</h1>
             <div class="ahd-toolbar-actions">
@@ -541,15 +537,8 @@ export function mountApp(root: HTMLElement): void {
             <label>Device ID<input name="deviceId" value="${esc(s.deviceId)}" required placeholder="CREW-01" /></label>
             <label>Athlete ID<input name="athleteId" value="${esc(s.athleteId)}" placeholder="optional" /></label>
             <label>Ingest API URL<input name="ingestUrl" value="${esc(s.ingestUrl)}" placeholder="https://rowing-app-recorder-pwa.vercel.app/api/ingest" /></label>
-            <label>Ingest token<input name="ingestToken" type="password" value="${esc(s.ingestToken)}" autocomplete="off" /></label>
-            <fieldset class="fieldset">
-              <legend>Sample rates (ms)</legend>
-              <label>GPS interval<input name="gpsIntervalMs" type="number" min="500" step="100" value="${s.gpsIntervalMs}" /></label>
-              <label>Motion interval (analysis)<input name="motionIntervalMs" type="number" min="20" step="10" value="${s.motionIntervalMs}" /></label>
-              <label>Motion upload interval (no GPS)<input name="motionUploadIntervalMs" type="number" min="200" step="100" value="${s.motionUploadIntervalMs ?? 500}" /></label>
-              <label>Upload batch interval<input name="uploadBatchMs" type="number" min="1000" step="500" value="${s.uploadBatchMs}" /></label>
-              <p class="hint">With GPS + accelerometer, motion is analyzed at full rate but only uploaded on each GPS fix (~1/s) so uploads keep up.</p>
-            </fieldset>
+            <label>Ingest token<input class="form-input-light" name="ingestToken" type="password" value="${esc(s.ingestToken)}" autocomplete="off" /></label>
+            <label>Sample interval (seconds)<input class="form-input-light" name="sampleRateSec" type="number" min="0.5" step="0.5" value="${sampleSec}" inputmode="decimal" /></label>
             <fieldset class="fieldset checks">
               <legend>Sensors</legend>
               <label class="check"><input type="checkbox" name="enableGps" ${s.enableGps ? 'checked' : ''} /> GPS</label>
@@ -562,22 +551,9 @@ export function mountApp(root: HTMLElement): void {
               <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
-            ${
-              IS_NATIVE
-                ? '<button type="button" class="hub-btn" data-action="request-permissions">Request location &amp; notification access</button>'
-                : ''
-            }
-            <button type="button" class="hub-btn" data-action="test-ingest">Test upload connection</button>
-            <button type="button" class="hub-btn" data-action="sync">Upload queue now</button>
-            <button type="button" class="hub-btn" data-action="clear-queue">Clear upload queue</button>
             <button type="button" class="hub-btn" data-action="clear-session">Clear session</button>
           </form>
           ${logPanelHtml()}
-          <section class="hub-panel hint-card">
-            <p>All sensors upload to your RNZ ingest API only (no Traccar on the phone).</p>
-            <p>Native APK: background GPS uses a system notification (Android). With <strong>Allow background</strong> + <strong>GPS</strong> + accelerometer, capsize and stroke run while the screen is off (v1.0.10+). Capsize triggers a <strong>phone notification</strong> (sound/vibrate) when minimized or screen off — allow Notifications (v1.0.11+). Web PWA: background is limited.</p>
-            <p>iOS needs a user tap to connect BLE HR. Sensors may pause if the app is swiped away.</p>
-          </section>
         </div>
         ${hubFooter()}
       </div>
@@ -603,36 +579,10 @@ export function mountApp(root: HTMLElement): void {
       render();
     });
 
-    root.querySelector('[data-action="test-ingest"]')?.addEventListener('click', async () => {
-      const form = root.querySelector('[data-settings-form]') as HTMLFormElement | null;
-      if (!form) return;
-      const draft = settingsFromForm(form);
-      pushLog(`Testing ${draft.ingestUrl}…`);
-      try {
-        const msg = await testIngestConnection(
-          draft.ingestUrl,
-          draft.ingestToken,
-          draft.deviceId,
-        );
-        pushLog(msg);
-      } catch (e) {
-        pushLog(e instanceof Error ? e.message : String(e));
-      }
+    root.querySelector('[data-action="toggle-log"]')?.addEventListener('click', () => {
+      logExpanded = !logExpanded;
+      render();
     });
-
-    root.querySelector('[data-action="request-permissions"]')?.addEventListener(
-      'click',
-      async () => {
-        if (!IS_NATIVE) {
-          pushLog('Permissions: native APK only.');
-          return;
-        }
-        const p = await requestNativePermissions();
-        pushLog(
-          `Permissions — location: ${p.location}, notifications: ${p.notifications}, accelerometer: ${p.accelerometer}`,
-        );
-      },
-    );
 
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
@@ -739,20 +689,6 @@ export function mountApp(root: HTMLElement): void {
       void controller?.connectHr();
     });
 
-    root.querySelectorAll('[data-action="sync"]').forEach((el) => {
-      el.addEventListener('click', () => void runSync(true));
-    });
-
-    root.querySelectorAll('[data-action="clear-queue"]').forEach((el) => {
-      el.addEventListener('click', () => {
-        if (recording) {
-          pushLog('Stop the session before clearing the queue.');
-          return;
-        }
-        void clearQueue(true);
-      });
-    });
-
     root.querySelectorAll('[data-action="clear-session"]').forEach((el) => {
       el.addEventListener('click', () => {
         void clearSession();
@@ -774,11 +710,9 @@ export function mountApp(root: HTMLElement): void {
     clearRecordingActive();
   }
   if (IS_KRI) {
-    pushLog(
-      'KRI GPS ready. Open Settings → "Request location & notification access", or tap Start session (permissions run then).',
-    );
+    pushLog('KRI GPS ready. Set Device ID in Settings, then start a session.');
   } else {
-    pushLog('RNZ Row Recorder ready. Configure settings, then start a session.');
+    pushLog('RNZ Row Recorder ready. Set Device ID in Settings, then start a session.');
     if (IS_NATIVE) {
       void (async () => {
         await new Promise<void>((resolve) => {

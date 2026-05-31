@@ -80,24 +80,39 @@ export function saveSettings(settings: RecorderSettings): void {
   localStorage.setItem(LS_KEY, JSON.stringify(settings));
 }
 
+/** GPS / upload interval shown as one field in Settings (seconds). */
+export function sampleRateSecFromSettings(s: RecorderSettings): number {
+  return Math.max(0.5, Math.round((s.gpsIntervalMs / 1000) * 10) / 10);
+}
+
+function intervalsFromSampleRateSec(sec: number) {
+  const sampleSec = Math.max(0.5, sec);
+  const ms = Math.round(sampleSec * 1000);
+  return {
+    gpsIntervalMs: ms,
+    motionIntervalMs: DEFAULT_SETTINGS.motionIntervalMs,
+    motionUploadIntervalMs: ms,
+    uploadBatchMs: Math.max(3000, ms * 2),
+  };
+}
+
 export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
   const fd = new FormData(form);
   const num = (name: string, fallback: number) => {
     const v = Number(fd.get(name));
     return Number.isFinite(v) && v > 0 ? v : fallback;
   };
+  const sampleSec = num('sampleRateSec', sampleRateSecFromSettings(DEFAULT_SETTINGS));
+  const intervals = intervalsFromSampleRateSec(sampleSec);
   const settings = withOriginDefaults({
     deviceId: String(fd.get('deviceId') ?? '').trim(),
     athleteId: String(fd.get('athleteId') ?? '').trim(),
     ingestUrl: String(fd.get('ingestUrl') ?? DEFAULT_INGEST_URL).trim(),
     ingestToken: String(fd.get('ingestToken') ?? '').trim(),
-    gpsIntervalMs: num('gpsIntervalMs', DEFAULT_SETTINGS.gpsIntervalMs),
-    motionIntervalMs: num('motionIntervalMs', DEFAULT_SETTINGS.motionIntervalMs),
-    motionUploadIntervalMs: num(
-      'motionUploadIntervalMs',
-      DEFAULT_SETTINGS.motionUploadIntervalMs,
-    ),
-    uploadBatchMs: num('uploadBatchMs', DEFAULT_SETTINGS.uploadBatchMs),
+    gpsIntervalMs: intervals.gpsIntervalMs,
+    motionIntervalMs: intervals.motionIntervalMs,
+    motionUploadIntervalMs: intervals.motionUploadIntervalMs,
+    uploadBatchMs: intervals.uploadBatchMs,
     enableGps: fd.get('enableGps') === 'on',
     enableMotion: fd.get('enableMotion') === 'on',
     enableHr: fd.get('enableHr') === 'on',

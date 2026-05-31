@@ -24,6 +24,42 @@
   padding: 0 clamp(12px, 4vw, 20px) 1.5rem;
 }
 
+.ahd-recorder-main--settings {
+  max-width: 100%;
+}
+
+.hub-kri-logo {
+  display: block;
+  width: min(96px, 22vw);
+  height: auto;
+  object-fit: contain;
+}
+
+.hub-kri-titles {
+  text-align: left;
+}
+
+.hub-kicker {
+  margin: 0;
+  font-size: clamp(1.35rem, 5.5vw, 1.85rem);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--ahd-text);
+  line-height: 1.15;
+}
+
+.hub-rnz-logo--recorder {
+  width: min(280px, 72vw);
+  height: auto;
+}
+
+.hub-tagline--title {
+  font-size: clamp(1.15rem, 4.5vw, 1.5rem);
+  font-weight: 700;
+  color: var(--ahd-text);
+  letter-spacing: 0.04em;
+}
+
 .ahd-recorder-main .hub-panel {
   margin-bottom: 0.85rem;
 }
@@ -86,25 +122,27 @@
   color: var(--ahd-text);
 }
 
-.log h2 {
-  margin: 0 0 0.5rem;
-  font-size: 0.85rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--ahd-accent);
+.log-toggle {
+  width: 100%;
+  margin: 0;
+  justify-content: center;
 }
 
-.log pre {
-  margin: 0;
+.log--open pre {
+  margin: 0.65rem 0 0;
   font-size: 0.7rem;
   line-height: 1.35;
-  max-height: 180px;
+  max-height: 220px;
   overflow: auto;
   color: var(--ahd-muted);
   white-space: pre-wrap;
   word-break: break-word;
   font-family: ui-monospace, monospace;
+}
+
+.log--closed {
+  padding-top: 0.65rem;
+  padding-bottom: 0.65rem;
 }
 
 .form label {
@@ -137,6 +175,15 @@
   outline: none;
   border-color: var(--ahd-accent);
   box-shadow: 0 0 0 2px rgba(0, 229, 255, 0.2);
+}
+
+.form input.form-input-light {
+  background: #fff;
+  color: #0f172a;
+}
+
+.form input.form-input-light:focus {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.45);
 }
 
 .fieldset {
@@ -320,6 +367,11 @@
 
 .session-metric--timer .session-metric__value {
   color: var(--ahd-accent);
+}
+
+.session-metric--spm .session-metric__value {
+  font-size: clamp(1.45rem, 6vw, 2rem);
+  color: #e2e8f0;
 }
 
 .session-metric--capsize .session-metric__value {
