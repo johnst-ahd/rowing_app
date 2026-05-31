@@ -18,10 +18,18 @@ export type NativeRecordingPulse = {
   nativeGpsCount?: number;
 };
 
+export type NativeEconomyMode = {
+  active: boolean;
+  gpsIntervalMs: number;
+  uploadIntervalMs: number;
+  enableCapsize: boolean;
+};
+
 export interface NativeCapsizeMonitorPlugin {
   start(config: NativeCapsizeMonitorConfig): Promise<void>;
   stop(): Promise<void>;
   setUpright(options: { x: number; y: number; z: number }): Promise<void>;
+  setEconomyMode(mode: NativeEconomyMode): Promise<void>;
   getPulse(): Promise<NativeRecordingPulse>;
 }
 
@@ -74,6 +82,15 @@ export async function syncNativeCapsizeUpright(
   if (!IS_NATIVE) return;
   try {
     await CapsizeMonitor.setUpright({ x, y, z });
+  } catch {
+    /* optional */
+  }
+}
+
+export async function setNativeEconomyMode(mode: NativeEconomyMode): Promise<void> {
+  if (!IS_NATIVE) return;
+  try {
+    await CapsizeMonitor.setEconomyMode(mode);
   } catch {
     /* optional */
   }

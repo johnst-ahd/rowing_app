@@ -31,6 +31,8 @@ export type DerivedSample = {
   heartbeat?: boolean;
   /** Device battery 0–100 (reported periodically). */
   batteryPct?: number;
+  /** Inside a dashboard boat-park geofence (economy mode). */
+  inBoatPark?: boolean;
 };
 
 export type TelemetrySample = {

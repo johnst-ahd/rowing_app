@@ -374,6 +374,60 @@
   color: #e2e8f0;
 }
 
+.session-zone-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.1rem;
+  margin: 0 0 0.65rem;
+  padding: 0.45rem 0.75rem;
+  border-radius: 8px;
+  text-align: center;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.session-zone-badge[data-zone='on_water'] {
+  border-color: rgba(56, 189, 248, 0.45);
+  background: rgba(14, 116, 144, 0.22);
+}
+
+.session-zone-badge[data-zone='boat_park'] {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(180, 83, 9, 0.2);
+}
+
+.session-zone-badge__label {
+  font-size: clamp(0.95rem, 4.2vw, 1.15rem);
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ahd-text);
+}
+
+.session-zone-badge[data-zone='on_water'] .session-zone-badge__label {
+  color: #7dd3fc;
+}
+
+.session-zone-badge[data-zone='boat_park'] .session-zone-badge__label {
+  color: #fcd34d;
+}
+
+.session-zone-badge__sub {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ahd-muted);
+  min-height: 0.95em;
+}
+
+.hub-stats-item--on-water {
+  color: #7dd3fc;
+}
+
+.hub-stats-item--boat-park {
+  color: #fcd34d;
+}
+
 .session-metric--capsize .session-metric__value {
   color: #f87171;
 }

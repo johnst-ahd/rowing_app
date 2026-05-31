@@ -59,6 +59,21 @@ public class CapsizeMonitorPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setEconomyMode(PluginCall call) {
+        Boolean active = call.getBoolean("active", false);
+        Integer gpsIntervalMs = call.getInt("gpsIntervalMs", 30000);
+        Integer uploadIntervalMs = call.getInt("uploadIntervalMs", 30000);
+        Boolean enableCapsize = call.getBoolean("enableCapsize", true);
+        CapsizeMonitorService.setEconomyMode(
+            getContext(),
+            active != null && active,
+            gpsIntervalMs != null ? gpsIntervalMs.longValue() : 30000L,
+            uploadIntervalMs != null ? uploadIntervalMs.longValue() : 30000L,
+            enableCapsize == null || enableCapsize);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void getPulse(PluginCall call) {
         SharedPreferences p =
             getContext().getSharedPreferences(CapsizeMonitorService.PREFS, android.content.Context.MODE_PRIVATE);

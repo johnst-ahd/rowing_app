@@ -1393,4 +1393,7 @@ module.exports = {
   checkAuth,
   cors,
   hasDb: db.hasDb,
+  listGeofences: () => db.listGeofences(),
+  createGeofence: (body) => db.createGeofence(body),
+  deleteGeofence: (id) => db.deleteGeofence(id),
 };

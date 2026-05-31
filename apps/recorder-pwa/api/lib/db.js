@@ -100,6 +100,22 @@ async function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_rnz_idempotency_created
       ON rnz_idempotency (created_at DESC)
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS rnz_geofences (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'boat_park',
+      center_lat DOUBLE PRECISION NOT NULL,
+      center_lon DOUBLE PRECISION NOT NULL,
+      radius_m DOUBLE PRECISION NOT NULL,
+      enabled BOOLEAN NOT NULL DEFAULT true,
+      economy_gps_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
+      economy_upload_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
+      disable_capsize BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
 
   if (!globalThis.__rnzRegistryGpsBackfill) {
     globalThis.__rnzRegistryGpsBackfill = true;
@@ -928,6 +944,68 @@ async function setIdempotency(key, response) {
   `;
 }
 
+const { normalizeGeofence } = require('./geofence');
+
+async function listGeofences() {
+  if (!hasDb()) return [];
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT id, name, kind, center_lat, center_lon, radius_m, enabled,
+           economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
+           created_at, updated_at
+    FROM rnz_geofences
+    ORDER BY name ASC
+  `;
+  return rows.rows.map(normalizeGeofence);
+}
+
+async function createGeofence(body) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const name = String(body.name ?? '').trim();
+  const centerLat = Number(body.centerLat);
+  const centerLon = Number(body.centerLon);
+  const radiusM = Number(body.radiusM);
+  if (!name) throw new Error('name is required');
+  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
+    throw new Error('centerLat and centerLon are required');
+  }
+  if (!Number.isFinite(radiusM) || radiusM <= 0) {
+    throw new Error('radiusM must be a positive number');
+  }
+  const kind = String(body.kind ?? 'boat_park').trim() || 'boat_park';
+  const economyGps = Math.max(5, Number(body.economyGpsIntervalSec) || 30);
+  const economyUpload = Math.max(5, Number(body.economyUploadIntervalSec) || 30);
+  const disableCapsize = body.disableCapsize !== false;
+  const enabled = body.enabled !== false;
+  const rows = await sql`
+    INSERT INTO rnz_geofences (
+      name, kind, center_lat, center_lon, radius_m, enabled,
+      economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize
+    )
+    VALUES (
+      ${name}, ${kind}, ${centerLat}, ${centerLon}, ${radiusM}, ${enabled},
+      ${economyGps}, ${economyUpload}, ${disableCapsize}
+    )
+    RETURNING id, name, kind, center_lat, center_lon, radius_m, enabled,
+              economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
+              created_at, updated_at
+  `;
+  return normalizeGeofence(rows.rows[0]);
+}
+
+async function deleteGeofence(id) {
+  if (!hasDb()) return false;
+  const sql = await getSql();
+  await initSchema();
+  const n = Number(id);
+  if (!Number.isFinite(n)) return false;
+  const del = await sql`DELETE FROM rnz_geofences WHERE id = ${n}`;
+  return (del.rowCount ?? 0) > 0;
+}
+
 module.exports = {
   hasDb,
   initSchema,
@@ -952,4 +1030,7 @@ module.exports = {
   deleteAllStoredData,
   getIdempotency,
   setIdempotency,
+  listGeofences,
+  createGeofence,
+  deleteGeofence,
 };

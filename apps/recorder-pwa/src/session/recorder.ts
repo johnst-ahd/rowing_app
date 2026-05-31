@@ -20,10 +20,13 @@ import {
 } from '../lib/capsize-notification';
 import {
   getNativeRecordingPulse,
+  setNativeEconomyMode,
   startNativeCapsizeMonitor,
   stopNativeCapsizeMonitor,
   syncNativeCapsizeUpright,
 } from '../lib/native-capsize-monitor';
+import { findBoatParkAt, type GeofenceConfig } from '../lib/geofence';
+import { fetchGeofences } from '../lib/geofence-service';
 import {
   createMotionAnalyzer,
   metricsFromAnalyzer,
@@ -44,6 +47,10 @@ export type RecorderStats = {
   tiltDeg?: number;
   capsize?: boolean;
   motionCalibrated?: boolean;
+  /** True when inside a dashboard boat-park geofence. */
+  inBoatPark?: boolean;
+  /** Name of matched boat-park zone, if any. */
+  boatParkName?: string | null;
 };
 
 export type RecorderController = {
@@ -149,9 +156,73 @@ export async function startRecorder(
     ? Math.max(settings.uploadBatchMs, 8000)
     : settings.uploadBatchMs;
 
+  let geofences: GeofenceConfig[] = [];
+  let inBoatPark = false;
+  let activeBoatPark: GeofenceConfig | null = null;
+  let capsizeAllowed = true;
+  let effectiveGpsIntervalMs = settings.gpsIntervalMs;
+  let effectiveUploadIntervalMs = batchIntervalMs;
+  let lastGpsQueuedAt = 0;
+  let geofenceRefreshTimer: ReturnType<typeof setInterval> | null = null;
+
+  const applyEconomyMode = (match: GeofenceConfig | null) => {
+    const was = inBoatPark;
+    inBoatPark = match != null;
+    activeBoatPark = match;
+    if (match) {
+      effectiveGpsIntervalMs = Math.max(5000, match.economyGpsIntervalSec * 1000);
+      effectiveUploadIntervalMs = Math.max(5000, match.economyUploadIntervalSec * 1000);
+      capsizeAllowed = !match.disableCapsize;
+    } else {
+      effectiveGpsIntervalMs = settings.gpsIntervalMs;
+      effectiveUploadIntervalMs = batchIntervalMs;
+      capsizeAllowed = true;
+    }
+    if (was !== inBoatPark) {
+      onLog(
+        inBoatPark
+          ? `Boat park (${match!.name}): reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
+          : 'Left boat park — full recording restored.',
+      );
+      if (nativeCapsizeMonitorOn) {
+        void setNativeEconomyMode({
+          active: inBoatPark,
+          gpsIntervalMs: effectiveGpsIntervalMs,
+          uploadIntervalMs: effectiveUploadIntervalMs,
+          enableCapsize: capsizeAllowed,
+        });
+      }
+      if (!capsizeAllowed && capsizeActive) {
+        capsizeActive = false;
+        if (IS_NATIVE) void clearCapsizeAlertNotification();
+        onCapsize?.(false);
+      }
+    }
+    emit();
+  };
+
+  const checkGeofenceAt = (lat: number, lon: number) => {
+    if (!geofences.length || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    applyEconomyMode(findBoatParkAt(lat, lon, geofences));
+  };
+
+  void fetchGeofences(settings.ingestUrl, settings.ingestToken).then((list) => {
+    geofences = list;
+    if (list.length) onLog(`${list.length} geofence(s) loaded from dashboard.`);
+  });
+
   const stoppers: Array<() => void | Promise<void>> = [];
   let hrMonitor: HeartRateMonitor | null = null;
   let stopped = false;
+
+  geofenceRefreshTimer = setInterval(() => {
+    void fetchGeofences(settings.ingestUrl, settings.ingestToken, true).then((list) => {
+      geofences = list;
+    });
+  }, 5 * 60 * 1000);
+  stoppers.push(() => {
+    if (geofenceRefreshTimer) clearInterval(geofenceRefreshTimer);
+  });
 
   const emit = () => onStats({ ...stats });
 
@@ -186,8 +257,22 @@ export async function startRecorder(
 
   const queueSample = (sample: TelemetrySample) => {
     batch.push(sample);
-    if (batch.length >= batchCap) void pushBatch();
+    const cap =
+      inBoatPark && effectiveUploadIntervalMs > settings.uploadBatchMs
+        ? Math.max(2, Math.ceil(effectiveUploadIntervalMs / 3000))
+        : batchCap;
+    if (batch.length >= cap) void pushBatch();
     else pulseBackgroundUpload();
+  };
+
+  const queueGpsSample = (sample: TelemetrySample) => {
+    const now = Date.now();
+    if (inBoatPark && now - lastGpsQueuedAt < effectiveGpsIntervalMs) return;
+    lastGpsQueuedAt = now;
+    if (inBoatPark) {
+      sample.derived = { ...sample.derived, inBoatPark: true };
+    }
+    queueSample(sample);
   };
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
@@ -262,7 +347,7 @@ export async function startRecorder(
     const backgrounded =
       typeof document !== 'undefined' && document.visibilityState === 'hidden';
 
-    if (metrics.capsize && !capsizeActive) {
+    if (capsizeAllowed && metrics.capsize && !capsizeActive) {
       capsizeActive = true;
       triggerCapsizeAlert();
       if (IS_NATIVE) void showCapsizeAlertNotification(true);
@@ -276,7 +361,7 @@ export async function startRecorder(
       void pushBatch();
       onLog('CAPSIZE ALERT — boat tipped past horizontal');
       onCapsize?.(true);
-    } else if (metrics.capsize && capsizeActive && backgrounded && IS_NATIVE) {
+    } else if (capsizeAllowed && metrics.capsize && capsizeActive && backgrounded && IS_NATIVE) {
       void showCapsizeAlertNotification();
     } else if (!metrics.capsize && capsizeActive) {
       capsizeActive = false;
@@ -378,6 +463,7 @@ export async function startRecorder(
         void getNativeRecordingPulse().then((pulse) => {
           if (!pulse?.lastGps) return;
           const g = pulse.lastGps;
+          checkGeofenceAt(g.lat, g.lon);
           if (pulse.nativeGpsCount != null) {
             stats.gpsCount = pulse.nativeGpsCount;
           }
@@ -399,6 +485,7 @@ export async function startRecorder(
           stats.gpsCount++;
           stats.lastGps = { t: r.t, lat: r.lat, lon: r.lon, spd: r.spd };
           if (r.spd != null && r.spd >= 0) stats.speedMps = r.spd;
+          checkGeofenceAt(r.lat, r.lon);
 
           if (
             IS_NATIVE &&
@@ -410,7 +497,7 @@ export async function startRecorder(
             pollMotionWhileBackgrounded();
           }
 
-          queueSample(
+          queueGpsSample(
             telemetrySample(r.t, {
               gps: {
                 lat: r.lat,
@@ -465,7 +552,11 @@ export async function startRecorder(
 
   return {
     sessionId,
-    getStats: () => ({ ...stats }),
+    getStats: () => ({
+      ...stats,
+      inBoatPark,
+      boatParkName: activeBoatPark?.name ?? null,
+    }),
     flush: () => pushBatch(),
     async connectHr() {
       if (!settings.enableHr) return;

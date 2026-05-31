@@ -79,9 +79,63 @@
           <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
           <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
           <span class="map-legend-item map-legend-item--smooth">● H6 smoothed avg (yellow, blue ring)</span>
+          <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
         </p>
         <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
         <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+      </section>
+
+      <section class="hub-panel hub-panel--geofences" id="geofencePanel">
+        <h2 class="hub-section-title">Boat park geofences</h2>
+        <p class="geofence-intro">
+          Define zones where phones switch to <strong>economy mode</strong>: slower GPS/uploads and
+          <strong>capsize detection off</strong> (e.g. boat park or car park). Recorders fetch these
+          zones automatically when a session starts.
+        </p>
+        <div id="geofenceList" class="geofence-list" aria-live="polite"></div>
+        <form id="geofenceForm" class="geofence-form">
+          <div class="ahd-inline-fields">
+            <label class="ahd-field">
+              Name
+              <input type="text" id="geofenceName" required placeholder="Karāpiro boat park" />
+            </label>
+            <label class="ahd-field">
+              Radius (m)
+              <input type="number" id="geofenceRadius" min="20" step="10" value="150" required />
+            </label>
+          </div>
+          <div class="ahd-inline-fields">
+            <label class="ahd-field">
+              Centre latitude
+              <input type="number" id="geofenceLat" step="any" required placeholder="-37.9196" />
+            </label>
+            <label class="ahd-field">
+              Centre longitude
+              <input type="number" id="geofenceLon" step="any" required placeholder="175.5424" />
+            </label>
+          </div>
+          <div class="ahd-inline-fields geofence-form__economy">
+            <label class="ahd-field">
+              GPS interval (s) in zone
+              <input type="number" id="geofenceGpsSec" min="5" step="5" value="30" />
+            </label>
+            <label class="ahd-field">
+              Upload interval (s) in zone
+              <input type="number" id="geofenceUploadSec" min="5" step="5" value="30" />
+            </label>
+            <label class="ahd-field geofence-form__check">
+              <input type="checkbox" id="geofenceDisableCapsize" checked />
+              Disable capsize in zone
+            </label>
+          </div>
+          <div class="geofence-form__actions">
+            <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
+            <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
+            <button type="submit" class="hub-btn hub-btn--primary">Add boat park zone</button>
+            <button type="button" class="hub-btn hub-btn--ghost" id="geofenceRefreshBtn">Refresh</button>
+          </div>
+        </form>
+        <p class="poll-line" id="geofenceStatus">Loading geofences…</p>
       </section>
 
       <section class="hub-panel">
@@ -383,6 +437,7 @@
     <script src="/dashboard-history.js"></script>
     <script src="/dashboard-data-manage.js"></script>
     <script src="/dashboard-monitor-charts.js"></script>
+    <script src="/dashboard-geofences.js"></script>
     <script src="/dashboard.js"></script>
   </body>
 </html>

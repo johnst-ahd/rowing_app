@@ -282,6 +282,25 @@ export function mountApp(root: HTMLElement): void {
       else capsizeEl.setAttribute('hidden', '');
     }
 
+    const zoneEl = root.querySelector('[data-hud-zone]');
+    if (zoneEl) {
+      const label = zoneEl.querySelector('.session-zone-badge__label');
+      const sub = zoneEl.querySelector('.session-zone-badge__sub');
+      if (!stats?.lastGps) {
+        zoneEl.setAttribute('data-zone', 'unknown');
+        if (label) label.textContent = 'Locating…';
+        if (sub) sub.textContent = '';
+      } else if (stats.inBoatPark) {
+        zoneEl.setAttribute('data-zone', 'boat_park');
+        if (label) label.textContent = 'In boat park';
+        if (sub) sub.textContent = stats.boatParkName ? stats.boatParkName : '';
+      } else {
+        zoneEl.setAttribute('data-zone', 'on_water');
+        if (label) label.textContent = 'On water';
+        if (sub) sub.textContent = '';
+      }
+    }
+
     const pending = root.querySelector('[data-pending]');
     if (pending) pending.textContent = String(stats?.pendingOutbox ?? 0);
 
@@ -367,10 +386,21 @@ export function mountApp(root: HTMLElement): void {
         : recording && settings.enableBackgroundRecording
           ? 'Background ready'
           : '';
+    let zone = '';
+    if (recording && stats?.lastGps) {
+      zone = stats.inBoatPark
+        ? stats.boatParkName
+          ? `In boat park: ${stats.boatParkName}`
+          : 'In boat park'
+        : 'On water';
+    } else if (recording) {
+      zone = 'Locating…';
+    }
     return `
       <span class="hub-stats-item ${statusClass}">${status}</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item">Device: ${esc(device)}</span>
+      ${zone ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item ${stats?.inBoatPark ? 'hub-stats-item--boat-park' : 'hub-stats-item--on-water'}">${esc(zone)}</span>` : ''}
       ${spm ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item">${esc(spm)}</span>` : ''}
       ${bg ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item hub-stats-item--muted">${esc(bg)}</span>` : ''}
       <span class="hub-stats-sep" aria-hidden="true">·</span>
@@ -412,6 +442,10 @@ export function mountApp(root: HTMLElement): void {
         }
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
+        </div>
+        <div class="session-zone-badge" data-hud-zone data-zone="unknown" aria-live="polite">
+          <span class="session-zone-badge__label">Locating…</span>
+          <span class="session-zone-badge__sub"></span>
         </div>
         <div class="session-live-hud__metrics">
           <div class="session-metric session-metric--timer">

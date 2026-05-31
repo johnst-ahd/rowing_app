@@ -1009,3 +1009,65 @@
 #dataManageStatus.ok {
   color: var(--ahd-safety);
 }
+
+.map-legend-item--geofence {
+  color: #f59e0b;
+}
+
+.geofence-intro {
+  margin: 0 0 0.85rem;
+  font-size: 0.85rem;
+  color: var(--ahd-muted);
+  line-height: 1.45;
+}
+
+.geofence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+}
+
+.geofence-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.65rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.geofence-item__main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.geofence-item__meta {
+  font-size: 0.78rem;
+  color: var(--ahd-muted);
+}
+
+.geofence-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.geofence-form__check {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-weight: 500;
+  color: var(--ahd-text);
+}
+
+.geofence-form__check input {
+  width: auto;
+  margin: 0;
+}

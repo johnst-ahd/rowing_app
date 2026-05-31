@@ -291,6 +291,11 @@ function initMap() {
   };
   map.on('zoomstart', onUserMapMove);
   map.on('dragstart', onUserMapMove);
+
+  window.dashboardFleetMap = map;
+  if (typeof window.dashboardInitGeofences === 'function') {
+    window.dashboardInitGeofences();
+  }
 }
 
 function maybeAutoFitMap(latlngs) {

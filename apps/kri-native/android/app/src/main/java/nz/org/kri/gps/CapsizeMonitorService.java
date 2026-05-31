@@ -89,6 +89,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private boolean enableGps;
     private boolean enableMotion = true;
     private long gpsIntervalMs = 1000L;
+    private boolean economyActive = false;
+    private long economyGpsIntervalMs = 30_000L;
+    private long economyUploadIntervalMs = 30_000L;
+    private boolean enableCapsizeDetection = true;
 
     private float gx;
     private float gy;
@@ -290,7 +294,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (!isGpsFixFresh(location)) return;
         long fixTime = location.getTime();
         long now = System.currentTimeMillis();
-        if (now - lastGpsUploadWallMs < Math.max(500L, gpsIntervalMs)) return;
+        if (now - lastGpsUploadWallMs < Math.max(500L, effectiveGpsIntervalMs())) return;
         if (fixTime <= lastUploadedFixTimeMs && sameCoords(location, lastUploadedLat, lastUploadedLon)) {
             return;
         }
@@ -379,6 +383,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private void updateCapsize(long t, float ax, float ay, float az) {
+        loadEconomyFromPrefs();
+        if (!enableCapsizeDetection) {
+            if (capsizeActive) {
+                capsizeActive = false;
+                capsizeSinceMs = 0;
+                cancelAlertNotification();
+            }
+            return;
+        }
         if (!calibrated) return;
         float mag = (float) Math.sqrt(ax * ax + ay * ay + az * az);
         if (mag < 7f || mag > 12f) return;
@@ -422,7 +435,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     private void scheduleIngestFlush() {
         mainHandler.removeCallbacks(ingestFlushRunnable);
-        mainHandler.postDelayed(ingestFlushRunnable, UPLOAD_FLUSH_INTERVAL_MS);
+        mainHandler.postDelayed(ingestFlushRunnable, effectiveUploadFlushMs());
     }
 
     private void offerIngestSample(JSONObject sample, boolean flushNow) {
@@ -435,7 +448,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         long now = System.currentTimeMillis();
         if (force
                 || ingestBuffer.length() >= UPLOAD_FLUSH_MAX_SAMPLES
-                || now - lastIngestFlushMs >= UPLOAD_FLUSH_INTERVAL_MS) {
+                || now - lastIngestFlushMs >= effectiveUploadFlushMs()) {
             flushIngestBufferNow();
         }
     }
@@ -684,6 +697,40 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         enableGps = p.getBoolean("enableGps", false);
         enableMotion = p.getBoolean("enableMotion", true);
         gpsIntervalMs = Math.max(500L, p.getLong("gpsIntervalMs", 1000L));
+        loadEconomyFromPrefs();
+    }
+
+    private void loadEconomyFromPrefs() {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        economyActive = p.getBoolean("economyActive", false);
+        economyGpsIntervalMs = Math.max(5000L, p.getLong("economyGpsIntervalMs", 30_000L));
+        economyUploadIntervalMs = Math.max(5000L, p.getLong("economyUploadIntervalMs", 30_000L));
+        enableCapsizeDetection = p.getBoolean("enableCapsizeDetection", true);
+    }
+
+    private long effectiveGpsIntervalMs() {
+        loadEconomyFromPrefs();
+        return economyActive ? economyGpsIntervalMs : gpsIntervalMs;
+    }
+
+    private long effectiveUploadFlushMs() {
+        loadEconomyFromPrefs();
+        return economyActive ? economyUploadIntervalMs : UPLOAD_FLUSH_INTERVAL_MS;
+    }
+
+    public static void setEconomyMode(
+            Context ctx,
+            boolean active,
+            long gpsInterval,
+            long uploadInterval,
+            boolean enableCapsize) {
+        ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean("economyActive", active)
+            .putLong("economyGpsIntervalMs", Math.max(5000L, gpsInterval))
+            .putLong("economyUploadIntervalMs", Math.max(5000L, uploadInterval))
+            .putBoolean("enableCapsizeDetection", enableCapsize)
+            .apply();
     }
 
     private void loadUprightFromPrefs() {
@@ -762,7 +809,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void scheduleGpsFlush() {
         mainHandler.removeCallbacks(gpsFlushRunnable);
         if (!enableGps) return;
-        mainHandler.postDelayed(gpsFlushRunnable, Math.max(500L, gpsIntervalMs));
+        mainHandler.postDelayed(gpsFlushRunnable, Math.max(500L, effectiveGpsIntervalMs()));
     }
 
     private void registerLocation() {
@@ -780,7 +827,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             registerLegacyLocation();
             return;
         }
-        long interval = Math.max(500L, gpsIntervalMs);
+        long interval = Math.max(500L, effectiveGpsIntervalMs());
         LocationRequest request =
                 new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, interval)
                         .setMinUpdateIntervalMillis(interval)
@@ -822,7 +869,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "No LocationManager");
             return;
         }
-        long minTime = Math.max(500L, gpsIntervalMs);
+        long minTime = Math.max(500L, effectiveGpsIntervalMs());
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
