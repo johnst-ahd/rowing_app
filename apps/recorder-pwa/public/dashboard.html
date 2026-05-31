@@ -71,384 +71,447 @@
         </button>
       </div>
 
-      <section class="hub-panel hub-panel--map">
-        <h2 class="hub-section-title">Fleet map</h2>
-        <p class="map-legend">
-          <span class="map-legend-item map-legend-item--live">● Active (GPS ≤30s)</span>
-          <span class="map-legend-item map-legend-item--amber">● Delayed (30s–5min)</span>
-          <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
-          <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
-          <span class="map-legend-item map-legend-item--smooth">● H6 smoothed avg (yellow, blue ring)</span>
-          <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
-        </p>
-        <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
-        <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+      <section class="hub-panel hub-panel--map dashboard-section dashboard-section--open" data-section-id="map" data-default-open="true">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="true" aria-controls="section-body-map">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Fleet map</h2>
+          </button>
+          <div class="dashboard-section__tools">
+            <button type="button" class="hub-btn hub-btn--ghost" id="mapFullscreenBtn">Fullscreen map</button>
+          </div>
+        </div>
+        <div class="dashboard-section__body" id="section-body-map">
+          <div class="map-stage" id="mapStage">
+            <div class="map-fs-bar" hidden>
+              <div class="map-fs-bar__brands">
+                <img src="/assets/rnz/rnz-logomark-white.png" alt="" class="map-fs-bar__logo" width="36" height="36" />
+                <img src="/altitude-hd-logo.png" alt="Altitude HD" class="map-fs-bar__logo map-fs-bar__logo--ahd" width="120" height="45" />
+                <span class="map-fs-bar__title">Fleet map</span>
+              </div>
+              <button type="button" class="hub-btn hub-btn--ghost map-fs-exit-btn" id="mapFullscreenExitBtn">Exit fullscreen</button>
+            </div>
+            <p class="map-legend">
+              <span class="map-legend-item map-legend-item--live">● Active (GPS ≤30s)</span>
+              <span class="map-legend-item map-legend-item--amber">● Delayed (30s–5min)</span>
+              <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
+              <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
+              <span class="map-legend-item map-legend-item--smooth">● H6 smoothed avg (yellow, blue ring)</span>
+              <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
+            </p>
+            <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
+            <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+          </div>
+        </div>
       </section>
 
-      <section class="hub-panel hub-panel--geofences" id="geofencePanel">
-        <h2 class="hub-section-title">Boat park geofences</h2>
-        <p class="geofence-intro">
-          Define zones where phones switch to <strong>economy mode</strong>: slower GPS/uploads and
-          <strong>capsize detection off</strong> (e.g. boat park or car park). Recorders fetch these
-          zones automatically when a session starts.
-        </p>
-        <div id="geofenceList" class="geofence-list" aria-live="polite"></div>
-        <form id="geofenceForm" class="geofence-form">
-          <div class="ahd-inline-fields">
-            <label class="ahd-field">
-              Name
-              <input type="text" id="geofenceName" required placeholder="Karāpiro boat park" />
-            </label>
-            <label class="ahd-field">
-              Radius (m)
-              <input type="number" id="geofenceRadius" min="20" step="10" value="150" required />
-            </label>
+      <section class="hub-panel dashboard-section" data-section-id="devices" data-default-open="false">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-devices">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Devices</h2>
+          </button>
+          <div class="dashboard-section__tools devices-toolbar">
+            <button type="button" class="hub-btn hub-btn--ghost devices-toolbar-btn" id="devicesExpandAllBtn">Expand all</button>
+            <button type="button" class="hub-btn hub-btn--ghost devices-toolbar-btn" id="devicesCollapseAllBtn">Collapse all</button>
           </div>
-          <div class="ahd-inline-fields">
-            <label class="ahd-field">
-              Centre latitude
-              <input type="number" id="geofenceLat" step="any" required placeholder="-37.9196" />
-            </label>
-            <label class="ahd-field">
-              Centre longitude
-              <input type="number" id="geofenceLon" step="any" required placeholder="175.5424" />
-            </label>
-          </div>
-          <div class="ahd-inline-fields geofence-form__economy">
-            <label class="ahd-field">
-              GPS interval (s) in zone
-              <input type="number" id="geofenceGpsSec" min="5" step="5" value="30" />
-            </label>
-            <label class="ahd-field">
-              Upload interval (s) in zone
-              <input type="number" id="geofenceUploadSec" min="5" step="5" value="30" />
-            </label>
-            <label class="ahd-field geofence-form__check">
-              <input type="checkbox" id="geofenceDisableCapsize" checked />
-              Disable capsize in zone
-            </label>
-          </div>
-          <div class="geofence-form__actions">
-            <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
-            <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
-            <button type="submit" class="hub-btn hub-btn--primary">Add boat park zone</button>
-            <button type="button" class="hub-btn hub-btn--ghost" id="geofenceRefreshBtn">Refresh</button>
-          </div>
-        </form>
-        <p class="poll-line" id="geofenceStatus">Loading geofences…</p>
+        </div>
+        <div class="dashboard-section__body" id="section-body-devices" hidden>
+          <div class="devices-grid" id="devicesGrid"></div>
+        </div>
       </section>
 
-      <section class="hub-panel hub-panel--regatta" id="regattaPanel">
-        <h2 class="hub-section-title">Regatta control</h2>
-        <p class="regatta-intro">
-          Send a message to a device while it is recording. The text appears on the rower&rsquo;s session HUD
-          (no phone notification). Devices poll every ~15&nbsp;s.
-        </p>
-        <div id="regattaActiveList" class="regatta-active-list" aria-live="polite"></div>
-        <form id="regattaForm" class="regatta-form">
-          <div class="ahd-inline-fields">
+      <section class="hub-panel hub-panel--regatta dashboard-section" data-section-id="regatta" data-default-open="false" id="regattaPanel">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-regatta">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Regatta control</h2>
+          </button>
+        </div>
+        <div class="dashboard-section__body" id="section-body-regatta" hidden>
+          <p class="regatta-intro">
+            Send a message to a device while it is recording. The text appears on the rower&rsquo;s session HUD
+            (no phone notification). Devices poll every ~15&nbsp;s.
+          </p>
+          <div id="regattaActiveList" class="regatta-active-list" aria-live="polite"></div>
+          <form id="regattaForm" class="regatta-form">
+            <div class="ahd-inline-fields">
+              <label class="ahd-field">
+                Device
+                <select id="regattaDeviceId" required aria-label="Target device">
+                  <option value="">— select device —</option>
+                </select>
+              </label>
+            </div>
+            <label class="ahd-field regatta-form__text">
+              Message
+              <textarea id="regattaText" rows="2" maxlength="280" required placeholder="e.g. Return to boat park after this piece"></textarea>
+            </label>
+            <div class="regatta-form__actions">
+              <button type="submit" class="hub-btn hub-btn--primary">Send to device HUD</button>
+              <button type="button" class="hub-btn hub-btn--ghost" id="regattaRefreshBtn">Refresh</button>
+            </div>
+          </form>
+          <p class="poll-line" id="regattaStatus">Loading messages…</p>
+        </div>
+      </section>
+
+      <section class="hub-panel hub-panel--geofences dashboard-section" data-section-id="geofences" data-default-open="false" id="geofencePanel">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-geofences">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Boat park geofences</h2>
+          </button>
+        </div>
+        <div class="dashboard-section__body" id="section-body-geofences" hidden>
+          <p class="geofence-intro">
+            Define zones where phones switch to <strong>economy mode</strong>: slower GPS/uploads and
+            <strong>capsize detection off</strong> (e.g. boat park or car park). Recorders fetch these
+            zones automatically when a session starts.
+          </p>
+          <div id="geofenceList" class="geofence-list" aria-live="polite"></div>
+          <form id="geofenceForm" class="geofence-form">
+            <div class="ahd-inline-fields">
+              <label class="ahd-field">
+                Name
+                <input type="text" id="geofenceName" required placeholder="Karāpiro boat park" />
+              </label>
+              <label class="ahd-field">
+                Radius (m)
+                <input type="number" id="geofenceRadius" min="20" step="10" value="150" required />
+              </label>
+            </div>
+            <div class="ahd-inline-fields">
+              <label class="ahd-field">
+                Centre latitude
+                <input type="number" id="geofenceLat" step="any" required placeholder="-37.9196" />
+              </label>
+              <label class="ahd-field">
+                Centre longitude
+                <input type="number" id="geofenceLon" step="any" required placeholder="175.5424" />
+              </label>
+            </div>
+            <div class="ahd-inline-fields geofence-form__economy">
+              <label class="ahd-field">
+                GPS interval (s) in zone
+                <input type="number" id="geofenceGpsSec" min="5" step="5" value="30" />
+              </label>
+              <label class="ahd-field">
+                Upload interval (s) in zone
+                <input type="number" id="geofenceUploadSec" min="5" step="5" value="30" />
+              </label>
+              <label class="ahd-field geofence-form__check">
+                <input type="checkbox" id="geofenceDisableCapsize" checked />
+                Disable capsize in zone
+              </label>
+            </div>
+            <div class="geofence-form__actions">
+              <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
+              <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
+              <button type="submit" class="hub-btn hub-btn--primary">Add boat park zone</button>
+              <button type="button" class="hub-btn hub-btn--ghost" id="geofenceRefreshBtn">Refresh</button>
+            </div>
+          </form>
+          <p class="poll-line" id="geofenceStatus">Loading geofences…</p>
+        </div>
+      </section>
+
+      <section class="hub-panel hub-panel--monitor-stats dashboard-section" data-section-id="monitor-stats" data-default-open="false" id="monitorStatsPanel">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-monitor-stats">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Live stats over time</h2>
+          </button>
+        </div>
+        <div class="dashboard-section__body" id="section-body-monitor-stats" hidden>
+          <div class="monitor-chart-toolbar ahd-inline-fields">
             <label class="ahd-field">
-              Device
-              <select id="regattaDeviceId" required aria-label="Target device">
-                <option value="">— select device —</option>
+              Chart device
+              <select id="monitorChartDevice" aria-label="Chart device">
+                <option value="">All devices (fleet average)</option>
               </select>
             </label>
           </div>
-          <label class="ahd-field regatta-form__text">
-            Message
-            <textarea id="regattaText" rows="2" maxlength="280" required placeholder="e.g. Return to boat park after this piece"></textarea>
-          </label>
-          <div class="regatta-form__actions">
-            <button type="submit" class="hub-btn hub-btn--primary">Send to device HUD</button>
-            <button type="button" class="hub-btn hub-btn--ghost" id="regattaRefreshBtn">Refresh</button>
-          </div>
-        </form>
-        <p class="poll-line" id="regattaStatus">Loading messages…</p>
-      </section>
-
-      <section class="hub-panel">
-        <div class="devices-section-head">
-          <h2 class="hub-section-title">Devices</h2>
-          <div class="devices-toolbar">
-            <button type="button" class="hub-btn hub-btn--ghost devices-toolbar-btn" id="devicesExpandAllBtn">
-              Expand all
-            </button>
-            <button type="button" class="hub-btn hub-btn--ghost devices-toolbar-btn" id="devicesCollapseAllBtn">
-              Collapse all
-            </button>
-          </div>
-        </div>
-        <div class="devices-grid" id="devicesGrid"></div>
-      </section>
-
-      <section class="hub-panel hub-panel--monitor-stats" id="monitorStatsPanel">
-        <h2 class="hub-section-title">Live stats over time</h2>
-        <div class="monitor-chart-toolbar ahd-inline-fields">
-          <label class="ahd-field">
-            Chart device
-            <select id="monitorChartDevice" aria-label="Chart device">
-              <option value="">All devices (fleet average)</option>
-            </select>
-          </label>
-        </div>
-        <p class="poll-line monitor-stats-hint" id="monitorStatsHint">
-          Collecting data from each refresh…
-        </p>
-        <div class="monitor-chart-wrap">
-          <div class="monitor-chart-legend" id="monitorChartLegend" aria-live="polite"></div>
-          <canvas
-            id="monitorChartCombined"
-            class="monitor-chart monitor-chart--combined"
-            height="110"
-            aria-label="Combined live stats: fleet health, GPS, upload lag, stroke rate, and capsize"
-          ></canvas>
-        </div>
-      </section>
-
-      <section class="hub-panel hub-panel--history" id="historyPanel">
-        <h2 class="hub-section-title">Session history</h2>
-        <p class="history-intro">
-          Searches the <strong>database</strong> (all uploads from the apps, not just this browser session).
-          Pick a <strong>session</strong> for one outing, or a device + date range. Use <strong>All stored for device</strong>
-          if a short range shows no data.
-        </p>
-        <div class="ahd-inline-fields history-fields">
-          <label class="ahd-field">
-            Device ID
-            <select id="historyDeviceId">
-              <option value="">— select device —</option>
-            </select>
-          </label>
-          <label class="ahd-field history-field--wide">
-            Session <span class="history-field-hint">(easiest — loads that outing)</span>
-            <select id="historySessionId">
-              <option value="">— pick a recorded session —</option>
-            </select>
-          </label>
-        </div>
-        <div class="history-range-block">
-          <span class="history-range-label">Or search by date &amp; time</span>
-          <div class="history-presets" role="group" aria-label="Quick time ranges">
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="1h">Last hour</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="6h">Last 6 hours</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="today">Today</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="yesterday">Yesterday</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="30d">Last 30 days</button>
-            <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="all">All stored for device</button>
-          </div>
-          <div class="history-datetime-grid">
-            <fieldset class="history-datetime-group">
-              <legend>From</legend>
-              <label class="ahd-field">
-                Date
-                <input type="date" id="historyFromDate" />
-              </label>
-              <label class="ahd-field">
-                Time
-                <input type="time" id="historyFromTime" step="60" />
-              </label>
-            </fieldset>
-            <fieldset class="history-datetime-group">
-              <legend>To</legend>
-              <label class="ahd-field">
-                Date
-                <input type="date" id="historyToDate" />
-              </label>
-              <label class="ahd-field">
-                Time
-                <input type="time" id="historyToTime" step="60" />
-              </label>
-            </fieldset>
-          </div>
-          <button type="button" class="hub-btn hub-btn--primary" id="historyLoadBtn">Load history</button>
-          <button type="button" class="hub-btn" id="historyRefreshListsBtn">Refresh lists</button>
-        </div>
-        <p class="poll-line" id="historyStatus">Select a session (recommended) or device + date range.</p>
-        <p class="history-results-hint">After loading, the <strong>GPS map and charts</strong> appear in the section below (scroll down if needed).</p>
-        <div id="historyResults" class="history-results" hidden aria-hidden="true">
-          <p class="history-meta" id="historyMeta"></p>
-          <h3 class="history-subtitle">GPS trace</h3>
-          <p class="map-legend history-legend">
-            <span class="map-legend-item map-legend-item--live">● Start</span>
-            <span class="map-legend-item" style="color:#3b82f6">● End</span>
-            <span class="map-legend-item map-legend-item--capsize">● Capsize</span>
+          <p class="poll-line monitor-stats-hint" id="monitorStatsHint">
+            Collecting data from each refresh…
           </p>
-          <div id="historyMap" class="history-map" role="application" aria-label="Historical GPS trace"></div>
-          <div class="history-charts">
-            <div class="history-chart-wrap">
-              <canvas id="historyChartSpeed" class="history-chart" height="160"></canvas>
-            </div>
-            <div class="history-chart-wrap">
-              <canvas id="historyChartHr" class="history-chart" height="160"></canvas>
-            </div>
-            <div class="history-chart-wrap" id="historyChartStrokeWrap">
-              <canvas id="historyChartStroke" class="history-chart" height="160"></canvas>
-            </div>
+          <div class="monitor-chart-wrap">
+            <div class="monitor-chart-legend" id="monitorChartLegend" aria-live="polite"></div>
+            <canvas
+              id="monitorChartCombined"
+              class="monitor-chart monitor-chart--combined"
+              height="110"
+              aria-label="Combined live stats: fleet health, GPS, upload lag, stroke rate, and capsize"
+            ></canvas>
           </div>
-          <div id="historyCapsizeList" class="history-capsize-list"></div>
         </div>
       </section>
 
-      <section class="hub-panel ahd-controls-panel hub-panel--settings">
-        <h2 class="hub-section-title">Monitor settings</h2>
-        <div class="ahd-inline-fields">
-          <label class="ahd-field">
-            Ingest token
-            <input type="password" id="token" placeholder="Bearer token (if set)" autocomplete="off" />
-          </label>
-          <label class="ahd-field">
-            Stats window
-            <select id="windowSec">
-              <option value="30">30 s</option>
-              <option value="60" selected>60 s</option>
-              <option value="120">120 s</option>
-            </select>
-          </label>
-          <label class="ahd-field">
-            Refresh
-            <select id="pollMs">
-              <option value="1000">1 s</option>
-              <option value="2000" selected>2 s</option>
-              <option value="5000">5 s</option>
-              <option value="10000">10 s</option>
-            </select>
-          </label>
-          <label class="ahd-field">
-            Hide offline after
-            <select id="staleSec">
-              <option value="900">15 min</option>
-              <option value="3600" selected>1 hour</option>
-              <option value="21600">6 hours</option>
-              <option value="86400">24 hours</option>
-            </select>
-          </label>
-          <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
-          <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
-          <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
-          <a class="hub-btn hub-btn--ghost" href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Altitude HD hub</a>
+      <section class="hub-panel hub-panel--history dashboard-section" data-section-id="history" data-default-open="false" id="historyPanel">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-history">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Session history</h2>
+          </button>
         </div>
-        <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
-        <p class="poll-line" id="pollStatus">Connecting…</p>
-      </section>
-
-      <section class="hub-panel hub-panel--data-manage" id="dataManagePanel">
-        <h2 class="hub-section-title">Stored data (Vercel / Neon)</h2>
-        <p class="data-manage-intro">
-          Uploaded GPS, motion, and capsize history lives in your project&apos;s
-          <strong>Postgres</strong> database when <code>POSTGRES_URL</code> is set on Vercel.
-          Use this section to review what is stored and delete data permanently.
-        </p>
-
-        <div class="data-manage-stats" id="dataManageStats" aria-live="polite">
-          <p class="poll-line">Loading storage summary…</p>
-        </div>
-
-        <details class="data-manage-security" id="dataManageSecurity" open>
-          <summary>How safe is this data?</summary>
-          <div class="data-manage-security-body" id="dataManageSecurityBody">
-            <p class="poll-line">Loading security details…</p>
-          </div>
-        </details>
-
-        <div class="data-manage-actions">
-          <h3 class="data-manage-subtitle">Delete stored data</h3>
-          <p class="data-manage-hint">
-            Requires the same <strong>ingest token</strong> as above. Deletes are
-            <strong>permanent</strong> and cannot be undone.
+        <div class="dashboard-section__body" id="section-body-history" hidden>
+          <p class="history-intro">
+            Searches the <strong>database</strong> (all uploads from the apps, not just this browser session).
+            Pick a <strong>session</strong> for one outing, or a device + date range. Use <strong>All stored for device</strong>
+            if a short range shows no data.
           </p>
-
-          <div class="data-manage-block">
-            <h4 class="data-manage-label">Delete one session</h4>
-            <div class="ahd-inline-fields">
-              <label class="ahd-field data-manage-field--wide">
-                Session
-                <select id="dataDeleteSessionId">
-                  <option value="">— select session —</option>
-                </select>
-              </label>
-              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteSessionBtn">
-                Delete session
-              </button>
-            </div>
+          <div class="ahd-inline-fields history-fields">
+            <label class="ahd-field">
+              Device ID
+              <select id="historyDeviceId">
+                <option value="">— select device —</option>
+              </select>
+            </label>
+            <label class="ahd-field history-field--wide">
+              Session <span class="history-field-hint">(easiest — loads that outing)</span>
+              <select id="historySessionId">
+                <option value="">— pick a recorded session —</option>
+              </select>
+            </label>
           </div>
-
-          <div class="data-manage-block">
-            <h4 class="data-manage-label">Delete all data for a device</h4>
-            <div class="ahd-inline-fields">
-              <label class="ahd-field">
-                Device ID
-                <select id="dataDeleteDeviceId">
-                  <option value="">— select device —</option>
-                </select>
-              </label>
-              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteDeviceBtn">
-                Delete device data
-              </button>
+          <div class="history-range-block">
+            <span class="history-range-label">Or search by date &amp; time</span>
+            <div class="history-presets" role="group" aria-label="Quick time ranges">
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="1h">Last hour</button>
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="6h">Last 6 hours</button>
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="today">Today</button>
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="yesterday">Yesterday</button>
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="30d">Last 30 days</button>
+              <button type="button" class="hub-btn hub-btn--ghost history-preset" data-preset="all">All stored for device</button>
             </div>
-          </div>
-
-          <div class="data-manage-block">
-            <h4 class="data-manage-label">Delete samples in a date range</h4>
-            <div class="ahd-inline-fields">
-              <label class="ahd-field">
-                Device ID
-                <select id="dataDeleteRangeDeviceId">
-                  <option value="">— select device —</option>
-                </select>
-              </label>
-            </div>
-            <div class="history-datetime-grid data-manage-datetime">
+            <div class="history-datetime-grid">
               <fieldset class="history-datetime-group">
                 <legend>From</legend>
                 <label class="ahd-field">
                   Date
-                  <input type="date" id="dataDeleteFromDate" />
+                  <input type="date" id="historyFromDate" />
                 </label>
                 <label class="ahd-field">
                   Time
-                  <input type="time" id="dataDeleteFromTime" step="60" />
+                  <input type="time" id="historyFromTime" step="60" />
                 </label>
               </fieldset>
               <fieldset class="history-datetime-group">
                 <legend>To</legend>
                 <label class="ahd-field">
                   Date
-                  <input type="date" id="dataDeleteToDate" />
+                  <input type="date" id="historyToDate" />
                 </label>
                 <label class="ahd-field">
                   Time
-                  <input type="time" id="dataDeleteToTime" step="60" />
+                  <input type="time" id="historyToTime" step="60" />
                 </label>
               </fieldset>
             </div>
-            <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteRangeBtn">
-              Delete range
-            </button>
+            <button type="button" class="hub-btn hub-btn--primary" id="historyLoadBtn">Load history</button>
+            <button type="button" class="hub-btn" id="historyRefreshListsBtn">Refresh lists</button>
           </div>
-
-          <div class="data-manage-block data-manage-block--danger">
-            <h4 class="data-manage-label">Delete everything in the database</h4>
-            <p class="data-manage-hint">
-              Removes all devices, sessions, and samples. Type
-              <code>DELETE ALL RNZ DATA</code> to confirm.
+          <p class="poll-line" id="historyStatus">Select a session (recommended) or device + date range.</p>
+          <p class="history-results-hint">After loading, the <strong>GPS map and charts</strong> appear below.</p>
+          <div id="historyResults" class="history-results" hidden aria-hidden="true">
+            <p class="history-meta" id="historyMeta"></p>
+            <h3 class="history-subtitle">GPS trace</h3>
+            <p class="map-legend history-legend">
+              <span class="map-legend-item map-legend-item--live">● Start</span>
+              <span class="map-legend-item" style="color:#3b82f6">● End</span>
+              <span class="map-legend-item map-legend-item--capsize">● Capsize</span>
             </p>
-            <label class="ahd-field">
-              Confirmation
-              <input
-                type="text"
-                id="dataDeleteAllConfirm"
-                placeholder="DELETE ALL RNZ DATA"
-                autocomplete="off"
-              />
-            </label>
-            <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteAllBtn">
-              Delete all stored data
-            </button>
+            <div id="historyMap" class="history-map" role="application" aria-label="Historical GPS trace"></div>
+            <div class="history-charts">
+              <div class="history-chart-wrap">
+                <canvas id="historyChartSpeed" class="history-chart" height="160"></canvas>
+              </div>
+              <div class="history-chart-wrap">
+                <canvas id="historyChartHr" class="history-chart" height="160"></canvas>
+              </div>
+              <div class="history-chart-wrap" id="historyChartStrokeWrap">
+                <canvas id="historyChartStroke" class="history-chart" height="160"></canvas>
+              </div>
+            </div>
+            <div id="historyCapsizeList" class="history-capsize-list"></div>
           </div>
         </div>
+      </section>
 
-        <p class="poll-line" id="dataManageStatus">Enter ingest token above, then refresh storage summary.</p>
-        <button type="button" class="hub-btn hub-btn--ghost" id="dataManageRefreshBtn">Refresh storage summary</button>
+      <section class="hub-panel ahd-controls-panel hub-panel--settings dashboard-section" data-section-id="settings" data-default-open="false">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-settings">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Monitor settings</h2>
+          </button>
+        </div>
+        <div class="dashboard-section__body" id="section-body-settings" hidden>
+          <div class="ahd-inline-fields">
+            <label class="ahd-field">
+              Ingest token
+              <input type="password" id="token" placeholder="Bearer token (if set)" autocomplete="off" />
+            </label>
+            <label class="ahd-field">
+              Stats window
+              <select id="windowSec">
+                <option value="30">30 s</option>
+                <option value="60" selected>60 s</option>
+                <option value="120">120 s</option>
+              </select>
+            </label>
+            <label class="ahd-field">
+              Refresh
+              <select id="pollMs">
+                <option value="1000">1 s</option>
+                <option value="2000" selected>2 s</option>
+                <option value="5000">5 s</option>
+                <option value="10000">10 s</option>
+              </select>
+            </label>
+            <label class="ahd-field">
+              Hide offline after
+              <select id="staleSec">
+                <option value="900">15 min</option>
+                <option value="3600" selected>1 hour</option>
+                <option value="21600">6 hours</option>
+                <option value="86400">24 hours</option>
+              </select>
+            </label>
+            <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
+            <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
+            <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
+            <a class="hub-btn hub-btn--ghost" href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Altitude HD hub</a>
+          </div>
+          <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
+          <p class="poll-line" id="pollStatus">Connecting…</p>
+        </div>
+      </section>
+
+      <section class="hub-panel hub-panel--data-manage dashboard-section" data-section-id="data-manage" data-default-open="false" id="dataManagePanel">
+        <div class="dashboard-section__head">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-data-manage">
+            <span class="dashboard-section__chevron" aria-hidden="true"></span>
+            <h2 class="hub-section-title">Stored data (Vercel / Neon)</h2>
+          </button>
+        </div>
+        <div class="dashboard-section__body" id="section-body-data-manage" hidden>
+          <p class="data-manage-intro">
+            Uploaded GPS, motion, and capsize history lives in your project&apos;s
+            <strong>Postgres</strong> database when <code>POSTGRES_URL</code> is set on Vercel.
+            Use this section to review what is stored and delete data permanently.
+          </p>
+
+          <div class="data-manage-stats" id="dataManageStats" aria-live="polite">
+            <p class="poll-line">Loading storage summary…</p>
+          </div>
+
+          <details class="data-manage-security" id="dataManageSecurity" open>
+            <summary>How safe is this data?</summary>
+            <div class="data-manage-security-body" id="dataManageSecurityBody">
+              <p class="poll-line">Loading security details…</p>
+            </div>
+          </details>
+
+          <div class="data-manage-actions">
+            <h3 class="data-manage-subtitle">Delete stored data</h3>
+            <p class="data-manage-hint">
+              Requires the same <strong>ingest token</strong> as above. Deletes are
+              <strong>permanent</strong> and cannot be undone.
+            </p>
+
+            <div class="data-manage-block">
+              <h4 class="data-manage-label">Delete one session</h4>
+              <div class="ahd-inline-fields">
+                <label class="ahd-field data-manage-field--wide">
+                  Session
+                  <select id="dataDeleteSessionId">
+                    <option value="">— select session —</option>
+                  </select>
+                </label>
+                <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteSessionBtn">
+                  Delete session
+                </button>
+              </div>
+            </div>
+
+            <div class="data-manage-block">
+              <h4 class="data-manage-label">Delete all data for a device</h4>
+              <div class="ahd-inline-fields">
+                <label class="ahd-field">
+                  Device ID
+                  <select id="dataDeleteDeviceId">
+                    <option value="">— select device —</option>
+                  </select>
+                </label>
+                <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteDeviceBtn">
+                  Delete device data
+                </button>
+              </div>
+            </div>
+
+            <div class="data-manage-block">
+              <h4 class="data-manage-label">Delete samples in a date range</h4>
+              <div class="ahd-inline-fields">
+                <label class="ahd-field">
+                  Device ID
+                  <select id="dataDeleteRangeDeviceId">
+                    <option value="">— select device —</option>
+                  </select>
+                </label>
+              </div>
+              <div class="history-datetime-grid data-manage-datetime">
+                <fieldset class="history-datetime-group">
+                  <legend>From</legend>
+                  <label class="ahd-field">
+                    Date
+                    <input type="date" id="dataDeleteFromDate" />
+                  </label>
+                  <label class="ahd-field">
+                    Time
+                    <input type="time" id="dataDeleteFromTime" step="60" />
+                  </label>
+                </fieldset>
+                <fieldset class="history-datetime-group">
+                  <legend>To</legend>
+                  <label class="ahd-field">
+                    Date
+                    <input type="date" id="dataDeleteToDate" />
+                  </label>
+                  <label class="ahd-field">
+                    Time
+                    <input type="time" id="dataDeleteToTime" step="60" />
+                  </label>
+                </fieldset>
+              </div>
+              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteRangeBtn">
+                Delete range
+              </button>
+            </div>
+
+            <div class="data-manage-block data-manage-block--danger">
+              <h4 class="data-manage-label">Delete everything in the database</h4>
+              <p class="data-manage-hint">
+                Removes all devices, sessions, and samples. Type
+                <code>DELETE ALL RNZ DATA</code> to confirm.
+              </p>
+              <label class="ahd-field">
+                Confirmation
+                <input
+                  type="text"
+                  id="dataDeleteAllConfirm"
+                  placeholder="DELETE ALL RNZ DATA"
+                  autocomplete="off"
+                />
+              </label>
+              <button type="button" class="hub-btn hub-btn--danger" id="dataDeleteAllBtn">
+                Delete all stored data
+              </button>
+            </div>
+          </div>
+
+          <p class="poll-line" id="dataManageStatus">Enter ingest token above, then refresh storage summary.</p>
+          <button type="button" class="hub-btn hub-btn--ghost" id="dataManageRefreshBtn">Refresh storage summary</button>
+        </div>
       </section>
     </div>
 
@@ -467,6 +530,7 @@
     <script src="/dashboard-monitor-charts.js"></script>
     <script src="/dashboard-geofences.js"></script>
     <script src="/dashboard-regatta.js"></script>
+    <script src="/dashboard-sections.js"></script>
     <script src="/dashboard.js"></script>
   </body>
 </html>

@@ -296,8 +296,8 @@ function initMap() {
   if (typeof window.dashboardInitGeofences === 'function') {
     window.dashboardInitGeofences();
   }
-  if (typeof window.dashboardInitRegatta === 'function') {
-    window.dashboardInitRegatta();
+  if (typeof window.dashboardInitSections === 'function') {
+    window.dashboardInitSections();
   }
 }
 
@@ -820,6 +820,10 @@ function init() {
   if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
 
   initMap();
+
+  if (typeof window.dashboardInitRegatta === 'function') {
+    window.dashboardInitRegatta();
+  }
 
   $('#devicesGrid')?.addEventListener('click', (e) => {
     const btn = e.target.closest('.device-collapse-btn');
