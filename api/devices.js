@@ -28,6 +28,9 @@ module.exports = async function handler(req, res) {
     windowMs: windowSec * 1000,
     onlineMs: onlineSec * 1000,
   });
+  if (req.query?.includeMetrics === '1') {
+    payload.metrics = store.getMetrics();
+  }
 
   return res.status(200).json({ ok: true, ...payload });
 };

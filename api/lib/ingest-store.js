@@ -1,11 +1,16 @@
 const db = require('./db');
-const { sanitizeTelemetrySamples } = require('./gps-validate');
 const { analyzeMotionWindow } = require('./motion-analysis');
 
 const MAX_SAMPLES_PER_REQUEST = 500;
 const MAX_SESSIONS = 200;
 const MAX_SAMPLES_PER_SESSION = 50000;
 const RING_TRIM_TO = 3000;
+const MAX_GPS_ACCURACY_M = 150;
+const MAX_TRACK_SPEED_MPS = 25;
+/** Recent fixes averaged for smooth coords (no velocity extrapolation). */
+const GPS_SMOOTH_WINDOW = 6;
+/** Keep smoothed marker within this distance of the latest raw fix. */
+const MAX_SMOOTH_OFFSET_M = 18;
 
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
@@ -15,6 +20,40 @@ globalThis.__rnzIngestSessions = sessions;
 /** @type {Map<string, number>} */
 const capsizeClearAt = globalThis.__rnzCapsizeClearAt ?? new Map();
 globalThis.__rnzCapsizeClearAt = capsizeClearAt;
+/** @type {Map<string, GpsSmoothState>} */
+const gpsTracks = globalThis.__rnzGpsTracks ?? new Map();
+globalThis.__rnzGpsTracks = gpsTracks;
+/** @type {Map<string, { t:number, result: object }>} */
+const recentIdempotency = globalThis.__rnzRecentIdempotency ?? new Map();
+/** @type {Map<string, { t: number }>} */
+const lastHeartbeatByDevice = globalThis.__rnzLastHeartbeat ?? new Map();
+globalThis.__rnzLastHeartbeat = lastHeartbeatByDevice;
+/** @type {Map<string, { t: number, pct: number }>} */
+const lastBatteryByDevice = globalThis.__rnzLastBattery ?? new Map();
+globalThis.__rnzLastBattery = lastBatteryByDevice;
+globalThis.__rnzRecentIdempotency = recentIdempotency;
+const IDEMPOTENCY_TTL_MS = 10 * 60 * 1000;
+const metrics = globalThis.__rnzIngestMetrics ?? {
+  startedAt: Date.now(),
+  requests: 0,
+  duplicates: 0,
+  droppedSamples: 0,
+  persistedBatches: 0,
+  persistFailures: 0,
+  lastPersistError: null,
+  lastPersistAt: null,
+  mapPolls: 0,
+};
+globalThis.__rnzIngestMetrics = metrics;
+
+/**
+ * @typedef {{
+ *   t: number,
+ *   lat: number,
+ *   lon: number,
+ *   ring: { t: number, lat: number, lon: number, w: number }[],
+ * }} GpsSmoothState
+ */
 
 function getCapsizeClearAt(deviceId) {
   if (!deviceId) return null;
@@ -51,6 +90,269 @@ function trimSampleRing(row) {
   }
 }
 
+function pruneIdempotency(now = Date.now()) {
+  for (const [key, entry] of recentIdempotency.entries()) {
+    if (now - entry.t > IDEMPOTENCY_TTL_MS) recentIdempotency.delete(key);
+  }
+}
+
+function isValidGpsCoords(lat, lon) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  if (Math.abs(lat) < 1e-4 && Math.abs(lon) < 1e-4) return false;
+  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return false;
+  return true;
+}
+
+function gpsFromSample(sample, { forTrack = false } = {}) {
+  if (!sample || typeof sample !== 'object' || !sample.gps) return null;
+  const lat = Number(sample.gps.lat);
+  const lon = Number(sample.gps.lon);
+  if (!isValidGpsCoords(lat, lon)) return null;
+  const acc =
+    sample.gps.acc != null && Number.isFinite(Number(sample.gps.acc))
+      ? Number(sample.gps.acc)
+      : null;
+  if (forTrack && acc != null && acc > MAX_GPS_ACCURACY_M) return null;
+  const t = Number(sample.t);
+  if (!Number.isFinite(t)) return null;
+  const spd =
+    sample.gps.spd != null && Number.isFinite(Number(sample.gps.spd))
+      ? Math.max(0, Number(sample.gps.spd))
+      : null;
+  const hdg =
+    sample.gps.hdg != null && Number.isFinite(Number(sample.gps.hdg))
+      ? Number(sample.gps.hdg)
+      : null;
+  return { t, lat, lon, acc, spd, hdg };
+}
+
+function metersPerDegLat() {
+  return 111320;
+}
+
+function metersPerDegLon(lat) {
+  return Math.max(1, 111320 * Math.cos((lat * Math.PI) / 180));
+}
+
+function distanceMeters(aLat, aLon, bLat, bLon) {
+  const dLatM = (aLat - bLat) * metersPerDegLat();
+  const dLonM = (aLon - bLon) * metersPerDegLon((aLat + bLat) / 2);
+  return Math.hypot(dLatM, dLonM);
+}
+
+function weightForAccuracy(acc) {
+  const a = acc != null && Number.isFinite(acc) ? Math.max(1, acc) : 12;
+  return 1 / (a * a);
+}
+
+/**
+ * @param {{ lat: number, lon: number, w: number }[]} ring
+ */
+function weightedCentroid(ring) {
+  let wSum = 0;
+  let lat = 0;
+  let lon = 0;
+  for (const p of ring) {
+    wSum += p.w;
+    lat += p.lat * p.w;
+    lon += p.lon * p.w;
+  }
+  if (wSum <= 0) {
+    const last = ring[ring.length - 1];
+    return { lat: last.lat, lon: last.lon };
+  }
+  return { lat: lat / wSum, lon: lon / wSum };
+}
+
+function resetGpsSmoothState(fix) {
+  const w = weightForAccuracy(fix.acc);
+  const point = { t: fix.t, lat: fix.lat, lon: fix.lon, w };
+  return { t: fix.t, lat: fix.lat, lon: fix.lon, ring: [point] };
+}
+
+/**
+ * Accuracy-weighted rolling average of recent fixes — damps jitter without predicting ahead.
+ * @param {string} deviceId
+ * @param {{ t:number, lat:number, lon:number, acc:number|null }} fix
+ */
+function updateGpsTrack(deviceId, fix) {
+  const key = String(deviceId);
+  const prev = gpsTracks.get(key);
+  if (!prev) {
+    gpsTracks.set(key, resetGpsSmoothState(fix));
+    return true;
+  }
+
+  const dtSec = (fix.t - prev.t) / 1000;
+  if (!Number.isFinite(dtSec) || dtSec < 0) return false;
+  if (dtSec > 30) {
+    gpsTracks.set(key, resetGpsSmoothState(fix));
+    return true;
+  }
+
+  if (dtSec === 0) {
+    const last = prev.ring[prev.ring.length - 1];
+    if (last) {
+      last.lat = fix.lat;
+      last.lon = fix.lon;
+      last.w = weightForAccuracy(fix.acc);
+    }
+    const { lat, lon } = weightedCentroid(prev.ring);
+    gpsTracks.set(key, { t: fix.t, lat, lon, ring: prev.ring });
+    return true;
+  }
+
+  const jumpM = distanceMeters(fix.lat, fix.lon, prev.lat, prev.lon);
+  if (jumpM / dtSec > MAX_TRACK_SPEED_MPS) {
+    gpsTracks.set(key, resetGpsSmoothState(fix));
+    return true;
+  }
+
+  const w = weightForAccuracy(fix.acc);
+  const ring = [...prev.ring, { t: fix.t, lat: fix.lat, lon: fix.lon, w }];
+  if (ring.length > GPS_SMOOTH_WINDOW) {
+    ring.splice(0, ring.length - GPS_SMOOTH_WINDOW);
+  }
+  const { lat, lon } = weightedCentroid(ring);
+  gpsTracks.set(key, { t: fix.t, lat, lon, ring });
+  return true;
+}
+
+/** Replay recent GPS samples so map polls warm the filter (serverless-safe). */
+function warmGpsTracksFromSamplesByDevice(byDevice) {
+  if (!byDevice) return;
+  const entries =
+    byDevice instanceof Map
+      ? [...byDevice.entries()].map(([deviceId, entry]) => [deviceId, entry])
+      : [...byDevice.values()].map((entry) => [entry.deviceId, entry]);
+  for (const [deviceId, entry] of entries) {
+    if (!deviceId || !entry) continue;
+    for (const s of entry.samples || []) {
+      if (!s?.gps) continue;
+      const fix = gpsFromSample(s, { forTrack: true });
+      if (fix) updateGpsTrack(deviceId, fix);
+    }
+  }
+}
+
+/**
+ * Attach smoothed coords; primary lat/lon stay raw for map colour markers.
+ * @param {object[]} rawPositions
+ */
+function attachSmoothMapCoords(rawPositions) {
+  return rawPositions.map((p) => {
+    const track = gpsTracks.get(String(p.deviceId));
+    const rawLat = p.latitude;
+    const rawLon = p.longitude;
+    if (!track || !Number.isFinite(track.t) || rawLat == null || rawLon == null) {
+      return {
+        ...p,
+        smoothLatitude: rawLat,
+        smoothLongitude: rawLon,
+        smoothFixAgeSec: p.fixAgeSec,
+        smoothed: false,
+      };
+    }
+
+    let smoothLat = track.lat;
+    let smoothLon = track.lon;
+    let offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
+    if (offsetM > MAX_SMOOTH_OFFSET_M && offsetM > 0) {
+      const scale = MAX_SMOOTH_OFFSET_M / offsetM;
+      smoothLat = rawLat + (smoothLat - rawLat) * scale;
+      smoothLon = rawLon + (smoothLon - rawLon) * scale;
+      offsetM = MAX_SMOOTH_OFFSET_M;
+    }
+
+    const fixMs = Number(p.fixMs);
+    if (Number.isFinite(fixMs) && fixMs > track.t + 500) {
+      smoothLat = rawLat + (smoothLat - rawLat) * 0.35;
+      smoothLon = rawLon + (smoothLon - rawLon) * 0.35;
+      offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
+    }
+
+    const smoothAgeSec =
+      Number.isFinite(fixMs) && fixMs > 0
+        ? Math.max(0, Math.round((Date.now() - fixMs) / 1000))
+        : p.fixAgeSec;
+
+    return {
+      ...p,
+      smoothLatitude: smoothLat,
+      smoothLongitude: smoothLon,
+      smoothFixAgeSec: smoothAgeSec,
+      smoothed: offsetM > 1.5,
+    };
+  });
+}
+
+/**
+ * @param {Sample[]} samples
+ * @returns {{ t: number, pct: number } | null}
+ */
+function latestBatteryFromSamples(samples) {
+  for (let i = samples.length - 1; i >= 0; i--) {
+    const d = samples[i]?.derived;
+    if (d && d.batteryPct != null && Number.isFinite(Number(d.batteryPct))) {
+      return {
+        t: samples[i].t,
+        pct: Math.max(0, Math.min(100, Math.round(Number(d.batteryPct)))),
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {string} deviceId
+ * @param {Sample[]} samples
+ */
+function noteDeviceTelemetry(deviceId, samples) {
+  const id = String(deviceId);
+  for (const s of samples) {
+    if (s?.derived?.heartbeat === true) {
+      lastHeartbeatByDevice.set(id, { t: s.t });
+    }
+    const pct = s?.derived?.batteryPct;
+    if (pct != null && Number.isFinite(Number(pct))) {
+      lastBatteryByDevice.set(id, {
+        t: s.t,
+        pct: Math.max(0, Math.min(100, Math.round(Number(pct)))),
+      });
+    }
+  }
+}
+
+function sanitizeAndTrackSamples(deviceId, samples) {
+  const out = [];
+  let dropped = 0;
+  for (const sample of samples) {
+    if (!sample || typeof sample !== 'object') {
+      dropped++;
+      continue;
+    }
+    let next = sample;
+    if (sample.gps) {
+      const fix = gpsFromSample(sample);
+      if (!fix) {
+        const { gps, ...rest } = sample;
+        const hasPayload =
+          rest.motion != null || rest.hr != null || rest.derived != null;
+        if (!hasPayload) {
+          dropped++;
+          continue;
+        }
+        next = rest;
+      } else {
+        const trackFix = gpsFromSample(sample, { forTrack: true });
+        if (trackFix) updateGpsTrack(deviceId, trackFix);
+      }
+    }
+    out.push(next);
+  }
+  return { samples: out, dropped };
+}
+
 /**
  * @param {Sample[]} samples
  * @param {number} windowMs
@@ -71,6 +373,8 @@ function sensorStats(samples, windowMs, deviceId) {
   let lastHr = null;
   let lastDerived = null;
   let capsizeInWindow = false;
+  let heartbeatCount = 0;
+  let lastHeartbeatT = null;
 
   for (const s of recent) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
@@ -88,6 +392,10 @@ function sensorStats(samples, windowMs, deviceId) {
     if (s.derived) {
       lastDerived = { t: s.t, ...s.derived };
       if (s.derived.capsize === true && afterClear(s.t)) capsizeInWindow = true;
+      if (s.derived.heartbeat === true) {
+        heartbeatCount++;
+        lastHeartbeatT = s.t;
+      }
     }
   }
 
@@ -137,6 +445,13 @@ function sensorStats(samples, windowMs, deviceId) {
       calibrated: analyzed?.calibrated ?? false,
       ageSec: lastMotion ? Math.round((now - lastMotion.t) / 1000) : null,
     },
+    heartbeat: {
+      present: heartbeatCount > 0,
+      rateHz: rate(heartbeatCount),
+      count: heartbeatCount,
+      lastT: lastHeartbeatT,
+      ageSec: lastHeartbeatT ? Math.round((now - lastHeartbeatT) / 1000) : null,
+    },
     totalInWindow: recent.length,
     ingestRateHz: rate(recent.length),
   };
@@ -147,13 +462,41 @@ function sensorStats(samples, windowMs, deviceId) {
  * @param {string} deviceId
  * @param {string} [athleteId]
  * @param {Sample[]} samples
+ * @param {string} [idempotencyKey]
  */
-async function recordBatch(sessionId, deviceId, athleteId, samples) {
-  const clean = sanitizeTelemetrySamples(samples);
-  if (!clean.length) return { received: 0, dropped: samples.length };
+async function recordBatch(sessionId, deviceId, athleteId, samples, idempotencyKey) {
+  metrics.requests++;
+  const dedupeKey = idempotencyKey ? String(idempotencyKey) : '';
+  const now = Date.now();
+  pruneIdempotency(now);
+  if (dedupeKey && db.hasDb()) {
+    try {
+      const dbCached = await db.getIdempotency(dedupeKey, IDEMPOTENCY_TTL_MS);
+      if (dbCached) {
+        metrics.duplicates++;
+        recentIdempotency.set(dedupeKey, { t: now, result: dbCached });
+        return { ...dbCached, duplicate: true };
+      }
+    } catch (err) {
+      console.error('[ingest-store] DB idempotency read failed:', err);
+    }
+  }
+  if (dedupeKey) {
+    const cached = recentIdempotency.get(dedupeKey);
+    if (cached && now - cached.t <= IDEMPOTENCY_TTL_MS) {
+      metrics.duplicates++;
+      return { ...cached.result, duplicate: true };
+    }
+  }
+  if (!samples.length) return { received: 0 };
+  const clean = sanitizeAndTrackSamples(deviceId, samples);
+  if (!clean.samples.length) {
+    metrics.droppedSamples += clean.dropped || 0;
+    return { received: 0, dropped: clean.dropped };
+  }
+  metrics.droppedSamples += clean.dropped || 0;
 
   const key = String(sessionId);
-  const now = Date.now();
   let row = sessions.get(key);
   if (!row) {
     row = {
@@ -168,8 +511,9 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
 
   row.deviceId = String(deviceId);
   if (athleteId) row.athleteId = String(athleteId);
-  row.samples.push(...clean);
+  row.samples.push(...clean.samples);
   row.updatedAt = now;
+  noteDeviceTelemetry(deviceId, clean.samples);
   trimSampleRing(row);
   trimSessions();
 
@@ -177,21 +521,42 @@ async function recordBatch(sessionId, deviceId, athleteId, samples) {
   let persistError = null;
   try {
     if (db.hasDb()) {
-      persisted = await db.persistBatch(sessionId, deviceId, athleteId, clean);
+      persisted = await db.persistBatch(
+        sessionId,
+        deviceId,
+        athleteId,
+        clean.samples,
+      );
+      if (persisted) {
+        metrics.persistedBatches++;
+        metrics.lastPersistAt = now;
+      }
     }
   } catch (err) {
     persistError = err instanceof Error ? err.message : String(err);
     console.error('[ingest-store] DB persist failed:', err);
+    metrics.persistFailures++;
+    metrics.lastPersistError = String(persistError).slice(0, 300);
   }
 
-  const dropped = samples.length - clean.length;
-  return {
-    received: clean.length,
-    dropped: dropped > 0 ? dropped : undefined,
+  const result = {
+    received: clean.samples.length,
+    dropped: clean.dropped || undefined,
     total: row.samples.length,
     persisted,
     persistError,
   };
+  if (dedupeKey) {
+    recentIdempotency.set(dedupeKey, { t: now, result });
+    if (db.hasDb()) {
+      try {
+        await db.setIdempotency(dedupeKey, result);
+      } catch (err) {
+        console.error('[ingest-store] DB idempotency write failed:', err);
+      }
+    }
+  }
+  return result;
 }
 
 /**
@@ -215,6 +580,28 @@ function buildDeviceEntry(entry, windowMs, onlineMs, now) {
   const stats = sensorStats(entry.samples, windowMs, entry.deviceId);
   const lastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
   const online = now - lastSeenMs <= onlineMs;
+  const hbMem = lastHeartbeatByDevice.get(entry.deviceId);
+  const batFromSamples = latestBatteryFromSamples(entry.samples || []);
+  const batMem = lastBatteryByDevice.get(entry.deviceId);
+  const bat =
+    batFromSamples && batMem
+      ? batFromSamples.t >= batMem.t
+        ? batFromSamples
+        : batMem
+      : batFromSamples || batMem || null;
+  const lastHbT = Math.max(hbMem?.t ?? 0, stats.heartbeat?.lastT ?? 0);
+  const heartbeat = {
+    present: (stats.heartbeat?.count ?? 0) > 0 || lastHbT > 0,
+    rateHz: stats.heartbeat?.rateHz ?? 0,
+    count: stats.heartbeat?.count ?? 0,
+    ageSec: lastHbT ? Math.round((now - lastHbT) / 1000) : null,
+  };
+  const battery = bat
+    ? {
+        pct: bat.pct,
+        ageSec: Math.round((now - bat.t) / 1000),
+      }
+    : { pct: null, ageSec: null };
   return {
     deviceId: entry.deviceId,
     athleteId: entry.athleteId || null,
@@ -225,6 +612,8 @@ function buildDeviceEntry(entry, windowMs, onlineMs, now) {
     firstSeenMs: entry.firstSeenMs ?? entry.firstSeenAt ?? lastSeenMs,
     totalSamples: entry.samples.length,
     ...stats,
+    heartbeat,
+    battery,
   };
 }
 
@@ -279,12 +668,55 @@ async function listDevices(opts = {}) {
 
   if (hasPostgres) {
     try {
-      const fromDb = await db.fetchRecentSamplesByDevice(windowMs);
+      const fetchMs = Math.max(windowMs, 30 * 60 * 1000);
+      const fromDb = await db.fetchRecentSamplesByDevice(fetchMs);
+      const registryGps = await db.getRegistryGpsByDevice();
       for (const entry of fromDb.values()) {
         const built = buildDeviceEntry(entry, windowMs, onlineMs, now);
         const prev = byDevice.get(entry.deviceId);
-        if (!prev || built.lastSeenMs > prev.lastSeenMs) {
-          byDevice.set(entry.deviceId, built);
+        const patched = applyRegistryGpsToDevice(
+          built,
+          registryGps.get(entry.deviceId),
+          now,
+        );
+        if (!prev || patched.lastSeenMs > prev.lastSeenMs) {
+          byDevice.set(entry.deviceId, patched);
+        }
+      }
+      for (const [deviceId, regFix] of registryGps) {
+        if (byDevice.has(deviceId)) continue;
+        const patched = applyRegistryGpsToDevice(
+          buildDeviceEntry(
+            {
+              deviceId,
+              athleteId: null,
+              sessionId: '',
+              samples: [
+                {
+                  t: regFix.t,
+                  gps: {
+                    lat: regFix.lat,
+                    lon: regFix.lon,
+                    acc: regFix.acc,
+                  },
+                },
+              ],
+              lastSeenMs: regFix.t,
+              firstSeenMs: regFix.t,
+            },
+            windowMs,
+            onlineMs,
+            now,
+          ),
+          regFix,
+          now,
+        );
+        byDevice.set(deviceId, patched);
+      }
+      for (const [deviceId, dev] of byDevice) {
+        const regFix = registryGps.get(deviceId);
+        if (regFix) {
+          byDevice.set(deviceId, applyRegistryGpsToDevice(dev, regFix, now));
         }
       }
       warning = null;
@@ -298,6 +730,67 @@ async function listDevices(opts = {}) {
   const devices = [...byDevice.values()].sort(
     (a, b) => b.lastSeenMs - a.lastSeenMs,
   );
+  const onlineDevices = devices.filter((d) => d.online);
+  const gpsAges = onlineDevices
+    .map((d) => d.gps?.ageSec)
+    .filter((v) => Number.isFinite(v));
+  const ingestRates = onlineDevices
+    .map((d) => d.ingestRateHz)
+    .filter((v) => Number.isFinite(v));
+  const gpsRates = onlineDevices
+    .map((d) => d.gps?.rateHz)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const strokeRates = onlineDevices
+    .map((d) => d.rowing?.strokeRate)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const heartbeatRates = onlineDevices
+    .map((d) => d.heartbeat?.rateHz)
+    .filter((v) => Number.isFinite(v) && v > 0);
+  const heartbeatAges = onlineDevices
+    .map((d) => d.heartbeat?.ageSec)
+    .filter((v) => Number.isFinite(v));
+  const batteryPcts = onlineDevices
+    .map((d) => d.battery?.pct)
+    .filter((v) => Number.isFinite(v));
+  const maxLastSeenMs = devices.length
+    ? Math.max(...devices.map((d) => d.lastSeenMs || 0))
+    : null;
+  const health = {
+    status:
+      warning != null
+        ? 'degraded'
+        : onlineDevices.length === 0
+          ? 'idle'
+          : 'ok',
+    onlineDevices: onlineDevices.length,
+    delayedGpsDevices: onlineDevices.filter((d) => (d.gps?.ageSec ?? 1e9) > 30).length,
+    capsizeDevices: onlineDevices.filter((d) => d.rowing?.capsize).length,
+    avgGpsAgeSec: gpsAges.length
+      ? Math.round((gpsAges.reduce((a, b) => a + b, 0) / gpsAges.length) * 10) / 10
+      : null,
+    avgIngestHz: ingestRates.length
+      ? Math.round((ingestRates.reduce((a, b) => a + b, 0) / ingestRates.length) * 10) / 10
+      : null,
+    avgGpsHz: gpsRates.length
+      ? Math.round((gpsRates.reduce((a, b) => a + b, 0) / gpsRates.length) * 10) / 10
+      : null,
+    avgStrokeSpm: strokeRates.length
+      ? Math.round(strokeRates.reduce((a, b) => a + b, 0) / strokeRates.length)
+      : null,
+    avgHeartbeatHz: heartbeatRates.length
+      ? Math.round((heartbeatRates.reduce((a, b) => a + b, 0) / heartbeatRates.length) * 10) /
+        10
+      : null,
+    avgHeartbeatAgeSec: heartbeatAges.length
+      ? Math.round((heartbeatAges.reduce((a, b) => a + b, 0) / heartbeatAges.length) * 10) / 10
+      : null,
+    avgBatteryPct: batteryPcts.length
+      ? Math.round(batteryPcts.reduce((a, b) => a + b, 0) / batteryPcts.length)
+      : null,
+    minBatteryPct: batteryPcts.length ? Math.min(...batteryPcts) : null,
+    serverDataLagSec:
+      maxLastSeenMs != null ? Math.max(0, Math.round((now - maxLastSeenMs) / 1000)) : null,
+  };
 
   return {
     polledAt: now,
@@ -309,6 +802,7 @@ async function listDevices(opts = {}) {
     persisted: hasPostgres,
     storage,
     warning,
+    health,
   };
 }
 
@@ -371,6 +865,148 @@ function getPositionsSnapshot(onlineMs = 30000) {
   };
 }
 
+/**
+ * Latest GPS fix from a sample list (same scan as sensorStats).
+ * @param {Sample[]} samples
+ */
+function latestGpsFromSamples(samples) {
+  let lastGps = null;
+  for (const s of samples) {
+    if (s.gps && s.gps.lat != null && s.gps.lon != null) {
+      lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc ?? null };
+    }
+  }
+  return lastGps;
+}
+
+/**
+ * @param {object} opts
+ * @param {string} opts.deviceId
+ * @param {{ t: number, lat: number, lon: number, acc?: number|null }} opts.fix
+ * @param {number} [opts.lastSeenMs]
+ * @param {boolean} [opts.online]
+ * @param {number} opts.now
+ * @param {string|null} [opts.athleteId]
+ * @param {number|null} [opts.hr]
+ */
+function buildRawMapPositionFromFix({
+  deviceId,
+  fix,
+  lastSeenMs,
+  online,
+  now,
+  athleteId,
+  hr,
+}) {
+  const fixMs = fix.t;
+  const lastSeen = Math.max(fixMs, lastSeenMs || 0);
+  return {
+    deviceId: String(deviceId),
+    athleteId: athleteId || null,
+    latitude: fix.lat,
+    longitude: fix.lon,
+    accuracy: fix.acc ?? null,
+    fixMs,
+    fixAgeSec: Math.round((now - fixMs) / 1000),
+    lastSeenAgoSec: Math.round((now - lastSeen) / 1000),
+    online: Boolean(online),
+    hr: hr ?? null,
+  };
+}
+
+/** @deprecated alias */
+function buildMapPositionFromFix(opts) {
+  return buildRawMapPositionFromFix(opts);
+}
+
+function getRawMemoryMapPositions(onlineMs, now) {
+  const out = [];
+  for (const row of sessions.values()) {
+    let lastGps = null;
+    for (let i = row.samples.length - 1; i >= 0; i--) {
+      const s = row.samples[i];
+      if (s.gps?.lat != null && s.gps?.lon != null) {
+        lastGps = s;
+        break;
+      }
+    }
+    if (!lastGps) continue;
+    out.push(
+      buildRawMapPositionFromFix({
+        deviceId: row.deviceId,
+        fix: {
+          t: lastGps.t,
+          lat: lastGps.gps.lat,
+          lon: lastGps.gps.lon,
+          acc: lastGps.gps.acc ?? null,
+        },
+        lastSeenMs: row.updatedAt,
+        online: now - row.updatedAt <= onlineMs,
+        now,
+        athleteId: row.athleteId || null,
+      }),
+    );
+  }
+  return out;
+}
+
+/** @param {object[][]} positionGroups later groups win on equal fixMs */
+function mergeMapPositionsByFixMs(positionGroups) {
+  /** @type {Map<string, object>} */
+  const byDevice = new Map();
+  for (const group of positionGroups) {
+    for (const p of group) {
+      if (p.latitude == null || p.longitude == null) continue;
+      const prev = byDevice.get(p.deviceId);
+      if (!prev || (p.fixMs ?? 0) >= (prev.fixMs ?? 0)) {
+        byDevice.set(p.deviceId, p);
+      }
+    }
+  }
+  return [...byDevice.values()];
+}
+
+function snapshotPositionsToMapFormat(memPositions, now, onlineMs) {
+  return memPositions.map((p) => {
+    const fixMs = new Date(p.fixTime).getTime();
+    const lastSeenMs = p.lastUpdate || fixMs;
+    return {
+      deviceId: String(p.uniqueId),
+      athleteId: p.athleteId || null,
+      latitude: p.latitude,
+      longitude: p.longitude,
+      accuracy: p.accuracy,
+      fixMs,
+      fixAgeSec: Math.round((now - fixMs) / 1000),
+      lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+      online: now - lastSeenMs <= onlineMs,
+      hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
+    };
+  });
+}
+
+function applyRegistryGpsToDevice(device, registryFix, now) {
+  if (!registryFix) return device;
+  const gps = device.gps || {};
+  const currentT = gps.last?.t ?? 0;
+  if (registryFix.t <= currentT) return device;
+  const ageSec = Math.round((now - registryFix.t) / 1000);
+  return {
+    ...device,
+    gps: {
+      ...gps,
+      present: true,
+      last: {
+        t: registryFix.t,
+        lat: registryFix.lat,
+        lon: registryFix.lon,
+        acc: registryFix.acc,
+      },
+      ageSec,
+    },
+  };
+}
+
 function attachRowingToMapPositions(positions, rowingByDevice) {
   for (const p of positions) {
     const rowing = rowingByDevice.get(p.deviceId);
@@ -379,6 +1015,37 @@ function attachRowingToMapPositions(positions, rowingByDevice) {
     p.strokeRateValid = rowing.strokeRateValid;
     p.capsize = rowing.capsize;
     p.tiltDeg = rowing.tiltDeg;
+  }
+  return positions;
+}
+
+/**
+ * @param {object[]} positions
+ * @param {Map<string, { samples: Sample[] }>} byDevice
+ * @param {number} windowMs
+ */
+function attachTelemetryToMapPositions(positions, byDevice, windowMs) {
+  const now = Date.now();
+  for (const p of positions) {
+    const entry = byDevice.get(p.deviceId);
+    if (!entry) continue;
+    const stats = sensorStats(entry.samples || [], windowMs, p.deviceId);
+    const hbMem = lastHeartbeatByDevice.get(p.deviceId);
+    const batFromSamples = latestBatteryFromSamples(entry.samples || []);
+    const batMem = lastBatteryByDevice.get(p.deviceId);
+    const bat =
+      batFromSamples && batMem
+        ? batFromSamples.t >= batMem.t
+          ? batFromSamples
+          : batMem
+        : batFromSamples || batMem || null;
+    const lastHbT = Math.max(hbMem?.t ?? 0, stats.heartbeat?.lastT ?? 0);
+    p.heartbeatRateHz = stats.heartbeat?.rateHz ?? 0;
+    p.heartbeatAgeSec = lastHbT ? Math.round((now - lastHbT) / 1000) : null;
+    if (bat) {
+      p.batteryPct = bat.pct;
+      p.batteryAgeSec = Math.round((now - bat.t) / 1000);
+    }
   }
   return positions;
 }
@@ -436,60 +1103,88 @@ function samplesByDeviceForWindow(windowMs) {
 }
 
 async function getMapPositions(onlineMs, staleMs) {
+  metrics.mapPolls++;
   const rowingWindowMs = Math.min(staleMs, 120000);
+  const telemetryWindowMs = Math.max(rowingWindowMs, 30 * 60 * 1000);
   const now = Date.now();
 
   if (db.hasDb()) {
     try {
-      const positions = await db.getMapPositions(onlineMs, staleMs);
-      const byDevice = await db.fetchRecentSamplesByDevice(rowingWindowMs);
+      const registryPositions = await db.getRegistryMapPositions(onlineMs, staleMs);
+      const dbPositions = await db.getMapPositions(onlineMs, staleMs);
+      const byDevice = await db.fetchRecentSamplesByDevice(telemetryWindowMs);
+
+      const fromRecentRaw = [];
+      for (const entry of byDevice.values()) {
+        const lastGps = latestGpsFromSamples(entry.samples || []);
+        if (!lastGps) continue;
+        fromRecentRaw.push(
+          buildRawMapPositionFromFix({
+            deviceId: entry.deviceId,
+            fix: lastGps,
+            lastSeenMs: entry.lastSeenMs,
+            online: now - entry.lastSeenMs <= onlineMs,
+            now,
+            athleteId: entry.athleteId,
+          }),
+        );
+      }
+
+      const rawMerged = mergeMapPositionsByFixMs([
+        dbPositions,
+        fromRecentRaw,
+        getRawMemoryMapPositions(onlineMs, now),
+        registryPositions,
+      ]);
+      warmGpsTracksFromSamplesByDevice(byDevice);
+      const positions = attachSmoothMapCoords(rawMerged);
+
       attachRowingToMapPositions(
         positions,
         rowingMetricsByDevice(byDevice, rowingWindowMs),
       );
+      attachTelemetryToMapPositions(positions, byDevice, rowingWindowMs);
       return positions;
     } catch (err) {
       console.error('[ingest-store] getMapPositions DB failed:', err);
     }
   }
 
-  const mem = getPositionsSnapshot(onlineMs);
-  const rowingByDevice = rowingMetricsByDevice(
-    samplesByDeviceForWindow(rowingWindowMs),
-    rowingWindowMs,
-  );
+  const telemetryByDevice = samplesByDeviceForWindow(telemetryWindowMs);
+  const rowingByDevice = rowingMetricsByDevice(telemetryByDevice, rowingWindowMs);
 
-  return mem.positions
-    .filter((p) => {
-      const fixMs = new Date(p.fixTime).getTime();
-      return (
-        Number.isFinite(fixMs) &&
-        now - fixMs <= staleMs &&
-        p.latitude != null &&
-        p.longitude != null
-      );
-    })
-    .map((p) => {
-      const fixMs = new Date(p.fixTime).getTime();
-      const lastSeenMs = p.lastUpdate || fixMs;
-      const rowing = rowingByDevice.get(String(p.uniqueId)) || {};
-      return {
-        deviceId: String(p.uniqueId),
-        athleteId: p.athleteId || null,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        accuracy: p.accuracy,
-        fixMs,
-        fixAgeSec: Math.round((now - fixMs) / 1000),
-        lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
-        online: Boolean(p.online),
-        hr: p.attributes?.hr ?? p.attributes?.heartRate ?? null,
-        strokeRate: rowing.strokeRate ?? null,
-        strokeRateValid: Boolean(rowing.strokeRateValid),
-        capsize: Boolean(rowing.capsize),
-        tiltDeg: rowing.tiltDeg ?? null,
-      };
-    });
+  const rawMerged = mergeMapPositionsByFixMs([
+    getRawMemoryMapPositions(onlineMs, now),
+  ]);
+  warmGpsTracksFromSamplesByDevice(telemetryByDevice);
+  const mapped = attachSmoothMapCoords(rawMerged).map((p) => {
+    const rowing = rowingByDevice.get(p.deviceId) || {};
+    return {
+      ...p,
+      strokeRate: rowing.strokeRate ?? null,
+      strokeRateValid: Boolean(rowing.strokeRateValid),
+      capsize: Boolean(rowing.capsize),
+      tiltDeg: rowing.tiltDeg ?? null,
+    };
+  });
+  return attachTelemetryToMapPositions(mapped, telemetryByDevice, rowingWindowMs);
+}
+
+function getMetrics() {
+  const uptimeSec = Math.max(1, Math.round((Date.now() - metrics.startedAt) / 1000));
+  return {
+    startedAt: metrics.startedAt,
+    uptimeSec,
+    requests: metrics.requests,
+    duplicates: metrics.duplicates,
+    droppedSamples: metrics.droppedSamples,
+    persistedBatches: metrics.persistedBatches,
+    persistFailures: metrics.persistFailures,
+    lastPersistError: metrics.lastPersistError,
+    lastPersistAt: metrics.lastPersistAt,
+    mapPolls: metrics.mapPolls,
+    requestRateHz: Math.round((metrics.requests / uptimeSec) * 100) / 100,
+  };
 }
 
 async function getTraccarSnapshot(onlineMs = 120000) {
@@ -694,7 +1389,11 @@ module.exports = {
   deleteStoredRange,
   deleteAllStoredData,
   getDataSecurityInfo,
+  getMetrics,
   checkAuth,
   cors,
   hasDb: db.hasDb,
+  listGeofences: () => db.listGeofences(),
+  createGeofence: (body) => db.createGeofence(body),
+  deleteGeofence: (id) => db.deleteGeofence(id),
 };
