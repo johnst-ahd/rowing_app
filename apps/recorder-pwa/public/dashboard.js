@@ -66,6 +66,26 @@ function isSmoothLiveMapEnabled() {
   return $('#liveMapMode')?.checked === true;
 }
 
+function currentPollMs() {
+  return Number($('#pollMs')?.value || localStorage.getItem(LS_POLL) || 2000);
+}
+
+function formatRefreshRateLabel() {
+  const ms = currentPollMs();
+  const sec = ms / 1000;
+  const interval =
+    sec >= 1
+      ? `${Number.isInteger(sec) ? sec : sec.toFixed(1)} s`
+      : `${ms} ms`;
+  const smooth = isSmoothLiveMapEnabled() ? ' · smooth map' : '';
+  return `Refresh: ${interval}${smooth}`;
+}
+
+function updateRefreshRateLabel() {
+  const el = $('#refreshRateLabel');
+  if (el) el.textContent = formatRefreshRateLabel();
+}
+
 function applySmoothLiveMap() {
   const live = isSmoothLiveMapEnabled();
   const pollEl = $('#pollMs');
@@ -95,6 +115,7 @@ function applySmoothLiveMap() {
     if (latestMapPositions.length) updateMap(latestMapPositions);
   }
   savePrefs();
+  updateRefreshRateLabel();
 }
 
 function haversineM(lat1, lon1, lat2, lon2) {
@@ -951,7 +972,7 @@ async function poll() {
 
     $('#activeCount').textContent = `Online: ${data.activeCount ?? 0}`;
     $('#deviceCount').textContent = `Devices: ${data.deviceCount ?? 0}`;
-    $('#windowLabel').textContent = `Window: ${data.windowSec ?? windowSec}s`;
+    updateRefreshRateLabel();
     lastPollDurationMs = Math.round(performance.now() - pollStarted);
     renderHealthBar(data);
 
@@ -1001,6 +1022,7 @@ let timer = null;
 function startPolling() {
   savePrefs();
   if (timer) clearInterval(timer);
+  updateRefreshRateLabel();
   void poll();
   const ms = Number($('#pollMs')?.value || 2000);
   timer = setInterval(() => void poll(), ms);
@@ -1077,7 +1099,10 @@ function init() {
     }
   });
   ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
-    $(sel)?.addEventListener('change', savePrefs);
+    $(sel)?.addEventListener('change', () => {
+      savePrefs();
+      updateRefreshRateLabel();
+    });
   });
   $('#liveMapMode')?.addEventListener('change', () => {
     applySmoothLiveMap();
