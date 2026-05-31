@@ -103,7 +103,7 @@ function telemetrySample(
 export async function startRecorder(
   settings: RecorderSettings,
   onStats: (s: RecorderStats) => void,
-  onLog: (msg: string) => void,
+  onLog: (msg: string, rerender?: boolean) => void,
   onPendingChange: (n: number) => void,
   onCapsize?: (active: boolean) => void,
   hooks?: RecorderHooks,
@@ -178,7 +178,7 @@ export async function startRecorder(
     regattaMessage = msg;
     stats.regattaMessage = msg;
     if (msg && msg.id !== prevId) {
-      onLog(`Regatta control: ${msg.text}`);
+      onLog(`Regatta control: ${msg.text}`, false);
     }
     emit();
   };

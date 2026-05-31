@@ -310,9 +310,9 @@
   margin: 0 0 0.65rem;
   padding: 0.65rem 0.85rem;
   border-radius: 8px;
-  background: rgba(56, 189, 248, 0.16);
-  border: 1px solid rgba(56, 189, 248, 0.55);
-  color: #e0f2fe;
+  background: rgba(7, 89, 133, 0.92);
+  border: 1px solid rgba(125, 211, 252, 0.75);
+  color: #f8fafc;
   text-align: center;
 }
 
@@ -326,15 +326,19 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7dd3fc;
-  margin-bottom: 0.25rem;
+  color: #bae6fd;
+  margin-bottom: 0.35rem;
 }
 
 .session-live-hud__regatta-text {
   display: block;
-  font-size: clamp(0.95rem, 4.2vw, 1.25rem);
-  font-weight: 700;
+  margin: 0;
+  font-size: clamp(1rem, 4.5vw, 1.35rem);
+  font-weight: 800;
   line-height: 1.35;
+  color: #ffffff;
+  -webkit-text-fill-color: #ffffff;
+  text-wrap: pretty;
 }
 
 .session-live-hud__kri {
@@ -670,6 +674,11 @@
 .session-stage:fullscreen .session-metric__value,
 .session-stage--fullscreen .session-metric__value {
   font-size: clamp(1.75rem, 6vw, 3rem);
+}
+
+.session-stage:fullscreen .session-live-hud__regatta-text,
+.session-stage--fullscreen .session-live-hud__regatta-text {
+  font-size: clamp(1.15rem, 5vw, 1.75rem);
 }
 
 .session-stage:fullscreen .session-drawer-toggle,

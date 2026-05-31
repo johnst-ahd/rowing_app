@@ -439,6 +439,7 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function liveHudHtml(): string {
+    const regattaText = controller?.getStats()?.regattaMessage?.text?.trim() || '';
     return `
       <section class="session-live-hud" aria-live="polite">
         ${
@@ -456,9 +457,9 @@ export function mountApp(root: HTMLElement): void {
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
         </div>
-        <div class="session-live-hud__regatta" data-hud-regatta hidden role="status" aria-live="polite">
+        <div class="session-live-hud__regatta" data-hud-regatta ${regattaText ? '' : 'hidden'} role="status" aria-live="polite">
           <span class="session-live-hud__regatta-label">Regatta control</span>
-          <span class="session-live-hud__regatta-text" data-hud-regatta-text></span>
+          <p class="session-live-hud__regatta-text" data-hud-regatta-text>${regattaText ? esc(regattaText) : ''}</p>
         </div>
         <div class="session-zone-badge" data-hud-zone data-zone="unknown" aria-live="polite">
           <span class="session-zone-badge__label">Locating…</span>
