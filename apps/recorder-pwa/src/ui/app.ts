@@ -600,7 +600,7 @@ export function mountApp(root: HTMLElement): void {
             </fieldset>
             <fieldset class="fieldset checks">
               <legend>Fleet map</legend>
-              <label class="check"><input type="checkbox" name="liveMapMode" ${s.liveMapMode ? 'checked' : ''} /> Live map mode <span class="form-hint">(faster GPS uploads ~2.5 s — uses more battery)</span></label>
+              <label class="check"><input type="checkbox" name="liveMapMode" ${s.liveMapMode ? 'checked' : ''} /> Faster phone uploads <span class="form-hint">(optional ~2.5 s GPS upload — uses more battery; dashboard smooth map does not need this)</span></label>
             </fieldset>
             <fieldset class="fieldset checks">
               <legend>Background recording</legend>
@@ -697,7 +697,7 @@ export function mountApp(root: HTMLElement): void {
 
       if (s.enableHr) pushLog('Use Connect HR strap when ready.');
       if (s.liveMapMode) {
-        pushLog('Live map mode on — GPS uploads ~every 2.5 s (more battery use).');
+        pushLog('Faster phone uploads on — GPS ~every 2.5 s (optional; uses more battery).');
         if (IS_NATIVE) void setNativeLiveMapMode(true);
       }
       const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;

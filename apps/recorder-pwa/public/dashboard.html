@@ -97,6 +97,7 @@
               <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
               <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
               <span class="map-legend-item map-legend-item--smooth">● H6 smoothed avg (yellow, blue ring)</span>
+              <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smooth motion between fixes (dashboard only)</span>
               <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
             </p>
             <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
@@ -361,8 +362,8 @@
             </label>
             <label class="ahd-field ahd-field--check">
               <input type="checkbox" id="liveMapMode" />
-              Live map mode
-              <span class="field-hint">1 s dashboard refresh (more API use)</span>
+              Smooth live map
+              <span class="field-hint">1 s refresh + smooth marker motion — dashboard only (phones unchanged)</span>
             </label>
             <label class="ahd-field">
               Refresh

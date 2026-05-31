@@ -1,5 +1,6 @@
 const LS_TOKEN = 'rnz_dashboard_token';
 const LS_POLL = 'rnz_dashboard_poll_ms';
+const LS_POLL_BEFORE_SMOOTH = 'rnz_dashboard_poll_before_smooth';
 const LS_STALE = 'rnz_dashboard_stale_sec';
 const LS_LIVE_MAP = 'rnz_dashboard_live_map';
 const LS_DEVICE_COLLAPSE = 'rnz_device_collapse';
@@ -10,6 +11,11 @@ const ONLINE_SEC = 120;
 /** GPS fix age thresholds (seconds) for map/card colours. */
 const GPS_LIVE_SEC = 30;
 const GPS_STALE_SEC = 300;
+/** Dead-reckoning cap after last fix (seconds). */
+const MAP_INTERPOLATE_MAX_SEC = 4;
+const MAP_INTERPOLATE_MIN_SPEED_MPS = 0.25;
+const MAP_INTERPOLATE_TICK_MS = 100;
+const EARTH_RADIUS_M = 6371000;
 /** Server-smoothed overlay marker (trial). */
 const SMOOTH_TRIAL_DEVICE = 'H6';
 
@@ -27,6 +33,11 @@ let mapUserInteracted = false;
 let mapIgnoreMoveEvents = false;
 let lastPollDurationMs = null;
 let lastMapDurationMs = null;
+/** @type {Map<string, object>} */
+const deviceTrackState = new Map();
+let mapInterpTimer = null;
+/** @type {object[]} */
+let latestMapPositions = [];
 
 function apiBase() {
   return window.location.origin;
@@ -51,12 +62,180 @@ function savePrefs() {
   localStorage.setItem(LS_LIVE_MAP, $('#liveMapMode')?.checked ? '1' : '0');
 }
 
-function applyLiveMapPoll() {
-  const live = Boolean($('#liveMapMode')?.checked);
-  if (live && $('#pollMs')) {
-    $('#pollMs').value = '1000';
+function isSmoothLiveMapEnabled() {
+  return $('#liveMapMode')?.checked === true;
+}
+
+function applySmoothLiveMap() {
+  const live = isSmoothLiveMapEnabled();
+  const pollEl = $('#pollMs');
+  const legendEl = $('#mapLegendInterpolate');
+  document.querySelector('.hub-panel--map')?.classList.toggle('hub-panel--smooth-live', live);
+  if (legendEl) legendEl.hidden = !live;
+
+  if (live) {
+    if (pollEl && pollEl.value !== '1000') {
+      localStorage.setItem(LS_POLL_BEFORE_SMOOTH, pollEl.value);
+      pollEl.value = '1000';
+    }
+    if (pollEl) pollEl.disabled = true;
+    startMapInterpolation();
+  } else {
+    if (pollEl) {
+      const wasLocked = pollEl.disabled;
+      pollEl.disabled = false;
+      if (wasLocked) {
+        const before = localStorage.getItem(LS_POLL_BEFORE_SMOOTH);
+        pollEl.value = before || '2000';
+        if (before) localStorage.removeItem(LS_POLL_BEFORE_SMOOTH);
+      }
+    }
+    stopMapInterpolation();
+    deviceTrackState.clear();
+    if (latestMapPositions.length) updateMap(latestMapPositions);
   }
   savePrefs();
+}
+
+function haversineM(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_RADIUS_M * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function destinationLatLon(lat, lon, course, distanceM) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const δ = distanceM / EARTH_RADIUS_M;
+  const θ = toRad(course);
+  const φ1 = toRad(lat);
+  const λ1 = toRad(lon);
+  const φ2 = Math.asin(
+    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ),
+  );
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
+    );
+  return [toDeg(φ2), ((toDeg(λ2) + 540) % 360) - 180];
+}
+
+function positionFixMs(p) {
+  if (p.fixMs != null && Number.isFinite(p.fixMs)) return p.fixMs;
+  if (p.fixAgeSec != null && Number.isFinite(p.fixAgeSec)) {
+    return Date.now() - p.fixAgeSec * 1000;
+  }
+  return Date.now();
+}
+
+function syncDeviceTrackState(positions) {
+  const seen = new Set();
+  for (const p of positions) {
+    if (p.latitude == null || p.longitude == null) continue;
+    seen.add(p.deviceId);
+    const fixMs = positionFixMs(p);
+    const lat = p.latitude;
+    const lon = p.longitude;
+    const prev = deviceTrackState.get(p.deviceId);
+    let speedMps = p.speed ?? null;
+    let courseDeg = p.course ?? null;
+
+    if (prev && prev.fixMs !== fixMs) {
+      const dt = (fixMs - prev.fixMs) / 1000;
+      if (dt > 0.05) {
+        const dist = haversineM(prev.lat, prev.lon, lat, lon);
+        speedMps = dist / dt;
+        courseDeg = bearingDeg(prev.lat, prev.lon, lat, lon);
+      }
+    } else if (prev) {
+      speedMps = prev.speedMps;
+      courseDeg = prev.courseDeg;
+    }
+
+    deviceTrackState.set(p.deviceId, {
+      ...p,
+      lat,
+      lon,
+      fixMs,
+      speedMps,
+      courseDeg,
+    });
+  }
+
+  for (const id of deviceTrackState.keys()) {
+    if (!seen.has(id)) deviceTrackState.delete(id);
+  }
+}
+
+function extrapolateLatLon(state, nowMs) {
+  const fixAgeSec = (nowMs - state.fixMs) / 1000;
+  if (!state.online || fixAgeSec > GPS_LIVE_SEC) {
+    return { lat: state.lat, lon: state.lon };
+  }
+  const elapsedSec = Math.max(0, (nowMs - state.fixMs) / 1000);
+  const stepSec = Math.min(elapsedSec, MAP_INTERPOLATE_MAX_SEC);
+  const speed = state.speedMps;
+  if (
+    speed != null &&
+    speed >= MAP_INTERPOLATE_MIN_SPEED_MPS &&
+    state.courseDeg != null &&
+    Number.isFinite(state.courseDeg)
+  ) {
+    const [lat, lon] = destinationLatLon(
+      state.lat,
+      state.lon,
+      state.courseDeg,
+      speed * stepSec,
+    );
+    return { lat, lon };
+  }
+  return { lat: state.lat, lon: state.lon };
+}
+
+function displayLatLonForPosition(p) {
+  if (!isSmoothLiveMapEnabled()) {
+    return { lat: p.latitude, lon: p.longitude };
+  }
+  const state = deviceTrackState.get(p.deviceId);
+  if (!state) return { lat: p.latitude, lon: p.longitude };
+  return extrapolateLatLon(state, Date.now());
+}
+
+function tickMapInterpolation() {
+  if (!isSmoothLiveMapEnabled() || !map) return;
+  for (const [id, state] of deviceTrackState) {
+    const marker = deviceMarkers.get(id);
+    if (!marker) continue;
+    const { lat, lon } = extrapolateLatLon(state, Date.now());
+    marker.setLatLng(L.latLng(lat, lon));
+  }
+}
+
+function startMapInterpolation() {
+  stopMapInterpolation();
+  mapInterpTimer = setInterval(tickMapInterpolation, MAP_INTERPOLATE_TICK_MS);
+}
+
+function stopMapInterpolation() {
+  if (mapInterpTimer) clearInterval(mapInterpTimer);
+  mapInterpTimer = null;
 }
 
 function staleSec() {
@@ -404,6 +583,9 @@ function updateMap(positions) {
   initMap();
   if (!map || !markersLayer || !smoothMarkersLayer) return;
 
+  latestMapPositions = positions;
+  if (isSmoothLiveMapEnabled()) syncDeviceTrackState(positions);
+
   const seen = new Set();
   const smoothSeen = new Set();
   const latlngs = [];
@@ -411,9 +593,10 @@ function updateMap(positions) {
   for (const p of positions) {
     if (p.latitude == null || p.longitude == null) continue;
     seen.add(p.deviceId);
-    latlngs.push([p.latitude, p.longitude]);
+    const { lat, lon } = displayLatLonForPosition(p);
+    latlngs.push([lat, lon]);
 
-    const latlng = L.latLng(p.latitude, p.longitude);
+    const latlng = L.latLng(lat, lon);
     let marker = deviceMarkers.get(p.deviceId);
     const state = gpsFixState(p.fixAgeSec);
     const icon = markerIcon(state, Boolean(p.capsize));
@@ -480,11 +663,13 @@ function updateMap(positions) {
   }
   if (statusEl) {
     const capPart = capsizeN ? ` · ${capsizeN} CAPSIZE` : '';
+    const smoothPart = isSmoothLiveMapEnabled() ? ' · smooth motion' : '';
     statusEl.textContent =
       positions.length === 0
         ? 'No GPS positions in the selected time window.'
-        : `${liveN} live · ${amberN} delayed · ${lostN} last known${capPart}`;
+        : `${liveN} live · ${amberN} delayed · ${lostN} last known${smoothPart}${capPart}`;
     statusEl.classList.toggle('map-status--capsize', capsizeN > 0);
+    statusEl.classList.toggle('map-status--smooth-live', isSmoothLiveMapEnabled());
   }
 
   setCapsizeUiActive(capsizeN > 0);
@@ -829,11 +1014,12 @@ function init() {
   if (savedToken && $('#token')) $('#token').value = savedToken;
   if (savedLiveMap && $('#liveMapMode')) {
     $('#liveMapMode').checked = true;
-    if ($('#pollMs')) $('#pollMs').value = '1000';
   } else if (savedPoll && $('#pollMs')) {
     $('#pollMs').value = savedPoll;
   }
   if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
+
+  applySmoothLiveMap();
 
   initMap();
 
@@ -894,7 +1080,7 @@ function init() {
     $(sel)?.addEventListener('change', savePrefs);
   });
   $('#liveMapMode')?.addEventListener('change', () => {
-    applyLiveMapPoll();
+    applySmoothLiveMap();
     startPolling();
   });
 

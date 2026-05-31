@@ -76,6 +76,19 @@
   color: #fca5a5;
 }
 
+.map-legend-item--interpolate {
+  color: var(--ahd-accent);
+}
+
+.map-status--smooth-live {
+  color: var(--ahd-accent);
+}
+
+.hub-panel--smooth-live .fleet-map {
+  outline: 1px solid color-mix(in srgb, var(--ahd-accent) 35%, transparent);
+  outline-offset: -1px;
+}
+
 .map-legend-item--smooth {
   color: #facc15;
 }
