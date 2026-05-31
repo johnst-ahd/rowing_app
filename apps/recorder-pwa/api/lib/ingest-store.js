@@ -1396,4 +1396,8 @@ module.exports = {
   listGeofences: () => db.listGeofences(),
   createGeofence: (body) => db.createGeofence(body),
   deleteGeofence: (id) => db.deleteGeofence(id),
+  getActiveRegattaMessage: (deviceId) => db.getActiveRegattaMessage(deviceId),
+  listActiveRegattaMessages: () => db.listActiveRegattaMessages(),
+  setRegattaMessage: (deviceId, text) => db.setRegattaMessage(deviceId, text),
+  clearRegattaMessage: (deviceId) => db.clearRegattaMessage(deviceId),
 };

@@ -28,6 +28,10 @@ import {
 import { findBoatParkAt, type GeofenceConfig } from '../lib/geofence';
 import { fetchGeofences } from '../lib/geofence-service';
 import {
+  fetchRegattaMessage,
+  REGATTA_MESSAGE_POLL_MS,
+} from '../lib/regatta-message-service';
+import {
   createMotionAnalyzer,
   metricsFromAnalyzer,
   triggerCapsizeAlert,
@@ -51,6 +55,8 @@ export type RecorderStats = {
   inBoatPark?: boolean;
   /** Name of matched boat-park zone, if any. */
   boatParkName?: string | null;
+  /** Active regatta control message for this device, if any. */
+  regattaMessage?: { id: number; text: string } | null;
 };
 
 export type RecorderController = {
@@ -164,6 +170,18 @@ export async function startRecorder(
   let effectiveUploadIntervalMs = batchIntervalMs;
   let lastGpsQueuedAt = 0;
   let geofenceRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  let regattaMessage: { id: number; text: string } | null = null;
+  let regattaPollTimer: ReturnType<typeof setInterval> | null = null;
+
+  const applyRegattaMessage = (msg: { id: number; text: string } | null) => {
+    const prevId = regattaMessage?.id ?? null;
+    regattaMessage = msg;
+    stats.regattaMessage = msg;
+    if (msg && msg.id !== prevId) {
+      onLog(`Regatta control: ${msg.text}`);
+    }
+    emit();
+  };
 
   const applyEconomyMode = (match: GeofenceConfig | null) => {
     const was = inBoatPark;
@@ -222,6 +240,23 @@ export async function startRecorder(
   }, 5 * 60 * 1000);
   stoppers.push(() => {
     if (geofenceRefreshTimer) clearInterval(geofenceRefreshTimer);
+  });
+
+  const pollRegattaMessage = () => {
+    void fetchRegattaMessage(
+      settings.ingestUrl,
+      settings.deviceId,
+      settings.ingestToken,
+    ).then((msg) => {
+      if (stopped) return;
+      applyRegattaMessage(msg ? { id: msg.id, text: msg.text } : null);
+    });
+  };
+
+  pollRegattaMessage();
+  regattaPollTimer = setInterval(pollRegattaMessage, REGATTA_MESSAGE_POLL_MS);
+  stoppers.push(() => {
+    if (regattaPollTimer) clearInterval(regattaPollTimer);
   });
 
   const emit = () => onStats({ ...stats });

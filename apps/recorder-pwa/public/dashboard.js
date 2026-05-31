@@ -296,6 +296,9 @@ function initMap() {
   if (typeof window.dashboardInitGeofences === 'function') {
     window.dashboardInitGeofences();
   }
+  if (typeof window.dashboardInitRegatta === 'function') {
+    window.dashboardInitRegatta();
+  }
 }
 
 function maybeAutoFitMap(latlngs) {
@@ -635,6 +638,11 @@ function renderDevice(d) {
       ? `${gps.last.lat.toFixed(5)}, ${gps.last.lon.toFixed(5)}`
       : null;
 
+  const regattaMsg =
+    typeof window.dashboardGetRegattaMessage === 'function'
+      ? window.dashboardGetRegattaMessage(d.deviceId)
+      : null;
+
   card.innerHTML = `
     <div class="device-head">
       <button type="button" class="device-collapse-btn" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? `Expand ${esc(d.deviceId)}` : `Collapse ${esc(d.deviceId)}`}">
@@ -686,6 +694,11 @@ function renderDevice(d) {
         <span>Last seen <strong>${d.lastSeenAgoSec}s ago</strong></span>
       </div>
       ${coords ? `<div class="coords">${coords}${gps.ageSec != null ? ` · GPS ${gps.ageSec}s ago` : ''}</div>` : ''}
+      ${
+        regattaMsg
+          ? `<div class="regatta-device-msg" title="Active regatta control message"><span class="regatta-device-msg__label">Regatta</span> ${esc(regattaMsg.text)}</div>`
+          : ''
+      }
     </div>
   `;
   return card;
@@ -772,6 +785,10 @@ async function poll() {
 
     if (window.dashboardMonitorCharts?.onPoll) {
       window.dashboardMonitorCharts.onPoll(data);
+    }
+
+    if (typeof window.dashboardOnDevicesPoll === 'function') {
+      window.dashboardOnDevicesPoll(data.devices);
     }
 
     const t = new Date(data.polledAt || Date.now()).toLocaleTimeString();

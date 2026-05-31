@@ -306,6 +306,37 @@
   display: none;
 }
 
+.session-live-hud__regatta {
+  margin: 0 0 0.65rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.16);
+  border: 1px solid rgba(56, 189, 248, 0.55);
+  color: #e0f2fe;
+  text-align: center;
+}
+
+.session-live-hud__regatta[hidden] {
+  display: none;
+}
+
+.session-live-hud__regatta-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7dd3fc;
+  margin-bottom: 0.25rem;
+}
+
+.session-live-hud__regatta-text {
+  display: block;
+  font-size: clamp(0.95rem, 4.2vw, 1.25rem);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
 .session-live-hud__kri {
   margin: 0 0 0.55rem;
 }

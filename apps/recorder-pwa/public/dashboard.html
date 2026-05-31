@@ -138,6 +138,34 @@
         <p class="poll-line" id="geofenceStatus">Loading geofences…</p>
       </section>
 
+      <section class="hub-panel hub-panel--regatta" id="regattaPanel">
+        <h2 class="hub-section-title">Regatta control</h2>
+        <p class="regatta-intro">
+          Send a message to a device while it is recording. The text appears on the rower&rsquo;s session HUD
+          (no phone notification). Devices poll every ~15&nbsp;s.
+        </p>
+        <div id="regattaActiveList" class="regatta-active-list" aria-live="polite"></div>
+        <form id="regattaForm" class="regatta-form">
+          <div class="ahd-inline-fields">
+            <label class="ahd-field">
+              Device
+              <select id="regattaDeviceId" required aria-label="Target device">
+                <option value="">— select device —</option>
+              </select>
+            </label>
+          </div>
+          <label class="ahd-field regatta-form__text">
+            Message
+            <textarea id="regattaText" rows="2" maxlength="280" required placeholder="e.g. Return to boat park after this piece"></textarea>
+          </label>
+          <div class="regatta-form__actions">
+            <button type="submit" class="hub-btn hub-btn--primary">Send to device HUD</button>
+            <button type="button" class="hub-btn hub-btn--ghost" id="regattaRefreshBtn">Refresh</button>
+          </div>
+        </form>
+        <p class="poll-line" id="regattaStatus">Loading messages…</p>
+      </section>
+
       <section class="hub-panel">
         <div class="devices-section-head">
           <h2 class="hub-section-title">Devices</h2>
@@ -438,6 +466,7 @@
     <script src="/dashboard-data-manage.js"></script>
     <script src="/dashboard-monitor-charts.js"></script>
     <script src="/dashboard-geofences.js"></script>
+    <script src="/dashboard-regatta.js"></script>
     <script src="/dashboard.js"></script>
   </body>
 </html>

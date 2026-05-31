@@ -282,6 +282,19 @@ export function mountApp(root: HTMLElement): void {
       else capsizeEl.setAttribute('hidden', '');
     }
 
+    const regattaEl = root.querySelector('[data-hud-regatta]');
+    if (regattaEl) {
+      const text = stats?.regattaMessage?.text?.trim();
+      const textEl = regattaEl.querySelector('[data-hud-regatta-text]');
+      if (text) {
+        regattaEl.removeAttribute('hidden');
+        if (textEl) textEl.textContent = text;
+      } else {
+        regattaEl.setAttribute('hidden', '');
+        if (textEl) textEl.textContent = '';
+      }
+    }
+
     const zoneEl = root.querySelector('[data-hud-zone]');
     if (zoneEl) {
       const label = zoneEl.querySelector('.session-zone-badge__label');
@@ -442,6 +455,10 @@ export function mountApp(root: HTMLElement): void {
         }
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
+        </div>
+        <div class="session-live-hud__regatta" data-hud-regatta hidden role="status" aria-live="polite">
+          <span class="session-live-hud__regatta-label">Regatta control</span>
+          <span class="session-live-hud__regatta-text" data-hud-regatta-text></span>
         </div>
         <div class="session-zone-badge" data-hud-zone data-zone="unknown" aria-live="polite">
           <span class="session-zone-badge__label">Locating…</span>

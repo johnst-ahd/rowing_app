@@ -116,6 +116,20 @@ async function initSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS rnz_regatta_messages (
+      id SERIAL PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cleared_at TIMESTAMPTZ NULL
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_rnz_regatta_messages_active
+      ON rnz_regatta_messages (device_id)
+      WHERE cleared_at IS NULL
+  `;
 
   if (!globalThis.__rnzRegistryGpsBackfill) {
     globalThis.__rnzRegistryGpsBackfill = true;
@@ -1006,6 +1020,73 @@ async function deleteGeofence(id) {
   return (del.rowCount ?? 0) > 0;
 }
 
+const { normalizeRegattaMessage } = require('./regatta-message');
+
+async function getActiveRegattaMessage(deviceId) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  if (!id) return null;
+  const rows = await sql`
+    SELECT id, device_id, text, created_at
+    FROM rnz_regatta_messages
+    WHERE device_id = ${id} AND cleared_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return normalizeRegattaMessage(rows.rows[0]);
+}
+
+async function listActiveRegattaMessages() {
+  if (!hasDb()) return [];
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT DISTINCT ON (device_id) id, device_id, text, created_at
+    FROM rnz_regatta_messages
+    WHERE cleared_at IS NULL
+    ORDER BY device_id ASC, created_at DESC
+  `;
+  return rows.rows.map(normalizeRegattaMessage).filter(Boolean);
+}
+
+async function setRegattaMessage(deviceId, text) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  const msg = String(text ?? '').trim();
+  if (!id || !msg) return null;
+
+  await sql`
+    UPDATE rnz_regatta_messages
+    SET cleared_at = NOW()
+    WHERE device_id = ${id} AND cleared_at IS NULL
+  `;
+
+  const ins = await sql`
+    INSERT INTO rnz_regatta_messages (device_id, text)
+    VALUES (${id}, ${msg})
+    RETURNING id, device_id, text, created_at
+  `;
+  return normalizeRegattaMessage(ins.rows[0]);
+}
+
+async function clearRegattaMessage(deviceId) {
+  if (!hasDb()) return false;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  if (!id) return false;
+  const upd = await sql`
+    UPDATE rnz_regatta_messages
+    SET cleared_at = NOW()
+    WHERE device_id = ${id} AND cleared_at IS NULL
+  `;
+  return (upd.rowCount ?? 0) > 0;
+}
+
 module.exports = {
   hasDb,
   initSchema,
@@ -1033,4 +1114,8 @@ module.exports = {
   listGeofences,
   createGeofence,
   deleteGeofence,
+  getActiveRegattaMessage,
+  listActiveRegattaMessages,
+  setRegattaMessage,
+  clearRegattaMessage,
 };
