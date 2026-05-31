@@ -215,6 +215,12 @@
   accent-color: var(--ahd-accent);
 }
 
+.check .form-hint {
+  font-weight: 400;
+  font-size: 0.78rem;
+  color: var(--ahd-muted);
+}
+
 .ahd-recorder-main .hub-panel,
 .ahd-toolbar,
 .ahd-toolbar-actions,

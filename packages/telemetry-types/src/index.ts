@@ -67,6 +67,8 @@ export type RecorderSettings = {
   enableBackgroundRecording: boolean;
   /** Keep screen awake while recording (Screen Wake Lock API). */
   keepScreenOn: boolean;
+  /** Faster GPS uploads (~2.5 s) for live fleet map; uses more battery/cellular. */
+  liveMapMode: boolean;
 };
 
 /** Production ingest API (Vercel). Used as default on phones and new installs. */
@@ -87,6 +89,7 @@ export const DEFAULT_SETTINGS: RecorderSettings = {
   enableHr: true,
   enableBackgroundRecording: true,
   keepScreenOn: true,
+  liveMapMode: false,
 };
 
 export type SessionMeta = {

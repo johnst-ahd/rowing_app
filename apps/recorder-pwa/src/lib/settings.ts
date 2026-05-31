@@ -118,6 +118,7 @@ export function settingsFromForm(form: HTMLFormElement): RecorderSettings {
     enableHr: fd.get('enableHr') === 'on',
     enableBackgroundRecording: fd.get('enableBackgroundRecording') === 'on',
     keepScreenOn: fd.get('keepScreenOn') === 'on',
+    liveMapMode: fd.get('liveMapMode') === 'on',
   });
   if (IS_NATIVE_APP) settings.enableBackgroundRecording = true;
   return settings;

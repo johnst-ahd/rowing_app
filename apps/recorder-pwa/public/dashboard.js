@@ -1,6 +1,7 @@
 const LS_TOKEN = 'rnz_dashboard_token';
 const LS_POLL = 'rnz_dashboard_poll_ms';
 const LS_STALE = 'rnz_dashboard_stale_sec';
+const LS_LIVE_MAP = 'rnz_dashboard_live_map';
 const LS_DEVICE_COLLAPSE = 'rnz_device_collapse';
 
 const MAP_CENTER = [-37.9305, 175.5485];
@@ -47,6 +48,15 @@ function savePrefs() {
   if (token) localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_POLL, String($('#pollMs')?.value || 2000));
   localStorage.setItem(LS_STALE, String($('#staleSec')?.value || 3600));
+  localStorage.setItem(LS_LIVE_MAP, $('#liveMapMode')?.checked ? '1' : '0');
+}
+
+function applyLiveMapPoll() {
+  const live = Boolean($('#liveMapMode')?.checked);
+  if (live && $('#pollMs')) {
+    $('#pollMs').value = '1000';
+  }
+  savePrefs();
 }
 
 function staleSec() {
@@ -815,8 +825,14 @@ function init() {
   const savedToken = localStorage.getItem(LS_TOKEN);
   const savedPoll = localStorage.getItem(LS_POLL);
   const savedStale = localStorage.getItem(LS_STALE);
+  const savedLiveMap = localStorage.getItem(LS_LIVE_MAP) === '1';
   if (savedToken && $('#token')) $('#token').value = savedToken;
-  if (savedPoll && $('#pollMs')) $('#pollMs').value = savedPoll;
+  if (savedLiveMap && $('#liveMapMode')) {
+    $('#liveMapMode').checked = true;
+    if ($('#pollMs')) $('#pollMs').value = '1000';
+  } else if (savedPoll && $('#pollMs')) {
+    $('#pollMs').value = savedPoll;
+  }
   if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
 
   initMap();
@@ -876,6 +892,10 @@ function init() {
   });
   ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
     $(sel)?.addEventListener('change', savePrefs);
+  });
+  $('#liveMapMode')?.addEventListener('change', () => {
+    applyLiveMapPoll();
+    startPolling();
   });
 
   startPolling();

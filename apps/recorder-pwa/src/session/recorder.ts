@@ -21,6 +21,7 @@ import {
 import {
   getNativeRecordingPulse,
   setNativeEconomyMode,
+  setNativeLiveMapMode,
   startNativeCapsizeMonitor,
   stopNativeCapsizeMonitor,
   syncNativeCapsizeUpright,
@@ -74,6 +75,9 @@ export type RecorderHooks = {
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 const BG_UPLOAD_PULSE_MS = 12_000;
+/** Live map mode: push WebView outbox frequently (native APK uses its own flush). */
+const LIVE_MAP_PUSH_MS = 2_500;
+const MOTION_BATCH_MIN_MS = 8_000;
 
 /** Cap in-memory batch before enqueue (avoids huge JSON + IDB stalls). */
 const MAX_BATCH_SAMPLES = 40;
@@ -159,8 +163,11 @@ export async function startRecorder(
           )
         : MAX_BATCH_SAMPLES;
   const batchIntervalMs = settings.enableMotion
-    ? Math.max(settings.uploadBatchMs, 8000)
+    ? Math.max(settings.uploadBatchMs, MOTION_BATCH_MIN_MS)
     : settings.uploadBatchMs;
+
+  const liveMapPushEnabled = () =>
+    Boolean(settings.liveMapMode && settings.enableGps && !inBoatPark);
 
   let geofences: GeofenceConfig[] = [];
   let inBoatPark = false;
@@ -172,6 +179,8 @@ export async function startRecorder(
   let geofenceRefreshTimer: ReturnType<typeof setInterval> | null = null;
   let regattaMessage: { id: number; text: string } | null = null;
   let regattaPollTimer: ReturnType<typeof setInterval> | null = null;
+  let liveMapPushTimer: ReturnType<typeof setInterval> | null = null;
+  let lastLiveMapPushAt = 0;
 
   const applyRegattaMessage = (msg: { id: number; text: string } | null) => {
     const prevId = regattaMessage?.id ?? null;
@@ -209,6 +218,7 @@ export async function startRecorder(
           uploadIntervalMs: effectiveUploadIntervalMs,
           enableCapsize: capsizeAllowed,
         });
+        void setNativeLiveMapMode(!inBoatPark && Boolean(settings.liveMapMode));
       }
       if (!capsizeAllowed && capsizeActive) {
         capsizeActive = false;
@@ -308,9 +318,24 @@ export async function startRecorder(
       sample.derived = { ...sample.derived, inBoatPark: true };
     }
     queueSample(sample);
+    if (liveMapPushEnabled() && now - lastLiveMapPushAt >= LIVE_MAP_PUSH_MS) {
+      lastLiveMapPushAt = now;
+      void pushBatch();
+    }
   };
 
   batchTimer = setInterval(() => void pushBatch(), batchIntervalMs);
+
+  if (settings.liveMapMode && settings.enableGps) {
+    liveMapPushTimer = setInterval(() => {
+      if (stopped || !liveMapPushEnabled() || batch.length === 0) return;
+      lastLiveMapPushAt = Date.now();
+      void pushBatch();
+    }, LIVE_MAP_PUSH_MS);
+    stoppers.push(() => {
+      if (liveMapPushTimer) clearInterval(liveMapPushTimer);
+    });
+  }
 
   if (IS_NATIVE && (settings.enableGps || settings.enableMotion)) {
     const started = await startNativeCapsizeMonitor({
@@ -325,6 +350,9 @@ export async function startRecorder(
     });
     nativeCapsizeMonitorOn = started;
     if (started) {
+      if (settings.liveMapMode && settings.enableGps) {
+        void setNativeLiveMapMode(true);
+      }
       if (settings.enableGps) {
         onLog(
           'Native GPS on — posts to dashboard with screen off (Android foreground service).',
@@ -620,6 +648,7 @@ export async function startRecorder(
     async stop() {
       stopped = true;
       if (nativeCapsizeMonitorOn) {
+        await setNativeLiveMapMode(false);
         await stopNativeCapsizeMonitor();
         nativeCapsizeMonitorOn = false;
       }

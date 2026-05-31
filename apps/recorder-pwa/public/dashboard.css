@@ -653,6 +653,23 @@
   color: var(--ahd-muted);
 }
 
+.ahd-field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ahd-field--check input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.field-hint {
+  font-weight: 400;
+  font-size: 0.75rem;
+  color: var(--ahd-muted);
+}
+
 .history-range-block {
   margin-top: 0.5rem;
   padding-top: 0.75rem;
