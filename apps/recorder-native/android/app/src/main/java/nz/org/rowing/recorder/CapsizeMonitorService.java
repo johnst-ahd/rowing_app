@@ -67,7 +67,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final int UPLOAD_FLUSH_MAX_SAMPLES = 12;
     /** Keeps dashboard "online" when GPS fixes pause (independent of gpsIntervalMs). */
     private static final long HEARTBEAT_INTERVAL_MS = 10_000L;
-    private static final long BATTERY_REPORT_INTERVAL_MS = 30L * 60L * 1000L;
+    /** Battery % on ingest — 1 min so dashboard drain tests update without spamming every GPS fix. */
+    private static final long BATTERY_REPORT_INTERVAL_MS = 60_000L;
     private static final int MAX_PENDING_BATCHES = 60;
     private static final int MAX_PENDING_FLUSH_PER_CYCLE = 8;
     private static final int MAX_PENDING_FLUSH_ON_GPS = 2;
