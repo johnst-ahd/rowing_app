@@ -7,10 +7,16 @@ const MAX_SAMPLES_PER_SESSION = 50000;
 const RING_TRIM_TO = 3000;
 const MAX_GPS_ACCURACY_M = 150;
 const MAX_TRACK_SPEED_MPS = 25;
-/** Recent fixes averaged for smooth coords (no velocity extrapolation). */
-const GPS_SMOOTH_WINDOW = 6;
+/** Max seconds to project track forward from last fix timestamp to now. */
+const MAX_PREDICT_SEC = 2.5;
 /** Keep smoothed marker within this distance of the latest raw fix. */
-const MAX_SMOOTH_OFFSET_M = 18;
+const MAX_SMOOTH_OFFSET_M = 10;
+/** Min speed before predict-to-now (m/s). */
+const MIN_PREDICT_SPEED_MPS = 0.25;
+/** Cap speed used for map prediction (rowing shell). */
+const MAX_ROWING_PREDICT_MPS = 12;
+/** Only predict when GPS fix is fresher than this (seconds). */
+const MAX_PREDICT_FIX_AGE_SEC = 30;
 
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
@@ -51,7 +57,10 @@ globalThis.__rnzIngestMetrics = metrics;
  *   t: number,
  *   lat: number,
  *   lon: number,
- *   ring: { t: number, lat: number, lon: number, w: number }[],
+ *   smoothLat: number,
+ *   smoothLon: number,
+ *   speedMps: number | null,
+ *   courseDeg: number | null,
  * }} GpsSmoothState
  */
 
@@ -140,40 +149,72 @@ function distanceMeters(aLat, aLon, bLat, bLon) {
   return Math.hypot(dLatM, dLonM);
 }
 
-function weightForAccuracy(acc) {
-  const a = acc != null && Number.isFinite(acc) ? Math.max(1, acc) : 12;
-  return 1 / (a * a);
+function emaAlphaForAccuracy(acc) {
+  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.75;
+  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.65;
+  return 0.5;
 }
 
-/**
- * @param {{ lat: number, lon: number, w: number }[]} ring
- */
-function weightedCentroid(ring) {
-  let wSum = 0;
-  let lat = 0;
-  let lon = 0;
-  for (const p of ring) {
-    wSum += p.w;
-    lat += p.lat * p.w;
-    lon += p.lon * p.w;
-  }
-  if (wSum <= 0) {
-    const last = ring[ring.length - 1];
-    return { lat: last.lat, lon: last.lon };
-  }
-  return { lat: lat / wSum, lon: lon / wSum };
+function bearingDeg(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
+function destinationLatLon(lat, lon, courseDeg, distanceM) {
+  if (distanceM <= 0) return [lat, lon];
+  const R = 6371000;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const toDeg = (r) => (r * 180) / Math.PI;
+  const δ = distanceM / R;
+  const θ = toRad(courseDeg);
+  const φ1 = toRad(lat);
+  const λ1 = toRad(lon);
+  const φ2 = Math.asin(
+    Math.sin(φ1) * Math.cos(δ) + Math.cos(φ1) * Math.sin(δ) * Math.cos(θ),
+  );
+  const λ2 =
+    λ1 +
+    Math.atan2(
+      Math.sin(θ) * Math.sin(δ) * Math.cos(φ1),
+      Math.cos(δ) - Math.sin(φ1) * Math.sin(φ2),
+    );
+  return [toDeg(φ2), ((toDeg(λ2) + 540) % 360) - 180];
+}
+
+function clampOffsetFromRaw(rawLat, rawLon, lat, lon, maxM) {
+  const offsetM = distanceMeters(rawLat, rawLon, lat, lon);
+  if (offsetM <= maxM || offsetM <= 0) return { lat, lon, offsetM };
+  const scale = maxM / offsetM;
+  return {
+    lat: rawLat + (lat - rawLat) * scale,
+    lon: rawLon + (lon - rawLon) * scale,
+    offsetM: maxM,
+  };
 }
 
 function resetGpsSmoothState(fix) {
-  const w = weightForAccuracy(fix.acc);
-  const point = { t: fix.t, lat: fix.lat, lon: fix.lon, w };
-  return { t: fix.t, lat: fix.lat, lon: fix.lon, ring: [point] };
+  return {
+    t: fix.t,
+    lat: fix.lat,
+    lon: fix.lon,
+    smoothLat: fix.lat,
+    smoothLon: fix.lon,
+    speedMps: fix.spd,
+    courseDeg: fix.hdg,
+  };
 }
 
 /**
- * Accuracy-weighted rolling average of recent fixes — damps jitter without predicting ahead.
+ * Track last fix + velocity for bounded predict-to-now on the map overlay.
  * @param {string} deviceId
- * @param {{ t:number, lat:number, lon:number, acc:number|null }} fix
+ * @param {{ t:number, lat:number, lon:number, acc:number|null, spd:number|null, hdg:number|null }} fix
  */
 function updateGpsTrack(deviceId, fix) {
   const key = String(deviceId);
@@ -191,14 +232,16 @@ function updateGpsTrack(deviceId, fix) {
   }
 
   if (dtSec === 0) {
-    const last = prev.ring[prev.ring.length - 1];
-    if (last) {
-      last.lat = fix.lat;
-      last.lon = fix.lon;
-      last.w = weightForAccuracy(fix.acc);
-    }
-    const { lat, lon } = weightedCentroid(prev.ring);
-    gpsTracks.set(key, { t: fix.t, lat, lon, ring: prev.ring });
+    gpsTracks.set(key, {
+      ...prev,
+      t: fix.t,
+      lat: fix.lat,
+      lon: fix.lon,
+      smoothLat: fix.lat,
+      smoothLon: fix.lon,
+      speedMps: fix.spd ?? prev.speedMps,
+      courseDeg: fix.hdg ?? prev.courseDeg,
+    });
     return true;
   }
 
@@ -208,13 +251,28 @@ function updateGpsTrack(deviceId, fix) {
     return true;
   }
 
-  const w = weightForAccuracy(fix.acc);
-  const ring = [...prev.ring, { t: fix.t, lat: fix.lat, lon: fix.lon, w }];
-  if (ring.length > GPS_SMOOTH_WINDOW) {
-    ring.splice(0, ring.length - GPS_SMOOTH_WINDOW);
+  let speedMps = jumpM / dtSec;
+  let courseDeg = bearingDeg(prev.lat, prev.lon, fix.lat, fix.lon);
+  if (fix.spd != null && Number.isFinite(fix.spd)) {
+    speedMps = prev.speedMps != null ? 0.5 * speedMps + 0.5 * fix.spd : fix.spd;
   }
-  const { lat, lon } = weightedCentroid(ring);
-  gpsTracks.set(key, { t: fix.t, lat, lon, ring });
+  if (fix.hdg != null && Number.isFinite(fix.hdg)) {
+    courseDeg = fix.hdg;
+  }
+
+  const alpha = emaAlphaForAccuracy(fix.acc);
+  const smoothLat = alpha * fix.lat + (1 - alpha) * prev.smoothLat;
+  const smoothLon = alpha * fix.lon + (1 - alpha) * prev.smoothLon;
+
+  gpsTracks.set(key, {
+    t: fix.t,
+    lat: fix.lat,
+    lon: fix.lon,
+    smoothLat,
+    smoothLon,
+    speedMps,
+    courseDeg,
+  });
   return true;
 }
 
@@ -237,14 +295,16 @@ function warmGpsTracksFromSamplesByDevice(byDevice) {
 
 /**
  * Attach smoothed coords; primary lat/lon stay raw for map colour markers.
+ * Overlay uses last fix + bounded velocity extrapolation to now (when moving).
  * @param {object[]} rawPositions
  */
 function attachSmoothMapCoords(rawPositions) {
+  const now = Date.now();
   return rawPositions.map((p) => {
     const track = gpsTracks.get(String(p.deviceId));
     const rawLat = p.latitude;
     const rawLon = p.longitude;
-    if (!track || !Number.isFinite(track.t) || rawLat == null || rawLon == null) {
+    if (rawLat == null || rawLon == null) {
       return {
         ...p,
         smoothLatitude: rawLat,
@@ -254,34 +314,69 @@ function attachSmoothMapCoords(rawPositions) {
       };
     }
 
-    let smoothLat = track.lat;
-    let smoothLon = track.lon;
-    let offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
-    if (offsetM > MAX_SMOOTH_OFFSET_M && offsetM > 0) {
-      const scale = MAX_SMOOTH_OFFSET_M / offsetM;
-      smoothLat = rawLat + (smoothLat - rawLat) * scale;
-      smoothLon = rawLon + (smoothLon - rawLon) * scale;
-      offsetM = MAX_SMOOTH_OFFSET_M;
+    const fixMs = Number(p.fixMs);
+    const fixAgeSec =
+      Number.isFinite(fixMs) && fixMs > 0
+        ? Math.max(0, (now - fixMs) / 1000)
+        : Number(p.fixAgeSec);
+
+    let smoothLat = rawLat;
+    let smoothLon = rawLon;
+
+    if (track && Number.isFinite(track.t)) {
+      const speedMps = Math.min(
+        track.speedMps != null && Number.isFinite(track.speedMps)
+          ? Math.max(0, track.speedMps)
+          : 0,
+        MAX_ROWING_PREDICT_MPS,
+      );
+      const courseDeg = track.courseDeg;
+      const canPredict =
+        p.online !== false &&
+        fixAgeSec != null &&
+        fixAgeSec <= MAX_PREDICT_FIX_AGE_SEC &&
+        speedMps >= MIN_PREDICT_SPEED_MPS &&
+        courseDeg != null &&
+        Number.isFinite(courseDeg);
+
+      if (canPredict && fixAgeSec > 0) {
+        const predictSec = Math.min(fixAgeSec, MAX_PREDICT_SEC);
+        [smoothLat, smoothLon] = destinationLatLon(
+          rawLat,
+          rawLon,
+          courseDeg,
+          speedMps * predictSec,
+        );
+      } else if (
+        track.smoothLat != null &&
+        track.smoothLon != null &&
+        Number.isFinite(track.smoothLat) &&
+        Number.isFinite(track.smoothLon)
+      ) {
+        smoothLat = track.smoothLat;
+        smoothLon = track.smoothLon;
+      }
     }
 
-    const fixMs = Number(p.fixMs);
-    if (Number.isFinite(fixMs) && fixMs > track.t + 500) {
-      smoothLat = rawLat + (smoothLat - rawLat) * 0.35;
-      smoothLon = rawLon + (smoothLon - rawLon) * 0.35;
-      offsetM = distanceMeters(rawLat, rawLon, smoothLat, smoothLon);
-    }
+    const clamped = clampOffsetFromRaw(
+      rawLat,
+      rawLon,
+      smoothLat,
+      smoothLon,
+      MAX_SMOOTH_OFFSET_M,
+    );
 
     const smoothAgeSec =
-      Number.isFinite(fixMs) && fixMs > 0
-        ? Math.max(0, Math.round((Date.now() - fixMs) / 1000))
+      fixAgeSec != null && Number.isFinite(fixAgeSec)
+        ? Math.round(fixAgeSec)
         : p.fixAgeSec;
 
     return {
       ...p,
-      smoothLatitude: smoothLat,
-      smoothLongitude: smoothLon,
+      smoothLatitude: clamped.lat,
+      smoothLongitude: clamped.lon,
       smoothFixAgeSec: smoothAgeSec,
-      smoothed: offsetM > 1.5,
+      smoothed: clamped.offsetM > 1.5,
     };
   });
 }

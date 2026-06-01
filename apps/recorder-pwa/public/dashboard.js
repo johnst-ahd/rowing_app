@@ -551,7 +551,7 @@ function smoothMarkerIcon() {
 
 function smoothPopupHtml(p) {
   const age = p.smoothFixAgeSec ?? p.fixAgeSec;
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Recent-fix average · ${age}s · H6 trial</div>`;
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Predict-to-now (max 2.5 s) · fix ${age}s · H6 trial</div>`;
 }
 
 function markerIcon(state, capsize = false) {
