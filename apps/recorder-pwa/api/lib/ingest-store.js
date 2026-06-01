@@ -15,8 +15,44 @@ const MAX_SMOOTH_OFFSET_M = 10;
 const MIN_PREDICT_SPEED_MPS = 0.25;
 /** Cap speed used for map prediction (rowing shell). */
 const MAX_ROWING_PREDICT_MPS = 12;
+/** Cap speed used for map prediction (car test, 120 km/h). */
+const MAX_CAR_PREDICT_KMH = 120;
+const MAX_CAR_PREDICT_MPS = MAX_CAR_PREDICT_KMH / 3.6;
+/** Max offset from raw when predicting at car speeds (~2.5 s at 120 km/h). */
+const MAX_CAR_SMOOTH_OFFSET_M = Math.ceil(MAX_CAR_PREDICT_MPS * MAX_PREDICT_SEC);
+/** Outlier jump threshold while warming track in car mode (m/s). */
+const MAX_CAR_TRACK_SPEED_MPS = 38;
 /** Only predict when GPS fix is fresher than this (seconds). */
 const MAX_PREDICT_FIX_AGE_SEC = 30;
+
+/**
+ * @param {string | undefined | null} mode
+ * @returns {'rowing' | 'car'}
+ */
+function parsePredictMode(mode) {
+  const m = String(mode || '')
+    .trim()
+    .toLowerCase();
+  return m === 'car' ? 'car' : 'rowing';
+}
+
+/**
+ * @param {'rowing' | 'car'} predictMode
+ */
+function predictLimitsForMode(predictMode) {
+  if (predictMode === 'car') {
+    return {
+      maxSpeedMps: MAX_CAR_PREDICT_MPS,
+      maxOffsetM: MAX_CAR_SMOOTH_OFFSET_M,
+      maxTrackSpeedMps: MAX_CAR_TRACK_SPEED_MPS,
+    };
+  }
+  return {
+    maxSpeedMps: MAX_ROWING_PREDICT_MPS,
+    maxOffsetM: MAX_SMOOTH_OFFSET_M,
+    maxTrackSpeedMps: MAX_TRACK_SPEED_MPS,
+  };
+}
 
 /** @type {Map<string, SessionRow>} */
 const sessions = globalThis.__rnzIngestSessions ?? new Map();
@@ -215,8 +251,10 @@ function resetGpsSmoothState(fix) {
  * Track last fix + velocity for bounded predict-to-now on the map overlay.
  * @param {string} deviceId
  * @param {{ t:number, lat:number, lon:number, acc:number|null, spd:number|null, hdg:number|null }} fix
+ * @param {{ maxTrackSpeedMps?: number }} [opts]
  */
-function updateGpsTrack(deviceId, fix) {
+function updateGpsTrack(deviceId, fix, opts = {}) {
+  const maxTrackSpeedMps = opts.maxTrackSpeedMps ?? MAX_TRACK_SPEED_MPS;
   const key = String(deviceId);
   const prev = gpsTracks.get(key);
   if (!prev) {
@@ -246,7 +284,7 @@ function updateGpsTrack(deviceId, fix) {
   }
 
   const jumpM = distanceMeters(fix.lat, fix.lon, prev.lat, prev.lon);
-  if (jumpM / dtSec > MAX_TRACK_SPEED_MPS) {
+  if (jumpM / dtSec > maxTrackSpeedMps) {
     gpsTracks.set(key, resetGpsSmoothState(fix));
     return true;
   }
@@ -277,8 +315,11 @@ function updateGpsTrack(deviceId, fix) {
 }
 
 /** Replay recent GPS samples so map polls warm the filter (serverless-safe). */
-function warmGpsTracksFromSamplesByDevice(byDevice) {
+function warmGpsTracksFromSamplesByDevice(byDevice, opts = {}) {
   if (!byDevice) return;
+  const trackOpts = {
+    maxTrackSpeedMps: opts.maxTrackSpeedMps ?? MAX_TRACK_SPEED_MPS,
+  };
   const entries =
     byDevice instanceof Map
       ? [...byDevice.entries()].map(([deviceId, entry]) => [deviceId, entry])
@@ -288,7 +329,7 @@ function warmGpsTracksFromSamplesByDevice(byDevice) {
     for (const s of entry.samples || []) {
       if (!s?.gps) continue;
       const fix = gpsFromSample(s, { forTrack: true });
-      if (fix) updateGpsTrack(deviceId, fix);
+      if (fix) updateGpsTrack(deviceId, fix, trackOpts);
     }
   }
 }
@@ -297,8 +338,10 @@ function warmGpsTracksFromSamplesByDevice(byDevice) {
  * Attach smoothed coords; primary lat/lon stay raw for map colour markers.
  * Overlay uses last fix + bounded velocity extrapolation to now (when moving).
  * @param {object[]} rawPositions
+ * @param {'rowing' | 'car'} [predictMode]
  */
-function attachSmoothMapCoords(rawPositions) {
+function attachSmoothMapCoords(rawPositions, predictMode = 'rowing') {
+  const limits = predictLimitsForMode(parsePredictMode(predictMode));
   const now = Date.now();
   return rawPositions.map((p) => {
     const track = gpsTracks.get(String(p.deviceId));
@@ -328,7 +371,7 @@ function attachSmoothMapCoords(rawPositions) {
         track.speedMps != null && Number.isFinite(track.speedMps)
           ? Math.max(0, track.speedMps)
           : 0,
-        MAX_ROWING_PREDICT_MPS,
+        limits.maxSpeedMps,
       );
       const courseDeg = track.courseDeg;
       const canPredict =
@@ -363,7 +406,7 @@ function attachSmoothMapCoords(rawPositions) {
       rawLon,
       smoothLat,
       smoothLon,
-      MAX_SMOOTH_OFFSET_M,
+      limits.maxOffsetM,
     );
 
     const smoothAgeSec =
@@ -1197,8 +1240,11 @@ function samplesByDeviceForWindow(windowMs) {
   return byDevice;
 }
 
-async function getMapPositions(onlineMs, staleMs) {
+async function getMapPositions(onlineMs, staleMs, opts = {}) {
   metrics.mapPolls++;
+  const predictMode = parsePredictMode(opts.predictMode);
+  const limits = predictLimitsForMode(predictMode);
+  const trackOpts = { maxTrackSpeedMps: limits.maxTrackSpeedMps };
   const rowingWindowMs = Math.min(staleMs, 120000);
   const telemetryWindowMs = Math.max(rowingWindowMs, 30 * 60 * 1000);
   const now = Date.now();
@@ -1231,8 +1277,8 @@ async function getMapPositions(onlineMs, staleMs) {
         getRawMemoryMapPositions(onlineMs, now),
         registryPositions,
       ]);
-      warmGpsTracksFromSamplesByDevice(byDevice);
-      const positions = attachSmoothMapCoords(rawMerged);
+      warmGpsTracksFromSamplesByDevice(byDevice, trackOpts);
+      const positions = attachSmoothMapCoords(rawMerged, predictMode);
 
       attachRowingToMapPositions(
         positions,
@@ -1251,8 +1297,8 @@ async function getMapPositions(onlineMs, staleMs) {
   const rawMerged = mergeMapPositionsByFixMs([
     getRawMemoryMapPositions(onlineMs, now),
   ]);
-  warmGpsTracksFromSamplesByDevice(telemetryByDevice);
-  const mapped = attachSmoothMapCoords(rawMerged).map((p) => {
+  warmGpsTracksFromSamplesByDevice(telemetryByDevice, trackOpts);
+  const mapped = attachSmoothMapCoords(rawMerged, predictMode).map((p) => {
     const rowing = rowingByDevice.get(p.deviceId) || {};
     return {
       ...p,
@@ -1472,6 +1518,7 @@ module.exports = {
   getPositionsSnapshot,
   getTraccarSnapshot,
   getMapPositions,
+  parsePredictMode,
   getRouteHistory,
   listSessionsHistory,
   listHistoryDevices,

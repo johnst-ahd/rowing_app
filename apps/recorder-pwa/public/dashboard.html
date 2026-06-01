@@ -366,6 +366,14 @@
               <span class="field-hint">1 s refresh + smooth marker motion — dashboard only (phones unchanged)</span>
             </label>
             <label class="ahd-field">
+              H6 predict speed cap
+              <select id="predictMode">
+                <option value="rowing" selected>Rowing (12 m/s)</option>
+                <option value="car">Car test (120 km/h)</option>
+              </select>
+              <span class="field-hint">Yellow H6 overlay only — raises max speed and offset for in-car testing</span>
+            </label>
+            <label class="ahd-field">
               Refresh
               <select id="pollMs">
                 <option value="1000">1 s</option>

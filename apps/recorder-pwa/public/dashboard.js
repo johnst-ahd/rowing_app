@@ -3,6 +3,7 @@ const LS_POLL = 'rnz_dashboard_poll_ms';
 const LS_POLL_BEFORE_SMOOTH = 'rnz_dashboard_poll_before_smooth';
 const LS_STALE = 'rnz_dashboard_stale_sec';
 const LS_LIVE_MAP = 'rnz_dashboard_live_map';
+const LS_PREDICT_MODE = 'rnz_dashboard_predict_mode';
 const LS_DEVICE_COLLAPSE = 'rnz_device_collapse';
 
 const MAP_CENTER = [-37.9305, 175.5485];
@@ -60,6 +61,13 @@ function savePrefs() {
   localStorage.setItem(LS_POLL, String($('#pollMs')?.value || 2000));
   localStorage.setItem(LS_STALE, String($('#staleSec')?.value || 3600));
   localStorage.setItem(LS_LIVE_MAP, $('#liveMapMode')?.checked ? '1' : '0');
+  const predictMode = $('#predictMode')?.value;
+  if (predictMode) localStorage.setItem(LS_PREDICT_MODE, predictMode);
+}
+
+function currentPredictMode() {
+  const v = $('#predictMode')?.value || localStorage.getItem(LS_PREDICT_MODE) || 'rowing';
+  return v === 'car' ? 'car' : 'rowing';
 }
 
 function isSmoothLiveMapEnabled() {
@@ -551,7 +559,10 @@ function smoothMarkerIcon() {
 
 function smoothPopupHtml(p) {
   const age = p.smoothFixAgeSec ?? p.fixAgeSec;
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Predict-to-now (max 2.5 s) · fix ${age}s · H6 trial</div>`;
+  const mode = currentPredictMode();
+  const cap =
+    mode === 'car' ? '120 km/h' : '12 m/s (~43 km/h)';
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Predict-to-now (max 2.5 s, ${cap}) · fix ${age}s · H6 trial</div>`;
 }
 
 function markerIcon(state, capsize = false) {
@@ -740,7 +751,7 @@ function mergeMapWithDeviceGps(devices, positions) {
 }
 
 async function fetchMapPositions() {
-  const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}`;
+  const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}&predictMode=${encodeURIComponent(currentPredictMode())}`;
   const started = performance.now();
   const res = await fetch(url, { headers: headers() });
   if (!res.ok) {
@@ -1033,7 +1044,9 @@ function init() {
   const savedPoll = localStorage.getItem(LS_POLL);
   const savedStale = localStorage.getItem(LS_STALE);
   const savedLiveMap = localStorage.getItem(LS_LIVE_MAP) === '1';
+  const savedPredictMode = localStorage.getItem(LS_PREDICT_MODE);
   if (savedToken && $('#token')) $('#token').value = savedToken;
+  if (savedPredictMode && $('#predictMode')) $('#predictMode').value = savedPredictMode;
   if (savedLiveMap && $('#liveMapMode')) {
     $('#liveMapMode').checked = true;
   } else if (savedPoll && $('#pollMs')) {
@@ -1098,10 +1111,11 @@ function init() {
       void window.reloadDashboardDataManage();
     }
   });
-  ['#pollMs', '#windowSec', '#staleSec'].forEach((sel) => {
+  ['#pollMs', '#windowSec', '#staleSec', '#predictMode'].forEach((sel) => {
     $(sel)?.addEventListener('change', () => {
       savePrefs();
       updateRefreshRateLabel();
+      if (sel === '#predictMode') void poll();
     });
   });
   $('#liveMapMode')?.addEventListener('change', () => {

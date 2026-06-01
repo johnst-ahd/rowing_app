@@ -25,14 +25,18 @@ module.exports = async function handler(req, res) {
     Math.max(onlineSec, Number(req.query?.staleSec) || 3600),
   );
 
+  const predictMode = store.parsePredictMode(req.query?.predictMode);
+
   const positions = await store.getMapPositions(
     onlineSec * 1000,
     staleSec * 1000,
+    { predictMode },
   );
 
   return res.status(200).json({
     ok: true,
     polledAt: Date.now(),
+    predictMode,
     onlineThresholdSec: onlineSec,
     staleThresholdSec: staleSec,
     activeCount: positions.filter((p) => p.online).length,
