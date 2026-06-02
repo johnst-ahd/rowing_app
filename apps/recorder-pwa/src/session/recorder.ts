@@ -248,9 +248,27 @@ export async function startRecorder(
     applyEconomyMode(findBoatParkAt(lat, lon, geofences));
   };
 
+  const recheckGeofenceFromLastPosition = () => {
+    if (!geofences.length) return;
+    const lg = stats.lastGps;
+    if (lg && Number.isFinite(lg.lat) && Number.isFinite(lg.lon)) {
+      checkGeofenceAt(lg.lat, lg.lon);
+      return;
+    }
+    if (IS_NATIVE && nativeCapsizeMonitorOn) {
+      void getNativeRecordingPulse().then((pulse) => {
+        if (stopped || !pulse?.lastGps) return;
+        checkGeofenceAt(pulse.lastGps.lat, pulse.lastGps.lon);
+      });
+    }
+  };
+
   void fetchGeofences(settings.ingestUrl, settings.ingestToken).then((list) => {
     geofences = list;
-    if (list.length) onLog(`${list.length} geofence(s) loaded from dashboard.`);
+    if (list.length) {
+      onLog(`${list.length} geofence(s) loaded from dashboard.`);
+      recheckGeofenceFromLastPosition();
+    }
   });
 
   const stoppers: Array<() => void | Promise<void>> = [];
@@ -260,6 +278,7 @@ export async function startRecorder(
   geofenceRefreshTimer = setInterval(() => {
     void fetchGeofences(settings.ingestUrl, settings.ingestToken, true).then((list) => {
       geofences = list;
+      recheckGeofenceFromLastPosition();
     });
   }, 5 * 60 * 1000);
   stoppers.push(() => {
@@ -364,6 +383,7 @@ export async function startRecorder(
     });
     nativeCapsizeMonitorOn = started;
     if (started) {
+      if (geofences.length) recheckGeofenceFromLastPosition();
       if (settings.liveMapMode && settings.enableGps) {
         void setNativeLiveMapMode(true);
       }

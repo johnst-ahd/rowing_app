@@ -36,6 +36,7 @@ import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 import com.google.android.gms.tasks.CancellationTokenSource;
 import java.io.OutputStream;
+import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -51,6 +52,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     private static final String TAG = "SessionRecorder";
     public static final String PREFS = "kri_capsize_monitor";
+    /** While economy throttles uploads, keep position updates fast enough for geofence exit detection. */
+    private static final long ECONOMY_LOCATION_TRACK_MS = 5_000L;
+    private static WeakReference<CapsizeMonitorService> runningInstance;
     private static final String CHANNEL_ID = "kri_capsize_native";
     private static final int NOTIF_ID_FOREGROUND = 9101;
     private static final int NOTIF_ID_ALERT = 9102;
@@ -154,6 +158,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     @Override
     public void onCreate() {
         super.onCreate();
+        runningInstance = new WeakReference<>(this);
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null) {
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
@@ -207,6 +212,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onDestroy() {
+        if (runningInstance != null && runningInstance.get() == this) {
+            runningInstance.clear();
+        }
         mainHandler.removeCallbacks(ingestFlushRunnable);
         mainHandler.removeCallbacks(heartbeatRunnable);
         mainHandler.removeCallbacks(motionPostRunnable);
@@ -729,6 +737,16 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return economyActive ? economyGpsIntervalMs : gpsIntervalMs;
     }
 
+    /** Fused/legacy update rate — not slowed to economy interval (geofence + fresh fixes). */
+    private long locationTrackingIntervalMs() {
+        loadEconomyFromPrefs();
+        long base = Math.max(500L, gpsIntervalMs);
+        if (economyActive) {
+            return Math.min(base, ECONOMY_LOCATION_TRACK_MS);
+        }
+        return base;
+    }
+
     private long effectiveUploadFlushMs() {
         loadEconomyFromPrefs();
         if (economyActive) return economyUploadIntervalMs;
@@ -756,6 +774,31 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putLong("economyUploadIntervalMs", Math.max(5000L, uploadInterval))
             .putBoolean("enableCapsizeDetection", enableCapsize)
             .apply();
+        CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
+        if (inst != null) {
+            inst.mainHandler.post(inst::applyEconomyModeChanged);
+        }
+    }
+
+    private void applyEconomyModeChanged() {
+        loadEconomyFromPrefs();
+        if (enableGps) {
+            registerLocation();
+            scheduleGpsFlush();
+            if (!economyActive) {
+                lastGpsUploadWallMs = 0L;
+                requestGpsFlush();
+            }
+        }
+        scheduleIngestFlush();
+        Log.i(
+            TAG,
+            "Economy mode "
+                + (economyActive ? "on" : "off")
+                + " gpsUploadMs="
+                + effectiveGpsIntervalMs()
+                + " trackMs="
+                + locationTrackingIntervalMs());
     }
 
     private void loadUprightFromPrefs() {
@@ -852,7 +895,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             registerLegacyLocation();
             return;
         }
-        long interval = Math.max(500L, effectiveGpsIntervalMs());
+        long interval = locationTrackingIntervalMs();
         LocationRequest request =
                 new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, interval)
                         .setMinUpdateIntervalMillis(interval)
@@ -894,7 +937,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "No LocationManager");
             return;
         }
-        long minTime = Math.max(500L, effectiveGpsIntervalMs());
+        long minTime = locationTrackingIntervalMs();
         try {
             if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                 locationManager.requestLocationUpdates(
