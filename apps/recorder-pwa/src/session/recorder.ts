@@ -221,8 +221,8 @@ export async function startRecorder(
       onLog(
         modeChanged
           ? inBoatPark
-          ? `Boat park (${match!.name}): reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
-          : 'Left boat park — full recording restored.',
+            ? `Boat park (${match!.name}): reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
+            : 'Left boat park — full recording restored.'
           : `Boat park (${match!.name}) config updated: GPS ${Math.round(effectiveGpsIntervalMs / 1000)}s, upload ${Math.round(effectiveUploadIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
       );
       if (nativeCapsizeMonitorOn) {
