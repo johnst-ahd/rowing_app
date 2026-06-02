@@ -181,6 +181,7 @@ export async function startRecorder(
   let regattaPollTimer: ReturnType<typeof setInterval> | null = null;
   let liveMapPushTimer: ReturnType<typeof setInterval> | null = null;
   let lastLiveMapPushAt = 0;
+  let lastEconomySignature = '';
 
   const applyRegattaMessage = (msg: { id: number; text: string } | null) => {
     const prevId = regattaMessage?.id ?? null;
@@ -194,22 +195,35 @@ export async function startRecorder(
 
   const applyEconomyMode = (match: GeofenceConfig | null) => {
     const was = inBoatPark;
+    const prevSignature = lastEconomySignature;
     inBoatPark = match != null;
     activeBoatPark = match;
     if (match) {
       effectiveGpsIntervalMs = Math.max(5000, match.economyGpsIntervalSec * 1000);
       effectiveUploadIntervalMs = Math.max(5000, match.economyUploadIntervalSec * 1000);
       capsizeAllowed = !match.disableCapsize;
+      lastEconomySignature = [
+        match.name,
+        String(match.economyGpsIntervalSec),
+        String(match.economyUploadIntervalSec),
+        String(match.disableCapsize),
+      ].join('|');
     } else {
       effectiveGpsIntervalMs = settings.gpsIntervalMs;
       effectiveUploadIntervalMs = batchIntervalMs;
       capsizeAllowed = true;
+      lastEconomySignature = '';
     }
-    if (was !== inBoatPark) {
+    const modeChanged = was !== inBoatPark;
+    const configChangedInZone =
+      inBoatPark && !modeChanged && prevSignature !== lastEconomySignature;
+    if (modeChanged || configChangedInZone) {
       onLog(
-        inBoatPark
+        modeChanged
+          ? inBoatPark
           ? `Boat park (${match!.name}): reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
           : 'Left boat park — full recording restored.',
+          : `Boat park (${match!.name}) config updated: GPS ${Math.round(effectiveGpsIntervalMs / 1000)}s, upload ${Math.round(effectiveUploadIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
       );
       if (nativeCapsizeMonitorOn) {
         void setNativeEconomyMode({
