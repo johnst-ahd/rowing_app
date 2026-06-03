@@ -46,6 +46,17 @@ public class CapsizeMonitorPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setStrokeRate(PluginCall call) {
+        Double spm = call.getDouble("spm");
+        if (spm == null) {
+            call.reject("spm required");
+            return;
+        }
+        CapsizeMonitorService.setStrokeRate(getContext(), spm.floatValue());
+        call.resolve();
+    }
+
+    @PluginMethod
     public void setUpright(PluginCall call) {
         Double x = call.getDouble("x");
         Double y = call.getDouble("y");

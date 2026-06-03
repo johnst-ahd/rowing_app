@@ -56,15 +56,15 @@
 }
 
 .kri-theme-page .hub-kri-logo {
-  width: 56px;
-  height: 56px;
+  width: 84px;
+  height: 84px;
   object-fit: contain;
   flex-shrink: 0;
 }
 
 .kri-theme-page .hub-kri-titles .hub-kicker {
   margin: 0;
-  font-size: 0.75rem;
+  font-size: 1.15rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: #1d4ed8;
@@ -73,8 +73,8 @@
 
 .kri-theme-page .hub-kri-titles .hub-tagline {
   margin: 0.15rem 0 0;
-  font-size: 0.95rem;
-  color: #0f172a;
+  font-size: 0.72rem;
+  color: #64748b;
 }
 
 .kri-theme-page .ahd-recorder-shell,
@@ -142,8 +142,15 @@
   display: none !important;
 }
 
-.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(2),
-.kri-theme-page .session-live-hud__metrics .session-metric:nth-child(3),
+.kri-theme-page .session-live-hud__metrics--kri {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.kri-theme-page .session-live-hud__metrics--kri .session-metric--spm .session-metric__value {
+  color: #0f172a;
+  font-size: clamp(1.25rem, 5vw, 1.65rem);
+}
+
 .kri-theme-page .spectrum-rail--hr {
   display: none !important;
 }

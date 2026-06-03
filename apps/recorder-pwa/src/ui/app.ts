@@ -344,7 +344,7 @@ export function mountApp(root: HTMLElement): void {
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands hub-topbar-brands--kri">
-            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="96" height="96" />
+            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="144" height="144" />
             <div class="hub-kri-titles">
               <p class="hub-kicker">KRI Safety System</p>
               <p class="hub-tagline">GPS + capsize safety${IS_NATIVE ? ' · Native app' : ''}</p>
@@ -397,7 +397,11 @@ export function mountApp(root: HTMLElement): void {
       ? `${stats.lastGps.lat.toFixed(4)}, ${stats.lastGps.lon.toFixed(4)}`
       : 'No GPS fix';
     const spm =
-      stats?.strokeRate != null ? `${stats.strokeRate} spm` : recording ? 'SPM —' : '';
+      !IS_KRI && stats?.strokeRate != null
+        ? `${stats.strokeRate} spm`
+        : !IS_KRI && recording
+          ? 'SPM —'
+          : '';
     const bg =
       recording && backgroundStatus === 'background'
         ? 'Background'
@@ -443,6 +447,24 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
+  function kriMetricsHtml(): string {
+    return `
+        <div class="session-live-hud__metrics session-live-hud__metrics--kri">
+          <div class="session-metric session-metric--timer">
+            <span class="session-metric__value" data-hud-timer>0:00</span>
+            <span class="session-metric__label">Time</span>
+          </div>
+          <div class="session-metric session-metric--spm">
+            <span class="session-metric__value" data-hud-spm>—</span>
+            <span class="session-metric__label">Strokes /min</span>
+          </div>
+          <div class="session-metric session-metric--pace">
+            <span class="session-metric__value" data-hud-split>—</span>
+            <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
+          </div>
+        </div>`;
+  }
+
   function liveHudHtml(): string {
     const regattaText = controller?.getStats()?.regattaMessage?.text?.trim() || '';
     return `
@@ -470,6 +492,10 @@ export function mountApp(root: HTMLElement): void {
           <span class="session-zone-badge__label">Locating…</span>
           <span class="session-zone-badge__sub"></span>
         </div>
+        ${
+          IS_KRI
+            ? kriMetricsHtml()
+            : `
         <div class="session-live-hud__metrics">
           <div class="session-metric session-metric--timer">
             <span class="session-metric__value" data-hud-timer>0:00</span>
@@ -487,7 +513,8 @@ export function mountApp(root: HTMLElement): void {
             <span class="session-metric__value" data-hud-split>—</span>
             <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
           </div>
-        </div>
+        </div>`
+        }
         <div class="session-live-hud__bar">
           <button type="button" class="hub-btn hub-btn--ghost session-live-hud__fs" data-action="toggle-fullscreen">Fullscreen</button>
         </div>

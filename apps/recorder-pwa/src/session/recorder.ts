@@ -25,6 +25,7 @@ import {
   startNativeCapsizeMonitor,
   stopNativeCapsizeMonitor,
   syncNativeCapsizeUpright,
+  syncNativeStrokeRate,
 } from '../lib/native-capsize-monitor';
 import { findBoatParkAt, type GeofenceConfig } from '../lib/geofence';
 import { fetchGeofences } from '../lib/geofence-service';
@@ -145,6 +146,8 @@ export async function startRecorder(
   let lastBackgroundPulseAt = 0;
   let bgMotionPollTimer: ReturnType<typeof setInterval> | null = null;
   let nativeCapsizeMonitorOn = false;
+  let lastSyncedStrokeRate: number | null = null;
+  let lastSyncedStrokeRateAt = 0;
   let motionWasCalibrated = false;
 
   const motionUploadMs = Math.max(
@@ -440,6 +443,19 @@ export async function startRecorder(
       capsize: metrics.capsize,
       tiltDeg: metrics.tiltDeg,
     };
+
+    if (nativeCapsizeMonitorOn) {
+      const spm = metrics.strokeRate;
+      const now = Date.now();
+      if (spm != null && spm >= 15 && spm <= 50) {
+        const rounded = Math.round(spm * 10) / 10;
+        if (rounded !== lastSyncedStrokeRate || now - lastSyncedStrokeRateAt >= 1000) {
+          lastSyncedStrokeRate = rounded;
+          lastSyncedStrokeRateAt = now;
+          void syncNativeStrokeRate(rounded);
+        }
+      }
+    }
 
     const backgrounded =
       typeof document !== 'undefined' && document.visibilityState === 'hidden';

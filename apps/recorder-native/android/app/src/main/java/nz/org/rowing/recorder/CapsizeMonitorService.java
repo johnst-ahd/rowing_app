@@ -73,6 +73,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long HEARTBEAT_INTERVAL_MS = 10_000L;
     /** Battery % on ingest — every 10 min (session start always includes a reading). */
     private static final long BATTERY_REPORT_INTERVAL_MS = 10L * 60L * 1000L;
+    /** Stroke rate from WebView motion analyzer — attach to GPS uploads when fresh. */
+    private static final long STROKE_RATE_MAX_AGE_MS = 10_000L;
+    private static final float STROKE_RATE_MIN = 15f;
+    private static final float STROKE_RATE_MAX = 50f;
     private static final int MAX_PENDING_BATCHES = 60;
     private static final int MAX_PENDING_FLUSH_PER_CYCLE = 8;
     private static final int MAX_PENDING_FLUSH_ON_GPS = 2;
@@ -593,16 +597,19 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 sample.put("motion", motion);
             }
             long now = System.currentTimeMillis();
+            JSONObject derived = new JSONObject();
+            boolean hasDerived = false;
             if (lastBatteryReportMs == 0L
                     || now - lastBatteryReportMs >= BATTERY_REPORT_INTERVAL_MS) {
                 int batteryPct = readBatteryPct();
                 if (batteryPct >= 0) {
-                    JSONObject derived = new JSONObject();
                     derived.put("batteryPct", batteryPct);
-                    sample.put("derived", derived);
                     lastBatteryReportMs = now;
+                    hasDerived = true;
                 }
             }
+            if (appendFreshStrokeRate(derived)) hasDerived = true;
+            if (hasDerived) sample.put("derived", derived);
             offerIngestSample(sample, false);
         } catch (Exception e) {
             recordUploadResult(-1, 1, false);
@@ -973,6 +980,26 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putFloat("uprightY", y / mag)
             .putFloat("uprightZ", z / mag)
             .apply();
+    }
+
+    /** Latest stroke rate (spm) computed in WebView — included on GPS uploads only. */
+    public static void setStrokeRate(Context ctx, float spm) {
+        ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putFloat("lastStrokeRate", spm)
+            .putLong("lastStrokeRateMs", System.currentTimeMillis())
+            .apply();
+    }
+
+    private boolean appendFreshStrokeRate(JSONObject derived) throws org.json.JSONException {
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!p.contains("lastStrokeRate")) return false;
+        long age = System.currentTimeMillis() - p.getLong("lastStrokeRateMs", 0L);
+        if (age > STROKE_RATE_MAX_AGE_MS) return false;
+        float spm = p.getFloat("lastStrokeRate", -1f);
+        if (spm < STROKE_RATE_MIN || spm > STROKE_RATE_MAX) return false;
+        derived.put("strokeRate", Math.round(spm * 10) / 10.0);
+        return true;
     }
 
     private void normalizeUpright() {
