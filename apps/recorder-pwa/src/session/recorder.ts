@@ -244,19 +244,12 @@ export async function startRecorder(
   };
 
   const checkGeofenceAt = (lat: number, lon: number) => {
-    if (!geofences.length) {
-      applyEconomyMode(null);
-      return;
-    }
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (!geofences.length || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
     applyEconomyMode(findBoatParkAt(lat, lon, geofences));
   };
 
   const recheckGeofenceFromLastPosition = () => {
-    if (!geofences.length) {
-      applyEconomyMode(null);
-      return;
-    }
+    if (!geofences.length) return;
     const lg = stats.lastGps;
     if (lg && Number.isFinite(lg.lat) && Number.isFinite(lg.lon)) {
       checkGeofenceAt(lg.lat, lg.lon);
@@ -274,10 +267,8 @@ export async function startRecorder(
     geofences = list;
     if (list.length) {
       onLog(`${list.length} geofence(s) loaded from dashboard.`);
-    } else {
-      onLog('No geofences on server — full GPS recording.');
+      recheckGeofenceFromLastPosition();
     }
-    recheckGeofenceFromLastPosition();
   });
 
   const stoppers: Array<() => void | Promise<void>> = [];
@@ -286,14 +277,10 @@ export async function startRecorder(
 
   geofenceRefreshTimer = setInterval(() => {
     void fetchGeofences(settings.ingestUrl, settings.ingestToken, true).then((list) => {
-      const had = geofences.length;
       geofences = list;
-      if (had > 0 && list.length === 0) {
-        onLog('Geofences removed on dashboard — full recording restored.');
-      }
       recheckGeofenceFromLastPosition();
     });
-  }, 60 * 1000);
+  }, 5 * 60 * 1000);
   stoppers.push(() => {
     if (geofenceRefreshTimer) clearInterval(geofenceRefreshTimer);
   });
@@ -396,7 +383,7 @@ export async function startRecorder(
     });
     nativeCapsizeMonitorOn = started;
     if (started) {
-      recheckGeofenceFromLastPosition();
+      if (geofences.length) recheckGeofenceFromLastPosition();
       if (settings.liveMapMode && settings.enableGps) {
         void setNativeLiveMapMode(true);
       }
