@@ -75,8 +75,12 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long BATTERY_REPORT_INTERVAL_MS = 10L * 60L * 1000L;
     /** Motion samples queued into the ingest batch (no separate HTTP). */
     private static final long MOTION_POST_INTERVAL_MS = 2000L;
-    /** Reject cached fixes older than this when uploading to ingest. */
+    /** Reject stale satellite fix clock for callback-driven uploads. */
     private static final long GPS_MAX_UPLOAD_FIX_AGE_MS = 45_000L;
+    /** Timer may repeat last good coords up to this age (indoor / stationary, Traccar-like). */
+    private static final long GPS_MAX_SCHEDULED_CACHE_AGE_MS = 30L * 60L * 1000L;
+    /** Fused may deliver slightly aged fixes to refresh cache while stationary. */
+    private static final long FUSED_MAX_UPDATE_AGE_MS = 5L * 60L * 1000L;
     /** If Android fix clock lags more than this, timestamp sample at receive time. */
     private static final long GPS_STALE_FIX_CLOCK_MS = 8_000L;
     /** Fused callbacks at least this often while uploads follow gpsIntervalMs. */
@@ -118,6 +122,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private long lastCapsizeUploadMs;
     private long lastBatteryReportMs;
     private Location latestGpsLocation;
+    private long latestGpsCachedWallMs;
     private long lastMotionPostMs;
     private long lastGpsUploadWallMs;
     private long lastUploadedFixTimeMs;
@@ -280,6 +285,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void cacheGpsLocation(Location location) {
         if (!enableGps || location == null) return;
         latestGpsLocation = location;
+        latestGpsCachedWallMs = System.currentTimeMillis();
         saveLastGpsToPrefs(location, ingestTimeMs(location), nativeGpsCount);
     }
 
@@ -302,6 +308,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
     }
 
+    /** Timer uploads: fresh fix, or recent cached coords (indoor stationary). */
+    private boolean canUploadGpsFix(Location location, boolean scheduledTick) {
+        if (!isGpsFixUsable(location)) return false;
+        if (isGpsFixFresh(location)) return true;
+        if (!scheduledTick || latestGpsCachedWallMs <= 0L) return false;
+        return System.currentTimeMillis() - latestGpsCachedWallMs
+                <= GPS_MAX_SCHEDULED_CACHE_AGE_MS;
+    }
+
     private static boolean sameCoords(Location a, double lat, double lon) {
         if (a == null || !Double.isFinite(lat)) return false;
         return Math.abs(a.getLatitude() - lat) < 1e-6 && Math.abs(a.getLongitude() - lon) < 1e-6;
@@ -309,10 +324,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     /** Steady upload cadence — one sample per gpsIntervalMs bucket (timer-driven). */
     private void maybeUploadGpsFix(Location location, boolean scheduledTick) {
-        if (!enableGps || location == null || !isGpsFixUsable(location)) return;
-        if (!isGpsFixFresh(location)) return;
+        if (!enableGps || location == null || !canUploadGpsFix(location, scheduledTick)) return;
         long interval = Math.max(500L, effectiveGpsIntervalMs());
-        long ingestT = ingestTimeMs(location);
+        long ingestT =
+                scheduledTick ? System.currentTimeMillis() : ingestTimeMs(location);
         long bucket = ingestT / interval;
         if (bucket <= lastUploadedGpsBucket) {
             if (!scheduledTick || System.currentTimeMillis() - lastGpsUploadWallMs < interval) {
@@ -320,7 +335,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             }
             bucket = lastUploadedGpsBucket + 1;
         }
-        if (ingestT - lastUploadedFixTimeMs < GPS_COORD_DEDUPE_MS
+        if (!scheduledTick
+                && ingestT - lastUploadedFixTimeMs < GPS_COORD_DEDUPE_MS
                 && sameCoords(location, lastUploadedLat, lastUploadedLon)) {
             return;
         }
@@ -334,7 +350,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         nativeGpsCount++;
         saveLastGpsToPrefs(location, ingestT, nativeGpsCount);
         final Location uploadLoc = location;
-        runOnUpload(() -> enqueueGpsSample(uploadLoc));
+        final long sampleT = ingestT;
+        runOnUpload(() -> enqueueGpsSample(uploadLoc, sampleT));
     }
 
     /** Timer-driven upload — fresh fix preferred, cached fix as fallback. */
@@ -517,9 +534,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
     }
 
-    private void enqueueGpsSample(Location location) {
+    private void enqueueGpsSample(Location location, long sampleT) {
         try {
-            long t = ingestTimeMs(location);
+            long t = sampleT;
             JSONObject gps = new JSONObject();
             gps.put("lat", location.getLatitude());
             gps.put("lon", location.getLongitude());
@@ -925,7 +942,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 new LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, interval)
                         .setMinUpdateIntervalMillis(minUpdate)
                         .setMaxUpdateDelayMillis(interval)
-                        .setMaxUpdateAgeMillis(GPS_MAX_UPLOAD_FIX_AGE_MS)
+                        .setMaxUpdateAgeMillis(FUSED_MAX_UPDATE_AGE_MS)
                         .setWaitForAccurateLocation(false)
                         .build();
         fusedCallback =
