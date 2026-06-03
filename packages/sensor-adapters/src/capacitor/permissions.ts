@@ -1,7 +1,22 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { CapacitorAccelerometer } from '@capgo/capacitor-accelerometer';
 import { Geolocation } from '@capacitor/geolocation';
 import { LocalNotifications } from '@capacitor/local-notifications';
+
+type AndroidRecordingSetup = {
+  ready: boolean;
+  notifications: boolean;
+  locationForeground: boolean;
+  locationBackground: boolean;
+  locationAlways: boolean;
+  batteryUnrestricted: boolean;
+  openedLocationSettings?: boolean;
+  openedBatterySettings?: boolean;
+};
+
+const CapsizeMonitorAndroid = registerPlugin<{
+  prepareRecording: () => Promise<AndroidRecordingSetup>;
+}>('CapsizeMonitor');
 
 const CAPSIZE_CHANNEL_ID = 'rnz-capsize';
 let capsizeChannelReady = false;
@@ -39,13 +54,36 @@ function permLabel(
   return state;
 }
 
+export type NativePermissionResult = NativePermissionStatus & {
+  recordingSetup?: AndroidRecordingSetup;
+};
+
+export type { AndroidRecordingSetup };
+
 /** Notifications, location, and accelerometer (native sensor). Notifications first so Android shows the prompt before GPS. */
-export async function requestNativePermissions(): Promise<NativePermissionStatus> {
-  const status: NativePermissionStatus = {
+export async function requestNativePermissions(): Promise<NativePermissionResult> {
+  const status: NativePermissionResult = {
     location: 'unknown',
     notifications: 'unknown',
     accelerometer: 'unknown',
   };
+
+  if (Capacitor.getPlatform() === 'android') {
+    try {
+      const setup = await CapsizeMonitorAndroid.prepareRecording();
+      status.recordingSetup = setup;
+      status.notifications = setup.notifications ? 'granted' : 'denied';
+      status.location = setup.locationAlways
+        ? 'granted'
+        : setup.locationForeground
+          ? 'foreground only'
+          : 'denied';
+      status.accelerometer = 'granted';
+      return status;
+    } catch {
+      /* fall through to Capacitor prompts */
+    }
+  }
 
   try {
     const notif = await LocalNotifications.checkPermissions();

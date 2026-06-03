@@ -13,7 +13,11 @@ import {
   type BackgroundStatus,
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
-import { setNativeLiveMapMode } from '../lib/native-capsize-monitor';
+import {
+  prepareNativeRecordingSetup,
+  recordingSetupLogLines,
+  setNativeLiveMapMode,
+} from '../lib/native-capsize-monitor';
 import { startRecorder, type RecorderController } from '../session/recorder';
 import { clearPendingOutbox, countPendingOutbox } from '../session/store';
 import { flushOutbox } from '../upload/sync';
@@ -608,6 +612,7 @@ export function mountApp(root: HTMLElement): void {
               <label class="check"><input type="checkbox" name="keepScreenOn" ${s.keepScreenOn !== false ? 'checked' : ''} /> Keep screen on while recording</label>
             </fieldset>
             <button type="submit" class="hub-btn hub-btn--primary">Save settings</button>
+            ${IS_NATIVE ? '<button type="button" class="hub-btn" data-action="phone-setup">Phone permissions &amp; battery</button>' : ''}
             <button type="button" class="hub-btn" data-action="clear-session">Clear session</button>
           </form>
           ${logPanelHtml()}
@@ -641,16 +646,38 @@ export function mountApp(root: HTMLElement): void {
       render();
     });
 
+    root.querySelector('[data-action="phone-setup"]')?.addEventListener('click', async () => {
+      if (!IS_NATIVE) return;
+      try {
+        const setup = await prepareNativeRecordingSetup();
+        if (setup) {
+          for (const line of recordingSetupLogLines(setup)) {
+            pushLog(line);
+          }
+        } else {
+          pushLog('Phone setup is only available in the Android app.');
+        }
+      } catch (e) {
+        pushLog(`Phone setup error: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    });
+
     root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
       const s = loadSettings();
       if (IS_NATIVE) {
         try {
           const p = await requestNativePermissions();
-          if (p.notifications !== 'granted') {
-            pushLog('Allow notifications for capsize alarms when the screen is off.');
-          }
-          if (p.location !== 'granted') {
-            pushLog('Allow location (Always) for GPS while recording.');
+          if (p.recordingSetup) {
+            for (const line of recordingSetupLogLines(p.recordingSetup)) {
+              pushLog(line);
+            }
+          } else {
+            if (p.notifications !== 'granted') {
+              pushLog('Allow notifications for capsize alarms when the screen is off.');
+            }
+            if (p.location !== 'granted') {
+              pushLog('Allow location (Always) for GPS while recording.');
+            }
           }
         } catch (e) {
           pushLog(`Permissions error: ${e instanceof Error ? e.message : String(e)}`);

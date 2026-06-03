@@ -81,6 +81,16 @@ public class CapsizeMonitorPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void checkRecordingSetup(PluginCall call) {
+        call.resolve(RecordingSetupHelper.buildStatus(getContext()));
+    }
+
+    @PluginMethod
+    public void prepareRecording(PluginCall call) {
+        RecordingSetupHelper.startPrepare(this, call);
+    }
+
+    @PluginMethod
     public void getPulse(PluginCall call) {
         SharedPreferences p =
             getContext().getSharedPreferences(CapsizeMonitorService.PREFS, android.content.Context.MODE_PRIVATE);

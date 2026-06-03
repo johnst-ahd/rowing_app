@@ -25,12 +25,25 @@ export type NativeEconomyMode = {
   enableCapsize: boolean;
 };
 
+export type NativeRecordingSetupStatus = {
+  ready: boolean;
+  notifications: boolean;
+  locationForeground: boolean;
+  locationBackground: boolean;
+  locationAlways: boolean;
+  batteryUnrestricted: boolean;
+  openedLocationSettings?: boolean;
+  openedBatterySettings?: boolean;
+};
+
 export interface NativeCapsizeMonitorPlugin {
   start(config: NativeCapsizeMonitorConfig): Promise<void>;
   stop(): Promise<void>;
   setUpright(options: { x: number; y: number; z: number }): Promise<void>;
   setLiveMapMode(options: { active: boolean }): Promise<void>;
   setEconomyMode(mode: NativeEconomyMode): Promise<void>;
+  checkRecordingSetup(): Promise<NativeRecordingSetupStatus>;
+  prepareRecording(): Promise<NativeRecordingSetupStatus>;
   getPulse(): Promise<NativeRecordingPulse>;
 }
 
@@ -104,4 +117,55 @@ export async function setNativeEconomyMode(mode: NativeEconomyMode): Promise<voi
   } catch {
     /* optional */
   }
+}
+
+export async function checkNativeRecordingSetup(): Promise<NativeRecordingSetupStatus | null> {
+  if (!IS_NATIVE) return null;
+  try {
+    return await CapsizeMonitor.checkRecordingSetup();
+  } catch {
+    return null;
+  }
+}
+
+export async function prepareNativeRecordingSetup(): Promise<NativeRecordingSetupStatus | null> {
+  if (!IS_NATIVE) return null;
+  try {
+    return await CapsizeMonitor.prepareRecording();
+  } catch {
+    return null;
+  }
+}
+
+/** User-facing log lines after prepareRecording(). */
+export function recordingSetupLogLines(
+  setup: NativeRecordingSetupStatus,
+): string[] {
+  const lines: string[] = [];
+  if (setup.openedLocationSettings) {
+    lines.push(
+      'Open Permissions → Location → Allow all the time (or Always), then return to the app.',
+    );
+  }
+  if (setup.openedBatterySettings) {
+    lines.push(
+      'When asked, allow unrestricted battery (Not optimized / Unrestricted).',
+    );
+  }
+  if (setup.ready) {
+    lines.push('Phone setup OK — notifications, location (Always), and battery.');
+  } else {
+    if (!setup.notifications) {
+      lines.push('Allow notifications so recording can run in the background.');
+    }
+    if (!setup.locationForeground) {
+      lines.push('Allow location (precise) for GPS recording.');
+    } else if (!setup.locationBackground) {
+      lines.push('Set location to Allow all the time — required for GPS with screen off.');
+    }
+    if (!setup.batteryUnrestricted) {
+      lines.push('Set battery to Unrestricted / Not optimized for this app.');
+    }
+  }
+  return lines;
 }

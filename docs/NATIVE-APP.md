@@ -120,6 +120,16 @@ After `npx cap add ios`, open **Xcode → App target → Signing & Capabilities*
 - `ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION`
 - `ACCESS_BACKGROUND_LOCATION` (Android 10+ — choose **Allow all the time**)
 - `POST_NOTIFICATIONS` (Android 13+ — required for background GPS notification)
+- `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` (system prompt for **Unrestricted** / not optimized battery)
+
+On **Start session** (and **Settings → Phone permissions & battery**), the native app walks through:
+
+1. Notifications allow prompt (Android 13+)
+2. Location while using (precise)
+3. Location **all the time** prompt (Android 10+), or the app info screen if the OS requires it
+4. Battery optimization exemption dialog (Unrestricted)
+
+Android does not allow apps to toggle these silently — the user must confirm each system screen.
 - `FOREGROUND_SERVICE` / `FOREGROUND_SERVICE_LOCATION`
 - `BLUETOOTH_SCAN` / `BLUETOOTH_CONNECT` (Android 12+)
 
