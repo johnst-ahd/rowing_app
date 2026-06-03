@@ -17,18 +17,13 @@ const MAP_INTERPOLATE_MAX_SEC = 4;
 const MAP_INTERPOLATE_MIN_SPEED_MPS = 0.25;
 const MAP_INTERPOLATE_TICK_MS = 100;
 const EARTH_RADIUS_M = 6371000;
-/** Server-smoothed overlay marker (trial). */
-const SMOOTH_TRIAL_DEVICE = 'H6';
 
 const $ = (sel) => document.querySelector(sel);
 
 let map = null;
 let markersLayer = null;
-let smoothMarkersLayer = null;
 /** @type {Map<string, L.Marker>} */
 const deviceMarkers = new Map();
-/** @type {Map<string, L.Marker>} */
-const smoothDeviceMarkers = new Map();
 let mapAutoFitDone = false;
 let mapUserInteracted = false;
 let mapIgnoreMoveEvents = false;
@@ -174,14 +169,23 @@ function positionFixMs(p) {
   return Date.now();
 }
 
+function mapAnchorLatLon(p) {
+  if (!isSmoothLiveMapEnabled()) {
+    return { lat: p.latitude, lon: p.longitude };
+  }
+  const slat = p.smoothLatitude ?? p.latitude;
+  const slon = p.smoothLongitude ?? p.longitude;
+  if (slat != null && slon != null) return { lat: slat, lon: slon };
+  return { lat: p.latitude, lon: p.longitude };
+}
+
 function syncDeviceTrackState(positions) {
   const seen = new Set();
   for (const p of positions) {
     if (p.latitude == null || p.longitude == null) continue;
     seen.add(p.deviceId);
     const fixMs = positionFixMs(p);
-    const lat = p.latitude;
-    const lon = p.longitude;
+    const { lat, lon } = mapAnchorLatLon(p);
     const prev = deviceTrackState.get(p.deviceId);
     let speedMps = p.speed ?? null;
     let courseDeg = p.course ?? null;
@@ -243,8 +247,8 @@ function displayLatLonForPosition(p) {
     return { lat: p.latitude, lon: p.longitude };
   }
   const state = deviceTrackState.get(p.deviceId);
-  if (!state) return { lat: p.latitude, lon: p.longitude };
-  return extrapolateLatLon(state, Date.now());
+  if (state) return extrapolateLatLon(state, Date.now());
+  return mapAnchorLatLon(p);
 }
 
 function tickMapInterpolation() {
@@ -502,7 +506,6 @@ function initMap() {
   }).addTo(map);
 
   markersLayer = L.layerGroup().addTo(map);
-  smoothMarkersLayer = L.layerGroup().addTo(map);
 
   const onUserMapMove = () => {
     if (!mapIgnoreMoveEvents) mapUserInteracted = true;
@@ -548,23 +551,6 @@ function gpsStatusLabel(state) {
   return 'Last known (>5min)';
 }
 
-function smoothMarkerIcon() {
-  return L.divIcon({
-    className: 'map-marker-wrap map-marker-wrap--smooth',
-    html: `<span class="map-marker map-marker--smooth" aria-hidden="true"></span>`,
-    iconSize: [13, 13],
-    iconAnchor: [6.5, 6.5],
-  });
-}
-
-function smoothPopupHtml(p) {
-  const age = p.smoothFixAgeSec ?? p.fixAgeSec;
-  const mode = currentPredictMode();
-  const cap =
-    mode === 'car' ? '120 km/h' : '12 m/s (~43 km/h)';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong> (smoothed)<br>Predict-to-now (max 2.5 s, ${cap}) · fix ${age}s · H6 trial</div>`;
-}
-
 function markerIcon(state, capsize = false) {
   const visual = capsize ? 'capsize' : state;
   const size = capsize ? 24 : 14;
@@ -591,6 +577,10 @@ function setCapsizeUiActive(hasCapsize) {
 function popupHtml(p) {
   const state = gpsFixState(p.fixAgeSec);
   const status = gpsStatusLabel(state);
+  const smoothNote =
+    isSmoothLiveMapEnabled() && p.smoothed
+      ? '<br><span class="map-popup-note">Map position smoothed (display only)</span>'
+      : '';
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
   const spm =
     p.strokeRate != null && p.strokeRate > 0
@@ -608,18 +598,17 @@ function popupHtml(p) {
     p.batteryPct != null
       ? `<br>Battery: <strong>${fmtBatteryPct(p.batteryPct)}</strong>${p.batteryAgeSec != null ? ` · ${fmtAgoSec(p.batteryAgeSec)}` : ''}`
       : '';
-  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${hb}${bat}${hr}${spm}${tilt}${cap}</div>`;
+  return `<div class="map-popup"><strong>${esc(p.deviceId)}</strong><br>${status}<br>GPS fix ${p.fixAgeSec}s ago · seen ${p.lastSeenAgoSec}s ago${smoothNote}${hb}${bat}${hr}${spm}${tilt}${cap}</div>`;
 }
 
 function updateMap(positions) {
   initMap();
-  if (!map || !markersLayer || !smoothMarkersLayer) return;
+  if (!map || !markersLayer) return;
 
   latestMapPositions = positions;
   if (isSmoothLiveMapEnabled()) syncDeviceTrackState(positions);
 
   const seen = new Set();
-  const smoothSeen = new Set();
   const latlngs = [];
 
   for (const p of positions) {
@@ -642,41 +631,12 @@ function updateMap(positions) {
       markersLayer.addLayer(marker);
       deviceMarkers.set(p.deviceId, marker);
     }
-
-    if (p.deviceId === SMOOTH_TRIAL_DEVICE) {
-      const slat = p.smoothLatitude ?? p.latitude;
-      const slon = p.smoothLongitude ?? p.longitude;
-      if (slat != null && slon != null) {
-        smoothSeen.add(p.deviceId);
-        const smoothLatlng = L.latLng(slat, slon);
-        const smoothIcon = smoothMarkerIcon();
-        let smoothMarker = smoothDeviceMarkers.get(p.deviceId);
-        if (smoothMarker) {
-          smoothMarker.setLatLng(smoothLatlng);
-          smoothMarker.setIcon(smoothIcon);
-          smoothMarker.setPopupContent(smoothPopupHtml(p));
-        } else {
-          smoothMarker = L.marker(smoothLatlng, { icon: smoothIcon }).bindPopup(
-            smoothPopupHtml(p),
-          );
-          smoothMarkersLayer.addLayer(smoothMarker);
-          smoothDeviceMarkers.set(p.deviceId, smoothMarker);
-        }
-      }
-    }
   }
 
   for (const [id, marker] of deviceMarkers) {
     if (!seen.has(id)) {
       markersLayer.removeLayer(marker);
       deviceMarkers.delete(id);
-    }
-  }
-
-  for (const [id, marker] of smoothDeviceMarkers) {
-    if (!smoothSeen.has(id)) {
-      smoothMarkersLayer.removeLayer(marker);
-      smoothDeviceMarkers.delete(id);
     }
   }
 
