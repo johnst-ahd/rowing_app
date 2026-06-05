@@ -97,6 +97,14 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
+    private Sensor rotationVector;
+    private Sensor magnetometer;
+    private boolean compassAvailable;
+    private float compassHeadingDeg = Float.NaN;
+    private final float[] rotationMatrix = new float[9];
+    private final float[] orientationAngles = new float[3];
+    private final float[] magnetData = new float[3];
+    private boolean magnetDataReady;
     private LocationManager locationManager;
     private FusedLocationProviderClient fusedClient;
     private LocationCallback fusedCallback;
@@ -183,6 +191,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         sensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         if (sensorManager != null) {
             accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+            rotationVector = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+            magnetometer = sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+            compassAvailable = rotationVector != null || magnetometer != null;
         }
         locationManager = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
         fusedClient = LocationServices.getFusedLocationProviderClient(this);
@@ -206,8 +217,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastUploadedGpsBucket = -1L;
         startForeground(NOTIF_ID_FOREGROUND, buildForegroundNotification());
         acquireWakeLock();
-        if (enableMotion) {
-            registerSensor();
+        if (enableMotion || (enableGps && compassAvailable)) {
+            registerSensors();
         }
         if (enableGps) {
             registerLocation();
@@ -227,7 +238,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 + " intervalMs="
                 + gpsIntervalMs
                 + " heartbeatMs="
-                + HEARTBEAT_INTERVAL_MS);
+                + HEARTBEAT_INTERVAL_MS
+                + " compass="
+                + compassAvailable);
         return START_STICKY;
     }
 
@@ -262,7 +275,20 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() != Sensor.TYPE_ACCELEROMETER) return;
+        int type = event.sensor.getType();
+        if (type == Sensor.TYPE_ROTATION_VECTOR) {
+            updateCompassFromRotationVector(event.values);
+            return;
+        }
+        if (type == Sensor.TYPE_MAGNETIC_FIELD) {
+            magnetData[0] = event.values[0];
+            magnetData[1] = event.values[1];
+            magnetData[2] = event.values[2];
+            magnetDataReady = true;
+            updateCompassFromAccelMag();
+            return;
+        }
+        if (type != Sensor.TYPE_ACCELEROMETER) return;
         float ax = event.values[0];
         float ay = event.values[1];
         float az = event.values[2];
@@ -276,10 +302,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         gz = GRAVITY_ALPHA * az + (1f - GRAVITY_ALPHA) * gz;
         sampleCount++;
 
-        pushRecent(t, ax, ay, az);
-        tryCalibrate(t);
-        loadUprightFromPrefs();
-        updateCapsize(t, ax, ay, az);
+        if (enableMotion) {
+            pushRecent(t, ax, ay, az);
+            tryCalibrate(t);
+            loadUprightFromPrefs();
+            updateCapsize(t, ax, ay, az);
+        }
+        if (compassAvailable && rotationVector == null && magnetometer != null) {
+            updateCompassFromAccelMag();
+        }
     }
 
     @Override
@@ -582,6 +613,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             }
             if (location.hasBearing() && location.getBearing() >= 0f) {
                 gps.put("hdg", Math.round(location.getBearing() * 10) / 10.0);
+            }
+            if (compassAvailable && !Float.isNaN(compassHeadingDeg)) {
+                gps.put("compass", Math.round(compassHeadingDeg * 10) / 10.0);
             }
             if (location.hasAltitude()) {
                 gps.put("alt", Math.round(location.getAltitude() * 10) / 10.0);
@@ -1015,13 +1049,54 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         mainHandler.postDelayed(pendingFlushRunnable, PENDING_FLUSH_INTERVAL_MS);
     }
 
-    private void registerSensor() {
-        if (sensorManager == null || accelerometer == null) return;
-        sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+    private void registerSensors() {
+        if (sensorManager == null) return;
+        if (enableMotion && accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_GAME);
+        } else if (enableGps && compassAvailable && accelerometer != null) {
+            sensorManager.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI);
+        }
+        if (enableGps && compassAvailable) {
+            if (rotationVector != null) {
+                sensorManager.registerListener(this, rotationVector, SensorManager.SENSOR_DELAY_UI);
+            } else if (magnetometer != null) {
+                sensorManager.registerListener(this, magnetometer, SensorManager.SENSOR_DELAY_UI);
+            }
+        }
+    }
+
+    private void updateCompassFromRotationVector(float[] rvIn) {
+        try {
+            float[] rv = rvIn;
+            if (rvIn.length > 4) {
+                float[] trimmed = new float[4];
+                System.arraycopy(rvIn, 0, trimmed, 0, 4);
+                rv = trimmed;
+            }
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, rv);
+            SensorManager.getOrientation(rotationMatrix, orientationAngles);
+            float deg = (float) Math.toDegrees(orientationAngles[0]);
+            compassHeadingDeg = (deg + 360f) % 360f;
+        } catch (Exception e) {
+            compassHeadingDeg = Float.NaN;
+        }
+    }
+
+    private void updateCompassFromAccelMag() {
+        if (!magnetDataReady || magnetometer == null || rotationVector != null) return;
+        float[] gravity = new float[] { gx, gy, gz };
+        float[] geomagnetic = new float[] { magnetData[0], magnetData[1], magnetData[2] };
+        if (SensorManager.getRotationMatrix(rotationMatrix, null, gravity, geomagnetic)) {
+            SensorManager.getOrientation(rotationMatrix, orientationAngles);
+            float deg = (float) Math.toDegrees(orientationAngles[0]);
+            compassHeadingDeg = (deg + 360f) % 360f;
+        }
     }
 
     private void unregisterSensor() {
         if (sensorManager != null) sensorManager.unregisterListener(this);
+        magnetDataReady = false;
+        compassHeadingDeg = Float.NaN;
     }
 
     /** Reject null-island / invalid coords only (accuracy filtered server-side for smoothing). */

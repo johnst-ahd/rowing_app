@@ -79,6 +79,7 @@ async function initSchema() {
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS battery_pct SMALLINT`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS heartbeat BOOLEAN`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS compass_deg DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_t_ms BIGINT`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION`;
@@ -211,6 +212,7 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       accuracy: s.gps?.acc ?? null,
       speed: s.gps?.spd ?? null,
       course: s.gps?.hdg ?? null,
+      compass_deg: s.gps?.compass ?? null,
       altitude: s.gps?.alt ?? null,
       hr: s.hr?.bpm ?? null,
       ax: s.motion?.ax ?? null,
@@ -229,12 +231,12 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   await sql`
     INSERT INTO rnz_samples (
       session_id, device_ref, unique_id, t_ms,
-      latitude, longitude, accuracy, speed, course, altitude,
+      latitude, longitude, accuracy, speed, course, compass_deg, altitude,
       hr, ax, ay, az, stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     )
     SELECT
       ${sessionId}::text, ${deviceRef}::int, ${uniqueId}::text,
-      x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.altitude,
+      x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.compass_deg, x.altitude,
       x.hr, x.ax, x.ay, x.az, x.stroke_rate, x.capsize, x.tilt_deg, x.battery_pct, x.heartbeat
     FROM jsonb_to_recordset(${JSON.stringify(packed)}::jsonb) AS x(
       t_ms bigint,
@@ -243,6 +245,7 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       accuracy double precision,
       speed double precision,
       course double precision,
+      compass_deg double precision,
       altitude double precision,
       hr integer,
       ax double precision,
@@ -322,6 +325,21 @@ async function resolveDevice(deviceIdParam, uniqueIdParam) {
   return null;
 }
 
+/** Prefer magnetometer bow heading; fall back to GPS course when moving. */
+function resolveCourseFromRow(row) {
+  const compass =
+    row.compass_deg != null && Number.isFinite(Number(row.compass_deg))
+      ? Number(row.compass_deg)
+      : null;
+  if (compass != null) return compass;
+  const spd =
+    row.speed != null && Number.isFinite(Number(row.speed)) ? Number(row.speed) : 0;
+  const hdg =
+    row.course != null && Number.isFinite(Number(row.course)) ? Number(row.course) : null;
+  if (spd >= 1.2 && hdg != null) return hdg;
+  return hdg ?? 0;
+}
+
 function rowToTraccarPosition(row) {
   const fix = new Date(Number(row.t_ms)).toISOString();
   const attrs = {};
@@ -339,6 +357,9 @@ function rowToTraccarPosition(row) {
   if (row.tilt_deg != null) attrs.tiltDeg = Number(row.tilt_deg);
   if (row.battery_pct != null) attrs.batteryPct = Number(row.battery_pct);
   if (row.heartbeat === true) attrs.heartbeat = true;
+  if (row.compass_deg != null && Number.isFinite(Number(row.compass_deg))) {
+    attrs.compass = Number(row.compass_deg);
+  }
   return {
     id: Number(row.id),
     deviceId: Number(row.device_ref),
@@ -346,7 +367,7 @@ function rowToTraccarPosition(row) {
     longitude: row.longitude,
     altitude: row.altitude ?? 0,
     speed: row.speed ?? 0,
-    course: row.course ?? 0,
+    course: resolveCourseFromRow(row),
     accuracy: row.accuracy ?? 0,
     fixTime: fix,
     deviceTime: fix,
@@ -361,7 +382,7 @@ async function getRoutePositions(deviceRef, fromIso, toIso) {
   const fromMs = new Date(fromIso).getTime();
   const toMs = new Date(toIso).getTime();
   const rows = await sql`
-    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, compass_deg, altitude, hr, ax, ay, az,
       stroke_rate, capsize, tilt_deg
     FROM rnz_samples
     WHERE device_ref = ${deviceRef}
@@ -380,7 +401,7 @@ async function getLatestTraccarPositions(onlineMs = 30000) {
   const cutoff = Date.now() - onlineMs;
   const rows = await sql`
     SELECT DISTINCT ON (s.device_ref)
-      s.id, s.device_ref, s.unique_id, s.t_ms, s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude, s.hr, s.ax, s.ay, s.az,
+      s.id, s.device_ref, s.unique_id, s.t_ms, s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.compass_deg, s.altitude, s.hr, s.ax, s.ay, s.az,
       d.last_seen_at
     FROM rnz_samples s
     JOIN rnz_devices d ON d.id = s.device_ref
@@ -400,7 +421,7 @@ async function fetchRecentSamplesByDevice(windowMs) {
   const cutoff = Date.now() - windowMs;
   const rows = await sql`
     SELECT s.unique_id, s.session_id, s.t_ms,
-      s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude,
+      s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.compass_deg, s.altitude,
       s.hr, s.ax, s.ay, s.az, s.stroke_rate, s.capsize, s.tilt_deg,
       s.battery_pct, s.heartbeat,
       d.athlete_id
@@ -428,6 +449,9 @@ async function fetchRecentSamplesByDevice(windowMs) {
               spd: row.speed,
               hdg: row.course,
               alt: row.altitude,
+              ...(row.compass_deg != null && Number.isFinite(Number(row.compass_deg))
+                ? { compass: Number(row.compass_deg) }
+                : {}),
             }
           : undefined,
       hr: row.hr != null ? { bpm: row.hr } : undefined,
@@ -765,7 +789,7 @@ async function getSessionFromDb(sessionId) {
   `;
   if (!meta.rows[0]) return null;
   const samples = await sql`
-    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, compass_deg, altitude, hr, ax, ay, az,
       stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     FROM rnz_samples
     WHERE session_id = ${sessionId}
@@ -790,6 +814,9 @@ async function getSessionFromDb(sessionId) {
               spd: s.speed,
               hdg: s.course,
               alt: s.altitude,
+              ...(s.compass_deg != null && Number.isFinite(Number(s.compass_deg))
+                ? { compass: Number(s.compass_deg) }
+                : {}),
             }
           : undefined,
       hr: s.hr != null ? { bpm: s.hr } : undefined,

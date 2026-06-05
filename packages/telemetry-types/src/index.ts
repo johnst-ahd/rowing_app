@@ -5,7 +5,10 @@ export type GpsSample = {
   lon: number;
   acc?: number;
   spd?: number;
+  /** GPS course-over-ground (degrees). */
   hdg?: number;
+  /** Magnetometer / device compass (degrees). Omitted when hardware has no compass. */
+  compass?: number;
   alt?: number;
 };
 

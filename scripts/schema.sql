@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS rnz_samples (
   accuracy DOUBLE PRECISION,
   speed DOUBLE PRECISION,
   course DOUBLE PRECISION,
+  compass_deg DOUBLE PRECISION,
   altitude DOUBLE PRECISION,
   hr INTEGER,
   ax DOUBLE PRECISION,
@@ -49,3 +50,6 @@ CREATE INDEX IF NOT EXISTS idx_rnz_samples_session_time
 
 CREATE INDEX IF NOT EXISTS idx_rnz_sessions_unique_started
   ON rnz_sessions (unique_id, started_at DESC);
+
+-- Magnetometer bow heading (optional; omitted on phones without compass hardware)
+ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS compass_deg DOUBLE PRECISION;
