@@ -186,7 +186,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null) {
+        boolean bootResume = intent != null && intent.getBooleanExtra("bootResume", false);
+        if (intent != null && !bootResume) {
             saveConfigFromIntent(intent);
         }
         loadSessionFlagsFromPrefs();
@@ -216,7 +217,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
         Log.i(
             TAG,
-            "Native session service started gps="
+            (bootResume ? "Boot-resumed " : "")
+                + "Native session service started gps="
                 + enableGps
                 + " motion="
                 + enableMotion
@@ -248,10 +250,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 Thread.currentThread().interrupt();
             }
         }
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .putBoolean("recordingActive", false)
-            .apply();
         super.onDestroy();
     }
 
@@ -823,6 +821,36 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .edit()
             .putBoolean("recordingActive", false)
             .apply();
+    }
+
+    public static boolean shouldResumeAfterBoot(Context ctx) {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!p.getBoolean("recordingActive", false)) return false;
+        String sessionId = p.getString("sessionId", "");
+        String deviceId = p.getString("deviceId", "");
+        String ingestUrl = p.getString("ingestUrl", "");
+        return sessionId != null
+                && !sessionId.isEmpty()
+                && deviceId != null
+                && !deviceId.isEmpty()
+                && ingestUrl != null
+                && !ingestUrl.isEmpty();
+    }
+
+    public static void startFromBootIfNeeded(Context ctx) {
+        if (!shouldResumeAfterBoot(ctx) || isServiceRunning()) return;
+        Intent intent = new Intent(ctx, CapsizeMonitorService.class);
+        intent.putExtra("bootResume", true);
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ctx.startForegroundService(intent);
+            } else {
+                ctx.startService(intent);
+            }
+            Log.i(TAG, "Recording session restarted after boot");
+        } catch (Exception e) {
+            Log.w(TAG, "Boot resume failed — open app to restore session: " + e.getMessage());
+        }
     }
 
     public static void setLiveMapMode(Context ctx, boolean active) {
