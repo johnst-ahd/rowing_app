@@ -1,11 +1,13 @@
 package nz.org.kri.gps;
 
 import android.Manifest;
+import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.pm.ServiceInfo;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -27,6 +29,7 @@ import android.os.PowerManager;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.core.app.NotificationCompat;
+import androidx.core.app.ServiceCompat;
 import androidx.core.content.ContextCompat;
 import com.google.android.gms.location.FusedLocationProviderClient;
 import com.google.android.gms.location.LocationCallback;
@@ -58,6 +61,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final String CHANNEL_ID = "kri_capsize_native";
     private static final int NOTIF_ID_FOREGROUND = 9101;
     private static final int NOTIF_ID_ALERT = 9102;
+    private static final int NOTIF_ID_BOOT_RESUME = 9103;
+    private static final int BOOT_RESUME_ALARM_REQUEST = 9104;
+    private static final String BOOT_RETRY_COUNT_KEY = "bootRetryCount";
+    private static final int MAX_BOOT_RESUME_RETRIES = 6;
     private static final float GRAVITY_ALPHA = 0.04f;
     private static final float STILL_VAR_MAX = 0.35f;
     private static final int CALIBRATE_MIN_SAMPLES = 8;
@@ -187,6 +194,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         boolean bootResume = intent != null && intent.getBooleanExtra("bootResume", false);
+        if (bootResume) {
+            promoteDeviceProtectedSessionPrefs();
+        }
         if (intent != null && !bootResume) {
             saveConfigFromIntent(intent);
         }
@@ -199,7 +209,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastIngestFlushMs = 0L;
         lastSuccessfulUploadMs = 0L;
         ingestBuffer = new JSONArray();
-        startForeground(NOTIF_ID_FOREGROUND, buildForegroundNotification());
+        startForegroundWithTypes();
+        clearBootResumeNotification();
         acquireWakeLock();
         if (enableMotion) {
             registerSensor();
@@ -762,7 +773,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
                 .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
                 .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
-                .putBoolean("recordingActive", true);
+                .putBoolean("recordingActive", true)
+                .putInt(BOOT_RETRY_COUNT_KEY, 0);
         long startedAt = intent.getLongExtra("startedAt", 0L);
         if (startedAt > 0L) {
             ed.putLong("recordingStartedAt", startedAt);
@@ -770,6 +782,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             ed.putLong("recordingStartedAt", System.currentTimeMillis());
         }
         ed.apply();
+        mirrorRecordingPrefsToDeviceProtected(getApplicationContext());
     }
 
     private void loadSessionFlagsFromPrefs() {
@@ -820,11 +833,33 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
             .edit()
             .putBoolean("recordingActive", false)
+            .putInt(BOOT_RETRY_COUNT_KEY, 0)
             .apply();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            deviceProtectedPrefs(ctx).edit().clear().apply();
+        }
+        clearBootResumeNotification(ctx);
     }
 
-    public static boolean shouldResumeAfterBoot(Context ctx) {
-        SharedPreferences p = ctx.getSharedPreferences(PREFS, MODE_PRIVATE);
+    private static SharedPreferences deviceProtectedPrefs(Context ctx) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            return ctx.createDeviceProtectedStorageContext()
+                    .getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        }
+        return ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+    }
+
+    private static SharedPreferences resolvePrefsForResume(Context ctx) {
+        SharedPreferences ce = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        if (hasActiveSessionPrefs(ce)) return ce;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            SharedPreferences de = deviceProtectedPrefs(ctx);
+            if (hasActiveSessionPrefs(de)) return de;
+        }
+        return ce;
+    }
+
+    private static boolean hasActiveSessionPrefs(SharedPreferences p) {
         if (!p.getBoolean("recordingActive", false)) return false;
         String sessionId = p.getString("sessionId", "");
         String deviceId = p.getString("deviceId", "");
@@ -837,8 +872,70 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 && !ingestUrl.isEmpty();
     }
 
-    public static void startFromBootIfNeeded(Context ctx) {
-        if (!shouldResumeAfterBoot(ctx) || isServiceRunning()) return;
+    private static void mirrorRecordingPrefsToDeviceProtected(Context ctx) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        SharedPreferences ce = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        SharedPreferences de = deviceProtectedPrefs(ctx);
+        if (!ce.getBoolean("recordingActive", false)) {
+            de.edit().clear().apply();
+            return;
+        }
+        de.edit()
+                .putBoolean("recordingActive", true)
+                .putString("sessionId", ce.getString("sessionId", ""))
+                .putString("deviceId", ce.getString("deviceId", ""))
+                .putString("ingestUrl", ce.getString("ingestUrl", ""))
+                .putString("ingestToken", ce.getString("ingestToken", ""))
+                .putString("athleteId", ce.getString("athleteId", ""))
+                .putBoolean("enableGps", ce.getBoolean("enableGps", false))
+                .putBoolean("enableMotion", ce.getBoolean("enableMotion", true))
+                .putLong("gpsIntervalMs", ce.getLong("gpsIntervalMs", 1000L))
+                .putLong("recordingStartedAt", ce.getLong("recordingStartedAt", 0L))
+                .putInt(BOOT_RETRY_COUNT_KEY, ce.getInt(BOOT_RETRY_COUNT_KEY, 0))
+                .apply();
+    }
+
+    private void promoteDeviceProtectedSessionPrefs() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
+        SharedPreferences ce = getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (hasActiveSessionPrefs(ce)) return;
+        SharedPreferences de =
+                createDeviceProtectedStorageContext().getSharedPreferences(PREFS, MODE_PRIVATE);
+        if (!hasActiveSessionPrefs(de)) return;
+        ce.edit()
+                .putBoolean("recordingActive", true)
+                .putString("sessionId", de.getString("sessionId", ""))
+                .putString("deviceId", de.getString("deviceId", ""))
+                .putString("ingestUrl", de.getString("ingestUrl", ""))
+                .putString("ingestToken", de.getString("ingestToken", ""))
+                .putString("athleteId", de.getString("athleteId", ""))
+                .putBoolean("enableGps", de.getBoolean("enableGps", false))
+                .putBoolean("enableMotion", de.getBoolean("enableMotion", true))
+                .putLong("gpsIntervalMs", de.getLong("gpsIntervalMs", 1000L))
+                .putLong("recordingStartedAt", de.getLong("recordingStartedAt", 0L))
+                .putInt(BOOT_RETRY_COUNT_KEY, de.getInt(BOOT_RETRY_COUNT_KEY, 0))
+                .apply();
+    }
+
+    public static boolean shouldResumeAfterBoot(Context ctx) {
+        return hasActiveSessionPrefs(resolvePrefsForResume(ctx));
+    }
+
+    public static void requestBootResume(Context ctx) {
+        if (!shouldResumeAfterBoot(ctx) || isServiceRunning()) {
+            Log.i(
+                    TAG,
+                    "Boot resume skipped active="
+                            + shouldResumeAfterBoot(ctx)
+                            + " running="
+                            + isServiceRunning());
+            return;
+        }
+        if (tryStartBootService(ctx)) return;
+        launchBootResumeActivity(ctx);
+    }
+
+    public static boolean tryStartBootService(Context ctx) {
         Intent intent = new Intent(ctx, CapsizeMonitorService.class);
         intent.putExtra("bootResume", true);
         try {
@@ -847,9 +944,116 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             } else {
                 ctx.startService(intent);
             }
-            Log.i(TAG, "Recording session restarted after boot");
+            Log.i(TAG, "Recording session restarted after boot (direct)");
+            return true;
         } catch (Exception e) {
-            Log.w(TAG, "Boot resume failed — open app to restore session: " + e.getMessage());
+            Log.w(TAG, "Boot resume direct start failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static void launchBootResumeActivity(Context ctx) {
+        try {
+            Intent act = new Intent(ctx, BootResumeLauncherActivity.class);
+            act.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            ctx.startActivity(act);
+            Log.i(TAG, "Boot resume via launcher activity");
+        } catch (Exception e) {
+            Log.w(TAG, "Boot resume activity failed: " + e.getMessage());
+            scheduleBootResumeRetry(ctx);
+        }
+    }
+
+    public static void scheduleBootResumeRetry(Context ctx) {
+        SharedPreferences p = resolvePrefsForResume(ctx);
+        if (!hasActiveSessionPrefs(p)) return;
+        int count = p.getInt(BOOT_RETRY_COUNT_KEY, 0);
+        if (count >= MAX_BOOT_RESUME_RETRIES) {
+            showBootResumeNotification(ctx);
+            return;
+        }
+        SharedPreferences.Editor ed = p.edit().putInt(BOOT_RETRY_COUNT_KEY, count + 1);
+        ed.apply();
+        mirrorRecordingPrefsToDeviceProtected(ctx);
+
+        AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
+        if (am == null) {
+            showBootResumeNotification(ctx);
+            return;
+        }
+        Intent intent = new Intent(ctx, RecordingBootReceiver.class);
+        intent.setAction(RecordingBootReceiver.ACTION_BOOT_RESUME_RETRY);
+        PendingIntent pi =
+                PendingIntent.getBroadcast(
+                        ctx,
+                        BOOT_RESUME_ALARM_REQUEST,
+                        intent,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        long delayMs = count == 0 ? 15_000L : count == 1 ? 45_000L : 120_000L;
+        long trigger = System.currentTimeMillis() + delayMs;
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, trigger, pi);
+            } else {
+                am.set(AlarmManager.RTC_WAKEUP, trigger, pi);
+            }
+            Log.i(TAG, "Scheduled boot resume retry #" + (count + 1) + " in " + delayMs + "ms");
+        } catch (Exception e) {
+            Log.w(TAG, "Boot resume alarm failed: " + e.getMessage());
+            showBootResumeNotification(ctx);
+        }
+    }
+
+    private static void showBootResumeNotification(Context ctx) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel ch =
+                    new NotificationChannel(
+                            CHANNEL_ID,
+                            "Session recording (native)",
+                            NotificationManager.IMPORTANCE_HIGH);
+            NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+            if (nm != null) nm.createNotificationChannel(ch);
+        }
+        Intent launch = new Intent(ctx, BootResumeLauncherActivity.class);
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        PendingIntent pi =
+                PendingIntent.getActivity(
+                        ctx,
+                        0,
+                        launch,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification notification =
+                new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                        .setContentTitle("KRI session recording")
+                        .setContentText("Tap to resume GPS after restart")
+                        .setSmallIcon(R.drawable.ic_stat_rnz_alert)
+                        .setContentIntent(pi)
+                        .setAutoCancel(true)
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .build();
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm != null) nm.notify(NOTIF_ID_BOOT_RESUME, notification);
+    }
+
+    private void clearBootResumeNotification() {
+        clearBootResumeNotification(this);
+    }
+
+    private static void clearBootResumeNotification(Context ctx) {
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        if (nm != null) nm.cancel(NOTIF_ID_BOOT_RESUME);
+    }
+
+    private void startForegroundWithTypes() {
+        Notification notification = buildForegroundNotification();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION;
+            if (Build.VERSION.SDK_INT >= 34) {
+                types |= ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            }
+            ServiceCompat.startForeground(this, NOTIF_ID_FOREGROUND, notification, types);
+        } else {
+            startForeground(NOTIF_ID_FOREGROUND, notification);
         }
     }
 
