@@ -11,6 +11,16 @@ export type NativeCapsizeMonitorConfig = {
   enableGps?: boolean;
   enableMotion?: boolean;
   gpsIntervalMs?: number;
+  startedAt?: number;
+};
+
+export type NativeActiveSession = {
+  active: boolean;
+  serviceRunning: boolean;
+  sessionId?: string;
+  deviceId?: string;
+  athleteId?: string;
+  startedAt?: number;
 };
 
 export type NativeRecordingPulse = {
@@ -39,6 +49,7 @@ export type NativeRecordingSetupStatus = {
 export interface NativeCapsizeMonitorPlugin {
   start(config: NativeCapsizeMonitorConfig): Promise<void>;
   stop(): Promise<void>;
+  getActiveSession(): Promise<NativeActiveSession>;
   setUpright(options: { x: number; y: number; z: number }): Promise<void>;
   setStrokeRate(options: { spm: number }): Promise<void>;
   setLiveMapMode(options: { active: boolean }): Promise<void>;
@@ -64,6 +75,7 @@ export async function startNativeCapsizeMonitor(
       enableGps: config.enableGps ?? false,
       enableMotion: config.enableMotion ?? true,
       gpsIntervalMs: config.gpsIntervalMs ?? 1000,
+      startedAt: config.startedAt,
     });
     return true;
   } catch {
@@ -86,6 +98,15 @@ export async function stopNativeCapsizeMonitor(): Promise<void> {
     await CapsizeMonitor.stop();
   } catch {
     /* optional */
+  }
+}
+
+export async function getNativeActiveSession(): Promise<NativeActiveSession | null> {
+  if (!IS_NATIVE) return null;
+  try {
+    return await CapsizeMonitor.getActiveSession();
+  } catch {
+    return null;
   }
 }
 

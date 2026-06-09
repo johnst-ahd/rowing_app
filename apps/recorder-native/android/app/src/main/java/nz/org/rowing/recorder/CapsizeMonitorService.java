@@ -265,6 +265,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 Thread.currentThread().interrupt();
             }
         }
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean("recordingActive", false)
+            .apply();
         super.onDestroy();
     }
 
@@ -879,22 +883,30 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     private void saveConfigFromIntent(Intent intent) {
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-            .edit()
-            .putString("sessionId", intent.getStringExtra("sessionId"))
-            .putString("deviceId", intent.getStringExtra("deviceId"))
-            .putString("ingestUrl", intent.getStringExtra("ingestUrl"))
-            .putString("ingestToken", intent.getStringExtra("ingestToken"))
-            .putString("athleteId", intent.getStringExtra("athleteId"))
-            .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
-            .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
-            .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
-            .putInt("uploadSeq", 0)
-            .putInt("uploadOkCount", 0)
-            .putInt("uploadFailCount", 0)
-            .putString(PENDING_BATCHES_KEY, "[]")
-            .putInt("pendingBatchCount", 0)
-            .apply();
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        SharedPreferences.Editor ed =
+            p.edit()
+                .putString("sessionId", intent.getStringExtra("sessionId"))
+                .putString("deviceId", intent.getStringExtra("deviceId"))
+                .putString("ingestUrl", intent.getStringExtra("ingestUrl"))
+                .putString("ingestToken", intent.getStringExtra("ingestToken"))
+                .putString("athleteId", intent.getStringExtra("athleteId"))
+                .putBoolean("enableGps", intent.getBooleanExtra("enableGps", false))
+                .putBoolean("enableMotion", intent.getBooleanExtra("enableMotion", true))
+                .putLong("gpsIntervalMs", intent.getLongExtra("gpsIntervalMs", 1000L))
+                .putBoolean("recordingActive", true)
+                .putInt("uploadSeq", 0)
+                .putInt("uploadOkCount", 0)
+                .putInt("uploadFailCount", 0)
+                .putString(PENDING_BATCHES_KEY, "[]")
+                .putInt("pendingBatchCount", 0);
+        long startedAt = intent.getLongExtra("startedAt", 0L);
+        if (startedAt > 0L) {
+            ed.putLong("recordingStartedAt", startedAt);
+        } else if (p.getLong("recordingStartedAt", 0L) <= 0L) {
+            ed.putLong("recordingStartedAt", System.currentTimeMillis());
+        }
+        ed.apply();
     }
 
     private void loadSessionFlagsFromPrefs() {
@@ -934,6 +946,18 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (economyActive) return economyUploadIntervalMs;
         if (liveMapActive) return LIVE_MAP_FLUSH_INTERVAL_MS;
         return UPLOAD_FLUSH_INTERVAL_MS;
+    }
+
+    public static boolean isServiceRunning() {
+        CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
+        return inst != null;
+    }
+
+    public static void clearRecordingSession(Context ctx) {
+        ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putBoolean("recordingActive", false)
+            .apply();
     }
 
     public static void setLiveMapMode(Context ctx, boolean active) {

@@ -74,6 +74,12 @@ export type RecorderHooks = {
   onBackgroundPulse?: () => void;
 };
 
+export type StartRecorderOptions = {
+  resume?: SessionMeta;
+  /** Native foreground service already running this session — do not call start() again. */
+  skipNativeStart?: boolean;
+};
+
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 const BG_UPLOAD_PULSE_MS = 12_000;
 /** Live map mode: push WebView outbox frequently (native APK uses its own flush). */
@@ -112,20 +118,25 @@ export async function startRecorder(
   onPendingChange: (n: number) => void,
   onCapsize?: (active: boolean) => void,
   hooks?: RecorderHooks,
+  options?: StartRecorderOptions,
 ): Promise<RecorderController | null> {
   if (!settings.deviceId.trim()) {
     onLog('Set a Device ID in Settings before recording.');
     return null;
   }
 
-  const sessionId = newSessionId();
+  const resume = options?.resume;
+  const sessionId = resume?.sessionId ?? newSessionId();
   const meta: SessionMeta = {
     sessionId,
     deviceId: settings.deviceId,
-    athleteId: settings.athleteId,
-    startedAt: Date.now(),
+    athleteId: resume?.athleteId ?? settings.athleteId,
+    startedAt: resume?.startedAt ?? Date.now(),
   };
   await saveSession(meta);
+  if (resume) {
+    onLog(`Resuming session ${sessionId.slice(0, 8)}…`, false);
+  }
 
   const stats: RecorderStats = {
     gpsCount: 0,
@@ -374,6 +385,14 @@ export async function startRecorder(
   }
 
   if (IS_NATIVE && (settings.enableGps || settings.enableMotion)) {
+    if (options?.skipNativeStart) {
+      nativeCapsizeMonitorOn = true;
+      onLog('Reconnecting to background recording service…', false);
+      if (geofences.length) recheckGeofenceFromLastPosition();
+      if (settings.liveMapMode && settings.enableGps) {
+        void setNativeLiveMapMode(true);
+      }
+    } else {
     const started = await startNativeCapsizeMonitor({
       sessionId,
       deviceId: settings.deviceId,
@@ -383,6 +402,7 @@ export async function startRecorder(
       enableGps: settings.enableGps,
       enableMotion: settings.enableMotion,
       gpsIntervalMs: settings.gpsIntervalMs,
+      startedAt: meta.startedAt,
     });
     nativeCapsizeMonitorOn = started;
     if (started) {
@@ -402,6 +422,7 @@ export async function startRecorder(
       onLog(
         'Native session service failed — allow notifications, location Always, and retry.',
       );
+    }
     }
   }
 

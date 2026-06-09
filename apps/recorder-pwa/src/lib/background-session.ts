@@ -11,6 +11,12 @@ const LS_ACTIVE = 'rnz_active_recording_v1';
 const LOCK_NAME = 'rnz-recording-session';
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
 
+export type ActiveRecording = {
+  sessionId: string;
+  deviceId: string;
+  startedAt: number;
+};
+
 export type BackgroundStatus = 'foreground' | 'background' | 'limited';
 
 export type BackgroundSessionCallbacks = {
@@ -24,26 +30,57 @@ const cleanups: Array<() => void> = [];
 let lockAbort: AbortController | null = null;
 let callbacks: BackgroundSessionCallbacks | null = null;
 
-export function markRecordingActive(sessionId: string, deviceId: string): void {
-  sessionStorage.setItem(
-    LS_ACTIVE,
-    JSON.stringify({ sessionId, deviceId, startedAt: Date.now() }),
-  );
+function parseActiveRecording(raw: string | null): ActiveRecording | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as ActiveRecording;
+    if (!parsed.sessionId || !parsed.deviceId) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function markRecordingActive(
+  sessionId: string,
+  deviceId: string,
+  startedAt?: number,
+): void {
+  const payload: ActiveRecording = {
+    sessionId,
+    deviceId,
+    startedAt: startedAt ?? Date.now(),
+  };
+  const json = JSON.stringify(payload);
+  sessionStorage.setItem(LS_ACTIVE, json);
+  try {
+    localStorage.setItem(LS_ACTIVE, json);
+  } catch {
+    /* storage full — sessionStorage still marks this tab */
+  }
 }
 
 export function clearRecordingActive(): void {
   sessionStorage.removeItem(LS_ACTIVE);
+  try {
+    localStorage.removeItem(LS_ACTIVE);
+  } catch {
+    /* ignore */
+  }
 }
 
-export function getInterruptedRecording(): {
-  sessionId: string;
-  deviceId: string;
-  startedAt: number;
-} | null {
+/** Survives app process death — used for native auto-resume. */
+export function getPersistedRecording(): ActiveRecording | null {
   try {
-    const raw = sessionStorage.getItem(LS_ACTIVE);
-    if (!raw) return null;
-    return JSON.parse(raw) as { sessionId: string; deviceId: string; startedAt: number };
+    return parseActiveRecording(localStorage.getItem(LS_ACTIVE));
+  } catch {
+    return null;
+  }
+}
+
+export function getInterruptedRecording(): ActiveRecording | null {
+  try {
+    return parseActiveRecording(sessionStorage.getItem(LS_ACTIVE));
   } catch {
     return null;
   }

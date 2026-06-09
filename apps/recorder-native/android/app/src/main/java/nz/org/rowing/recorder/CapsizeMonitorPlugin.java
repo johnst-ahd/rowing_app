@@ -30,6 +30,7 @@ public class CapsizeMonitorPlugin extends Plugin {
         intent.putExtra("enableGps", call.getBoolean("enableGps", false));
         intent.putExtra("enableMotion", call.getBoolean("enableMotion", true));
         intent.putExtra("gpsIntervalMs", call.getInt("gpsIntervalMs", 1000));
+        intent.putExtra("startedAt", call.getLong("startedAt", 0L));
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getContext().startForegroundService(intent);
         } else {
@@ -40,9 +41,40 @@ public class CapsizeMonitorPlugin extends Plugin {
 
     @PluginMethod
     public void stop(PluginCall call) {
+        CapsizeMonitorService.clearRecordingSession(getContext());
         Intent intent = new Intent(getContext(), CapsizeMonitorService.class);
         getContext().stopService(intent);
         call.resolve();
+    }
+
+    @PluginMethod
+    public void getActiveSession(PluginCall call) {
+        SharedPreferences p =
+            getContext().getSharedPreferences(CapsizeMonitorService.PREFS, android.content.Context.MODE_PRIVATE);
+        boolean serviceRunning = CapsizeMonitorService.isServiceRunning();
+        boolean recordingActive = p.getBoolean("recordingActive", false);
+        String sessionId = p.getString("sessionId", "");
+        String deviceId = p.getString("deviceId", "");
+        boolean hasSession =
+            sessionId != null
+                && !sessionId.isEmpty()
+                && deviceId != null
+                && !deviceId.isEmpty();
+        boolean active = serviceRunning || (recordingActive && hasSession);
+
+        JSObject ret = new JSObject();
+        ret.put("active", active);
+        ret.put("serviceRunning", serviceRunning);
+        if (active) {
+            ret.put("sessionId", sessionId);
+            ret.put("deviceId", deviceId);
+            ret.put("athleteId", p.getString("athleteId", ""));
+            long startedAt = p.getLong("recordingStartedAt", 0L);
+            if (startedAt > 0L) {
+                ret.put("startedAt", startedAt);
+            }
+        }
+        call.resolve(ret);
     }
 
     @PluginMethod

@@ -7,19 +7,23 @@ import {
 import {
   clearRecordingActive,
   getInterruptedRecording,
+  getPersistedRecording,
   markRecordingActive,
   startBackgroundSession,
   stopBackgroundSession,
   type BackgroundStatus,
 } from '../lib/background-session';
 import { requestNativePermissions } from '@rowing/sensor-adapters';
+import type { SessionMeta } from '@rowing/telemetry-types';
 import {
+  getNativeActiveSession,
   prepareNativeRecordingSetup,
   recordingSetupLogLines,
   setNativeLiveMapMode,
 } from '../lib/native-capsize-monitor';
+import { resolveResumeCandidate } from '../lib/session-resume';
 import { startRecorder, type RecorderController } from '../session/recorder';
-import { clearPendingOutbox, countPendingOutbox } from '../session/store';
+import { clearPendingOutbox, countPendingOutbox, getSession } from '../session/store';
 import { flushOutbox } from '../upload/sync';
 import { repairOversizedPendingOutbox } from '../session/store';
 import {
@@ -65,6 +69,7 @@ export function mountApp(root: HTMLElement): void {
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
   let controlsCollapsed = false;
   let logExpanded = false;
+  let resumeInFlight = false;
   const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
   const strokeRateAvg = new MetricRollingAvg(STROKE_AVG_WINDOW_MS, 0);
   const settings = loadSettings();
@@ -649,6 +654,158 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
+  async function beginRecording(opts?: {
+    resume?: SessionMeta;
+    skipNativeStart?: boolean;
+    skipPermissions?: boolean;
+  }): Promise<void> {
+    if (recording) return;
+    const s = loadSettings();
+    if (IS_NATIVE && !opts?.skipPermissions) {
+      try {
+        const p = await requestNativePermissions();
+        if (p.recordingSetup) {
+          for (const line of recordingSetupLogLines(p.recordingSetup)) {
+            pushLog(line);
+          }
+        } else {
+          if (p.notifications !== 'granted') {
+            pushLog('Allow notifications for capsize alarms when the screen is off.');
+          }
+          if (p.location !== 'granted') {
+            pushLog('Allow location (Always) for GPS while recording.');
+          }
+        }
+      } catch (e) {
+        pushLog(`Permissions error: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    sessionStartedAt = opts?.resume?.startedAt ?? Date.now();
+    controlsCollapsed = true;
+    speedAvg.clear();
+    strokeRateAvg.clear();
+
+    controller = await startRecorder(
+      s,
+      () => updateLiveHud(),
+      pushLog,
+      async (n) => {
+        const el = root.querySelector('[data-pending]');
+        if (el) el.textContent = String(n);
+        updateLiveHud();
+      },
+      (active) => {
+        capsizeActive = active;
+        updateLiveHud();
+      },
+      {
+        onBackgroundPulse: () => void runSync(false),
+      },
+      {
+        resume: opts?.resume,
+        skipNativeStart: opts?.skipNativeStart,
+      },
+    );
+    if (!controller) return;
+
+    recording = true;
+    backgroundStatus = 'foreground';
+    markRecordingActive(controller.sessionId, s.deviceId, sessionStartedAt);
+
+    await startBackgroundSession(s, {
+      onFlush: () => controller!.flush(),
+      onSync: runSync,
+      onLog: pushLog,
+      onStatus: (status) => {
+        backgroundStatus = status;
+        render();
+      },
+    });
+
+    if (s.enableHr) pushLog('Use Connect HR strap when ready.');
+    if (s.liveMapMode) {
+      pushLog('Faster phone uploads on — GPS ~every 2.5 s (optional; uses more battery).');
+      if (IS_NATIVE) void setNativeLiveMapMode(true);
+    }
+    const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;
+    const syncInterval = s.liveMapMode
+      ? 2000
+      : Math.max(4000, Math.min(batchMs, 12000));
+    syncTimer = setInterval(() => void runSync(false), syncInterval);
+    void runSync(false);
+    render();
+    startHudTimer();
+  }
+
+  async function tryAutoResume(reason?: string): Promise<void> {
+    if (recording || resumeInFlight) return;
+    resumeInFlight = true;
+    try {
+      if (!IS_NATIVE) {
+        const interrupted = getInterruptedRecording();
+        if (interrupted) {
+          pushLog(
+            `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
+          );
+          clearRecordingActive();
+        }
+        return;
+      }
+
+      const persisted = getPersistedRecording();
+      const native = await getNativeActiveSession();
+      const s = loadSettings();
+      const decision = resolveResumeCandidate(native, persisted, s.deviceId);
+
+      if (decision.action === 'none') {
+        const interrupted = getInterruptedRecording();
+        if (interrupted) {
+          pushLog(
+            `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
+          );
+        }
+        clearRecordingActive();
+        return;
+      }
+
+      if (decision.action === 'mismatch') {
+        pushLog(
+          `Saved recording (${decision.savedDeviceId}) does not match Device ID (${decision.settingsDeviceId}) — not resuming.`,
+        );
+        clearRecordingActive();
+        return;
+      }
+
+      const { candidate } = decision;
+      const stored = await getSession(candidate.sessionId);
+      const resume: SessionMeta = stored ?? {
+        sessionId: candidate.sessionId,
+        deviceId: candidate.deviceId,
+        athleteId: candidate.athleteId ?? s.athleteId,
+        startedAt: candidate.startedAt ?? Date.now(),
+      };
+
+      pushLog(
+        candidate.serviceRunning
+          ? reason ??
+              'Restoring recording session (background service still running)…'
+          : 'Resuming recording session after restart…',
+        false,
+      );
+      await beginRecording({
+        resume,
+        skipNativeStart: candidate.serviceRunning,
+        skipPermissions: true,
+      });
+      if (recording) {
+        pushLog('Session resumed automatically — Stop is available.');
+      }
+    } finally {
+      resumeInFlight = false;
+    }
+  }
+
   function bind() {
     root.querySelector('[data-nav="settings"]')?.addEventListener('click', () => {
       view = 'settings';
@@ -689,79 +846,8 @@ export function mountApp(root: HTMLElement): void {
       }
     });
 
-    root.querySelector('[data-action="start"]')?.addEventListener('click', async () => {
-      const s = loadSettings();
-      if (IS_NATIVE) {
-        try {
-          const p = await requestNativePermissions();
-          if (p.recordingSetup) {
-            for (const line of recordingSetupLogLines(p.recordingSetup)) {
-              pushLog(line);
-            }
-          } else {
-            if (p.notifications !== 'granted') {
-              pushLog('Allow notifications for capsize alarms when the screen is off.');
-            }
-            if (p.location !== 'granted') {
-              pushLog('Allow location (Always) for GPS while recording.');
-            }
-          }
-        } catch (e) {
-          pushLog(`Permissions error: ${e instanceof Error ? e.message : String(e)}`);
-          return;
-        }
-      }
-      sessionStartedAt = Date.now();
-      controlsCollapsed = true;
-      speedAvg.clear();
-      strokeRateAvg.clear();
-
-      controller = await startRecorder(
-        s,
-        () => updateLiveHud(),
-        pushLog,
-        async (n) => {
-          const el = root.querySelector('[data-pending]');
-          if (el) el.textContent = String(n);
-          updateLiveHud();
-        },
-        (active) => {
-          capsizeActive = active;
-          updateLiveHud();
-        },
-        {
-          onBackgroundPulse: () => void runSync(false),
-        },
-      );
-      if (!controller) return;
-
-      recording = true;
-      backgroundStatus = 'foreground';
-      markRecordingActive(controller.sessionId, s.deviceId);
-
-      await startBackgroundSession(s, {
-        onFlush: () => controller!.flush(),
-        onSync: runSync,
-        onLog: pushLog,
-        onStatus: (status) => {
-          backgroundStatus = status;
-          render();
-        },
-      });
-
-      if (s.enableHr) pushLog('Use Connect HR strap when ready.');
-      if (s.liveMapMode) {
-        pushLog('Faster phone uploads on — GPS ~every 2.5 s (optional; uses more battery).');
-        if (IS_NATIVE) void setNativeLiveMapMode(true);
-      }
-      const batchMs = s.enableMotion ? Math.max(s.uploadBatchMs, 8000) : s.uploadBatchMs;
-      const syncInterval = s.liveMapMode
-        ? 2000
-        : Math.max(4000, Math.min(batchMs, 12000));
-      syncTimer = setInterval(() => void runSync(false), syncInterval);
-      void runSync(false);
-      render();
-      startHudTimer();
+    root.querySelector('[data-action="start"]')?.addEventListener('click', () => {
+      void beginRecording();
     });
 
     root.querySelector('[data-action="stop"]')?.addEventListener('click', async () => {
@@ -819,12 +905,27 @@ export function mountApp(root: HTMLElement): void {
   void repairOversizedPendingOutbox().then((n) => {
     if (n > 0) pushLog(`Split ${n} oversized queued batch(es) for upload.`);
   });
-  const interrupted = getInterruptedRecording();
-  if (interrupted) {
-    pushLog(
-      `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
-    );
-    clearRecordingActive();
+  if (IS_NATIVE) {
+    const onForegroundResume = () => {
+      if (document.visibilityState !== 'visible' || recording) return;
+      void tryAutoResume('Recording still active — restoring session controls…');
+    };
+    document.addEventListener('visibilitychange', onForegroundResume);
+
+    void (async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      await tryAutoResume();
+    })();
+  } else {
+    const interrupted = getInterruptedRecording();
+    if (interrupted) {
+      pushLog(
+        `Previous session may have ended unexpectedly (${interrupted.deviceId}, ${new Date(interrupted.startedAt).toLocaleTimeString()}). Check upload queue.`,
+      );
+      clearRecordingActive();
+    }
   }
   if (IS_KRI) {
     pushLog('KRI GPS ready. Set Device ID in Settings, then start a session.');
