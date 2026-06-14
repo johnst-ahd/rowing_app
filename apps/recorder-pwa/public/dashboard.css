@@ -672,6 +672,14 @@
   color: var(--ahd-muted);
 }
 
+.ahd-field--muted select {
+  opacity: 0.72;
+}
+
+.ahd-field--muted .field-hint {
+  font-style: italic;
+}
+
 .history-range-block {
   margin-top: 0.5rem;
   padding-top: 0.75rem;

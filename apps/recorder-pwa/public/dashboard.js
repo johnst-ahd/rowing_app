@@ -2,6 +2,8 @@ const LS_TOKEN = 'rnz_dashboard_token';
 const LS_POLL = 'rnz_dashboard_poll_ms';
 const LS_POLL_BEFORE_SMOOTH = 'rnz_dashboard_poll_before_smooth';
 const LS_STALE = 'rnz_dashboard_stale_sec';
+const LS_MAP_POSITION = 'rnz_dashboard_map_position';
+/** @deprecated migrated to LS_MAP_POSITION */
 const LS_LIVE_MAP = 'rnz_dashboard_live_map';
 const LS_PREDICT_MODE = 'rnz_dashboard_predict_mode';
 const LS_DEVICE_COLLAPSE = 'rnz_device_collapse';
@@ -55,9 +57,24 @@ function savePrefs() {
   if (token) localStorage.setItem(LS_TOKEN, token);
   localStorage.setItem(LS_POLL, String($('#pollMs')?.value || 2000));
   localStorage.setItem(LS_STALE, String($('#staleSec')?.value || 3600));
-  localStorage.setItem(LS_LIVE_MAP, $('#liveMapMode')?.checked ? '1' : '0');
+  const mapMode = $('#mapPositionMode')?.value;
+  if (mapMode === 'raw' || mapMode === 'smoothed') {
+    localStorage.setItem(LS_MAP_POSITION, mapMode);
+  }
   const predictMode = $('#predictMode')?.value;
   if (predictMode) localStorage.setItem(LS_PREDICT_MODE, predictMode);
+}
+
+function currentMapPositionMode() {
+  const v =
+    $('#mapPositionMode')?.value ||
+    localStorage.getItem(LS_MAP_POSITION) ||
+    (localStorage.getItem(LS_LIVE_MAP) === '1' ? 'smoothed' : 'raw');
+  return v === 'smoothed' ? 'smoothed' : 'raw';
+}
+
+function isMapSmoothed() {
+  return currentMapPositionMode() === 'smoothed';
 }
 
 function currentPredictMode() {
@@ -66,7 +83,13 @@ function currentPredictMode() {
 }
 
 function isSmoothLiveMapEnabled() {
-  return $('#liveMapMode')?.checked === true;
+  return isMapSmoothed();
+}
+
+function updatePredictModeField() {
+  const field = $('#predictModeField');
+  const smoothed = isMapSmoothed();
+  if (field) field.classList.toggle('ahd-field--muted', !smoothed);
 }
 
 function currentPollMs() {
@@ -80,23 +103,19 @@ function formatRefreshRateLabel() {
     sec >= 1
       ? `${Number.isInteger(sec) ? sec : sec.toFixed(1)} s`
       : `${ms} ms`;
-  const smooth = isSmoothLiveMapEnabled() ? ' · smooth map' : '';
+  const smooth = isMapSmoothed() ? ' · smoothed' : ' · raw GPS';
   return `Refresh: ${interval}${smooth}`;
 }
 
-function updateRefreshRateLabel() {
-  const el = $('#refreshRateLabel');
-  if (el) el.textContent = formatRefreshRateLabel();
-}
-
-function applySmoothLiveMap() {
-  const live = isSmoothLiveMapEnabled();
+function applyMapPositionMode() {
+  const smoothed = isMapSmoothed();
   const pollEl = $('#pollMs');
   const legendEl = $('#mapLegendInterpolate');
-  document.querySelector('.hub-panel--map')?.classList.toggle('hub-panel--smooth-live', live);
-  if (legendEl) legendEl.hidden = !live;
+  document.querySelector('.hub-panel--map')?.classList.toggle('hub-panel--smooth-live', smoothed);
+  if (legendEl) legendEl.hidden = !smoothed;
+  updatePredictModeField();
 
-  if (live) {
+  if (smoothed) {
     if (pollEl && pollEl.value !== '1000') {
       localStorage.setItem(LS_POLL_BEFORE_SMOOTH, pollEl.value);
       pollEl.value = '1000';
@@ -119,6 +138,15 @@ function applySmoothLiveMap() {
   }
   savePrefs();
   updateRefreshRateLabel();
+}
+
+function applySmoothLiveMap() {
+  applyMapPositionMode();
+}
+
+function updateRefreshRateLabel() {
+  const el = $('#refreshRateLabel');
+  if (el) el.textContent = formatRefreshRateLabel();
 }
 
 function haversineM(lat1, lon1, lat2, lon2) {
@@ -577,10 +605,9 @@ function setCapsizeUiActive(hasCapsize) {
 function popupHtml(p) {
   const state = gpsFixState(p.fixAgeSec);
   const status = gpsStatusLabel(state);
-  const smoothNote =
-    isSmoothLiveMapEnabled() && p.smoothed
-      ? '<br><span class="map-popup-note">Map position smoothed (display only)</span>'
-      : '';
+  const smoothNote = isMapSmoothed()
+    ? '<br><span class="map-popup-note">Smoothed position (display only)</span>'
+    : '';
   const hr = p.hr != null ? `<br>HR: ${p.hr} bpm` : '';
   const spm =
     p.strokeRate != null && p.strokeRate > 0
@@ -655,13 +682,13 @@ function updateMap(positions) {
   }
   if (statusEl) {
     const capPart = capsizeN ? ` · ${capsizeN} CAPSIZE` : '';
-    const smoothPart = isSmoothLiveMapEnabled() ? ' · smooth motion' : '';
+    const smoothPart = isMapSmoothed() ? ' · smoothed' : ' · raw GPS';
     statusEl.textContent =
       positions.length === 0
         ? 'No GPS positions in the selected time window.'
         : `${liveN} live · ${amberN} delayed · ${lostN} last known${smoothPart}${capPart}`;
     statusEl.classList.toggle('map-status--capsize', capsizeN > 0);
-    statusEl.classList.toggle('map-status--smooth-live', isSmoothLiveMapEnabled());
+    statusEl.classList.toggle('map-status--smooth-live', isMapSmoothed());
   }
 
   setCapsizeUiActive(capsizeN > 0);
@@ -1003,18 +1030,20 @@ function init() {
   const savedToken = localStorage.getItem(LS_TOKEN);
   const savedPoll = localStorage.getItem(LS_POLL);
   const savedStale = localStorage.getItem(LS_STALE);
-  const savedLiveMap = localStorage.getItem(LS_LIVE_MAP) === '1';
+  const savedMapPosition =
+    localStorage.getItem(LS_MAP_POSITION) ||
+    (localStorage.getItem(LS_LIVE_MAP) === '1' ? 'smoothed' : null);
   const savedPredictMode = localStorage.getItem(LS_PREDICT_MODE);
   if (savedToken && $('#token')) $('#token').value = savedToken;
   if (savedPredictMode && $('#predictMode')) $('#predictMode').value = savedPredictMode;
-  if (savedLiveMap && $('#liveMapMode')) {
-    $('#liveMapMode').checked = true;
+  if (savedMapPosition && $('#mapPositionMode')) {
+    $('#mapPositionMode').value = savedMapPosition;
   } else if (savedPoll && $('#pollMs')) {
     $('#pollMs').value = savedPoll;
   }
   if (savedStale && $('#staleSec')) $('#staleSec').value = savedStale;
 
-  applySmoothLiveMap();
+  applyMapPositionMode();
 
   initMap();
 
@@ -1075,11 +1104,11 @@ function init() {
     $(sel)?.addEventListener('change', () => {
       savePrefs();
       updateRefreshRateLabel();
-      if (sel === '#predictMode') void poll();
+      if (sel === '#predictMode' && isMapSmoothed()) void poll();
     });
   });
-  $('#liveMapMode')?.addEventListener('change', () => {
-    applySmoothLiveMap();
+  $('#mapPositionMode')?.addEventListener('change', () => {
+    applyMapPositionMode();
     startPolling();
   });
 

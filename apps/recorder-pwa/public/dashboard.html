@@ -96,7 +96,7 @@
               <span class="map-legend-item map-legend-item--amber">● Delayed (30s–5min)</span>
               <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
               <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
-              <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smooth live map: predict-to-now on coloured dots (display only)</span>
+              <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smoothed: predict-to-now on all devices (display only)</span>
               <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
             </p>
             <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
@@ -359,18 +359,21 @@
                 <option value="120">120 s</option>
               </select>
             </label>
-            <label class="ahd-field ahd-field--check">
-              <input type="checkbox" id="liveMapMode" />
-              Smooth live map
-              <span class="field-hint">1 s refresh + smoothed dot motion (green/amber/red by fix age) — dashboard only; phones unchanged</span>
-            </label>
             <label class="ahd-field">
-              H6 predict speed cap
+              Map position
+              <select id="mapPositionMode">
+                <option value="raw" selected>Raw GPS fix</option>
+                <option value="smoothed">Smoothed (predict-to-now)</option>
+              </select>
+              <span class="field-hint">All devices on the live map — display only; phones unchanged. Smoothed uses 1 s refresh + motion between fixes.</span>
+            </label>
+            <label class="ahd-field" id="predictModeField">
+              Predict speed cap
               <select id="predictMode">
-                <option value="rowing" selected>Rowing (12 m/s)</option>
+                <option value="rowing" selected>Rowing boats (12 m/s)</option>
                 <option value="car">Car test (120 km/h)</option>
               </select>
-              <span class="field-hint">Yellow H6 overlay only — raises max speed and offset for in-car testing</span>
+              <span class="field-hint">When smoothed — limits predict offset for every device (rowing vs in-car testing)</span>
             </label>
             <label class="ahd-field">
               Refresh
