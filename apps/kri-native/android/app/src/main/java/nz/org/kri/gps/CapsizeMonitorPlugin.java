@@ -109,6 +109,15 @@ public class CapsizeMonitorPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void setGpsIntervalMs(PluginCall call) {
+        Integer gpsIntervalMs = call.getInt("gpsIntervalMs", 1000);
+        CapsizeMonitorService.setGpsIntervalMs(
+            getContext(),
+            gpsIntervalMs != null ? gpsIntervalMs.longValue() : 1000L);
+        call.resolve();
+    }
+
+    @PluginMethod
     public void setEconomyMode(PluginCall call) {
         Boolean active = call.getBoolean("active", false);
         Integer gpsIntervalMs = call.getInt("gpsIntervalMs", 30000);

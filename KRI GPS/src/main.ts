@@ -12,8 +12,9 @@ function enforceKriProfile(): void {
   s.enableMotion = true;
   s.enableHr = false;
   s.deviceId = s.deviceId || DEFAULT_SETTINGS.deviceId;
-  if (s.gpsIntervalMs >= DEFAULT_SETTINGS.gpsIntervalMs) {
+  if (s.gpsIntervalMs !== KRI_GPS_INTERVAL_MS) {
     s.gpsIntervalMs = KRI_GPS_INTERVAL_MS;
+    s.motionUploadIntervalMs = KRI_GPS_INTERVAL_MS;
     s.uploadBatchMs = Math.max(3000, KRI_GPS_INTERVAL_MS * 2);
   }
   saveSettings(s);

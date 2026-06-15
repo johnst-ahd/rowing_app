@@ -833,6 +833,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
             .edit()
             .putBoolean("recordingActive", false)
+            .putBoolean("economyActive", false)
             .putInt(BOOT_RETRY_COUNT_KEY, 0)
             .apply();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -1062,6 +1063,30 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .edit()
             .putBoolean("liveMapActive", active)
             .apply();
+    }
+
+    /** Apply GPS upload interval from WebView settings (survives skipNativeStart reconnect). */
+    public static void setGpsIntervalMs(Context ctx, long intervalMs) {
+        long ms = Math.max(500L, intervalMs);
+        ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
+            .edit()
+            .putLong("gpsIntervalMs", ms)
+            .apply();
+        CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
+        if (inst != null) {
+            inst.mainHandler.post(inst::applyGpsIntervalChanged);
+        }
+    }
+
+    private void applyGpsIntervalChanged() {
+        loadSessionFlagsFromPrefs();
+        if (!enableGps) return;
+        lastGpsUploadWallMs = 0L;
+        lastUploadedGpsBucket = -1L;
+        registerLocation();
+        scheduleGpsFlush();
+        tickScheduledGpsUpload();
+        Log.i(TAG, "GPS interval updated gpsIntervalMs=" + gpsIntervalMs);
     }
 
     public static void setEconomyMode(

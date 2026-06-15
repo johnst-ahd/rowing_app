@@ -21,6 +21,7 @@ import {
 import {
   getNativeRecordingPulse,
   setNativeEconomyMode,
+  setNativeGpsIntervalMs,
   setNativeLiveMapMode,
   startNativeCapsizeMonitor,
   stopNativeCapsizeMonitor,
@@ -423,6 +424,12 @@ export async function startRecorder(
         'Native session service failed — allow notifications, location Always, and retry.',
       );
     }
+    }
+    if (nativeCapsizeMonitorOn && settings.enableGps) {
+      await setNativeGpsIntervalMs(settings.gpsIntervalMs);
+      const sec =
+        Math.round((Math.max(500, settings.gpsIntervalMs) / 1000) * 10) / 10;
+      onLog(`GPS upload interval set to ${sec}s`, false);
     }
   }
 

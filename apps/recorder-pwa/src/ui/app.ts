@@ -20,6 +20,7 @@ import {
   prepareNativeRecordingSetup,
   recordingSetupLogLines,
   setNativeLiveMapMode,
+  stopNativeCapsizeMonitor,
 } from '../lib/native-capsize-monitor';
 import { resolveResumeCandidate } from '../lib/session-resume';
 import { startRecorder, type RecorderController } from '../session/recorder';
@@ -197,6 +198,9 @@ export function mountApp(root: HTMLElement): void {
       backgroundStatus = 'foreground';
     }
     clearRecordingActive();
+    if (IS_NATIVE) {
+      await stopNativeCapsizeMonitor();
+    }
     const n = await clearPendingOutbox();
     await updatePending();
     pushLog(

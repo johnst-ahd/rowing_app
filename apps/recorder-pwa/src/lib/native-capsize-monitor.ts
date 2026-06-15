@@ -53,6 +53,7 @@ export interface NativeCapsizeMonitorPlugin {
   setUpright(options: { x: number; y: number; z: number }): Promise<void>;
   setStrokeRate(options: { spm: number }): Promise<void>;
   setLiveMapMode(options: { active: boolean }): Promise<void>;
+  setGpsIntervalMs(options: { gpsIntervalMs: number }): Promise<void>;
   setEconomyMode(mode: NativeEconomyMode): Promise<void>;
   checkRecordingSetup(): Promise<NativeRecordingSetupStatus>;
   prepareRecording(): Promise<NativeRecordingSetupStatus>;
@@ -136,6 +137,15 @@ export async function setNativeLiveMapMode(active: boolean): Promise<void> {
   if (!IS_NATIVE) return;
   try {
     await CapsizeMonitor.setLiveMapMode({ active });
+  } catch {
+    /* optional */
+  }
+}
+
+export async function setNativeGpsIntervalMs(gpsIntervalMs: number): Promise<void> {
+  if (!IS_NATIVE) return;
+  try {
+    await CapsizeMonitor.setGpsIntervalMs({ gpsIntervalMs });
   } catch {
     /* optional */
   }
