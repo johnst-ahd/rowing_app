@@ -1,5 +1,5 @@
 /**
- * Dashboard boat-park geofence management (Leaflet circles + /api/geofences).
+ * Dashboard geofence zone management (Leaflet circles + /api/geofences).
  */
 (function () {
   const $ = (sel) => document.querySelector(sel);
@@ -54,7 +54,7 @@
         dashArray: '6 4',
       });
       circle.bindPopup(
-        `<strong>${esc(g.name)}</strong><br>Boat park · ${Math.round(g.radiusM)} m radius<br>GPS every ${g.economyGpsIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}`,
+        `<strong>${esc(g.name)}</strong><br>Geofence zone · ${Math.round(g.radiusM)} m radius<br>GPS every ${g.economyGpsIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}`,
       );
       geofenceLayer.addLayer(circle);
     }
@@ -79,7 +79,7 @@
     const el = $('#geofenceList');
     if (!el) return;
     if (!geofences.length) {
-      el.innerHTML = '<p class="poll-line">No boat park zones yet. Add one below or pick a centre on the fleet map.</p>';
+      el.innerHTML = '<p class="poll-line">No geofence zones yet. Add one below or pick a centre on the fleet map.</p>';
       return;
     }
     el.innerHTML = geofences
@@ -101,7 +101,7 @@
   }
 
   async function deleteGeofence(id) {
-    if (!id || !confirm('Delete this boat park zone?')) return;
+    if (!id || !confirm('Delete this geofence zone?')) return;
     setStatus('Deleting…');
     const res = await fetch(`${apiBase()}/api/geofences?id=${encodeURIComponent(id)}`, {
       method: 'DELETE',

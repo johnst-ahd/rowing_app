@@ -319,8 +319,9 @@ export function mountApp(root: HTMLElement): void {
         if (sub) sub.textContent = '';
       } else if (stats.inBoatPark) {
         zoneEl.setAttribute('data-zone', 'boat_park');
-        if (label) label.textContent = 'In boat park';
-        if (sub) sub.textContent = stats.boatParkName ? stats.boatParkName : '';
+        const zoneName = stats.boatParkName?.trim();
+        if (label) label.textContent = zoneName || 'Geofence zone';
+        if (sub) sub.textContent = '';
       } else {
         zoneEl.setAttribute('data-zone', 'on_water');
         if (label) label.textContent = 'On water';
@@ -420,9 +421,7 @@ export function mountApp(root: HTMLElement): void {
     let zone = '';
     if (recording && stats?.lastGps) {
       zone = stats.inBoatPark
-        ? stats.boatParkName
-          ? `In boat park: ${stats.boatParkName}`
-          : 'In boat park'
+        ? stats.boatParkName?.trim() || 'Geofence zone'
         : 'On water';
     } else if (recording) {
       zone = 'Locating…';

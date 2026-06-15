@@ -97,7 +97,7 @@
               <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
               <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
               <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smoothed: predict-to-now on all devices (display only)</span>
-              <span class="map-legend-item map-legend-item--geofence">◯ Boat park zone (economy mode)</span>
+              <span class="map-legend-item map-legend-item--geofence">◯ Geofence zone (economy mode)</span>
             </p>
             <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
             <p class="poll-line map-status" id="mapStatus">Loading map…</p>
@@ -160,21 +160,21 @@
         <div class="dashboard-section__head">
           <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-geofences">
             <span class="dashboard-section__chevron" aria-hidden="true"></span>
-            <h2 class="hub-section-title">Boat park geofences</h2>
+            <h2 class="hub-section-title">Geofence zones</h2>
           </button>
         </div>
         <div class="dashboard-section__body" id="section-body-geofences" hidden>
           <p class="geofence-intro">
             Define zones where phones switch to <strong>economy mode</strong>: slower GPS/uploads and
-            <strong>capsize detection off</strong> (e.g. boat park or car park). Recorders fetch these
-            zones automatically when a session starts.
+            <strong>capsize detection off</strong>. Recorders fetch these zones automatically when a
+            session starts.
           </p>
           <div id="geofenceList" class="geofence-list" aria-live="polite"></div>
           <form id="geofenceForm" class="geofence-form">
             <div class="ahd-inline-fields">
               <label class="ahd-field">
                 Name
-                <input type="text" id="geofenceName" required placeholder="Karāpiro boat park" />
+                <input type="text" id="geofenceName" required placeholder="Boat Park" />
               </label>
               <label class="ahd-field">
                 Radius (m)
@@ -208,7 +208,7 @@
             <div class="geofence-form__actions">
               <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
               <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
-              <button type="submit" class="hub-btn hub-btn--primary">Add boat park zone</button>
+              <button type="submit" class="hub-btn hub-btn--primary">Add zone</button>
               <button type="button" class="hub-btn hub-btn--ghost" id="geofenceRefreshBtn">Refresh</button>
             </div>
           </form>

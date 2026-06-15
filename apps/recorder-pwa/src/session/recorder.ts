@@ -236,9 +236,9 @@ export async function startRecorder(
       onLog(
         modeChanged
           ? inBoatPark
-            ? `Boat park (${match!.name}): reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
-            : 'Left boat park — full recording restored.'
-          : `Boat park (${match!.name}) config updated: GPS ${Math.round(effectiveGpsIntervalMs / 1000)}s, upload ${Math.round(effectiveUploadIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
+            ? `${match!.name}: reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
+            : 'On water — full recording restored.'
+          : `${match!.name} config updated: GPS ${Math.round(effectiveGpsIntervalMs / 1000)}s, upload ${Math.round(effectiveUploadIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
       );
       if (nativeCapsizeMonitorOn) {
         void setNativeEconomyMode({
@@ -264,7 +264,10 @@ export async function startRecorder(
   };
 
   const recheckGeofenceFromLastPosition = () => {
-    if (!geofences.length) return;
+    if (!geofences.length) {
+      if (inBoatPark) applyEconomyMode(null);
+      return;
+    }
     const lg = stats.lastGps;
     if (lg && Number.isFinite(lg.lat) && Number.isFinite(lg.lon)) {
       checkGeofenceAt(lg.lat, lg.lon);
@@ -282,8 +285,8 @@ export async function startRecorder(
     geofences = list;
     if (list.length) {
       onLog(`${list.length} geofence(s) loaded from dashboard.`);
-      recheckGeofenceFromLastPosition();
     }
+    recheckGeofenceFromLastPosition();
   });
 
   const stoppers: Array<() => void | Promise<void>> = [];
