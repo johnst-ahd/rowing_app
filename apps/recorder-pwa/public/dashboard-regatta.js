@@ -6,7 +6,10 @@
 
   /** @type {Map<string, { id: number, text: string, createdAt?: string }>} */
   const activeByDevice = new Map();
+  let knownDeviceIds = [];
   let lastPollRefreshAt = 0;
+
+  const ALL_DEVICES_VALUE = '__all__';
 
   function headers() {
     if (typeof window.dashboardHeaders === 'function') return window.dashboardHeaders();
@@ -81,29 +84,64 @@
     if (!sel) return;
     const prev = sel.value;
     const ids = [...new Set((deviceIds || []).filter(Boolean))].sort();
+    knownDeviceIds = ids;
+    const allLabel =
+      ids.length === 1 ? 'All devices (1)' : `All devices (${ids.length})`;
     sel.innerHTML =
-      '<option value="">— select device —</option>' +
+      `<option value="">— select device —</option>` +
+      (ids.length
+        ? `<option value="${ALL_DEVICES_VALUE}">${esc(allLabel)}</option>`
+        : '') +
       ids.map((id) => `<option value="${esc(id)}">${esc(id)}</option>`).join('');
-    if (prev && ids.includes(prev)) sel.value = prev;
+    if (prev && (prev === ALL_DEVICES_VALUE || ids.includes(prev))) sel.value = prev;
+    updateSendButtonLabel();
+  }
+
+  function updateSendButtonLabel() {
+    const btn = $('#regattaSendBtn');
+    const sel = $('#regattaDeviceId');
+    if (!btn || !sel) return;
+    if (sel.value === ALL_DEVICES_VALUE) {
+      btn.textContent =
+        knownDeviceIds.length === 1
+          ? 'Send to all devices (1)'
+          : `Send to all devices (${knownDeviceIds.length})`;
+      return;
+    }
+    btn.textContent = 'Send to device HUD';
   }
 
   async function sendMessage(ev) {
     ev.preventDefault();
     const deviceId = $('#regattaDeviceId')?.value?.trim();
     const text = $('#regattaText')?.value?.trim();
+    const sendToAll = deviceId === ALL_DEVICES_VALUE;
+
     if (!deviceId) {
-      setStatus('Select a device.', true);
+      setStatus('Select a device or all devices.', true);
       return;
     }
     if (!text) {
       setStatus('Enter a message.', true);
       return;
     }
-    setStatus('Sending…');
+    if (sendToAll && !knownDeviceIds.length) {
+      setStatus('No devices in the current list — wait for the device poll or pick one device.', true);
+      return;
+    }
+    if (sendToAll && knownDeviceIds.length > 1) {
+      const ok = confirm(`Send this message to all ${knownDeviceIds.length} devices?`);
+      if (!ok) return;
+    }
+
+    setStatus(sendToAll ? `Sending to ${knownDeviceIds.length} device(s)…` : 'Sending…');
+    const payload = sendToAll
+      ? { allDevices: true, deviceIds: knownDeviceIds, text }
+      : { deviceId, text };
     const res = await fetch(`${apiBase()}/api/messages`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({ deviceId, text }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
@@ -112,6 +150,11 @@
     }
     $('#regattaText').value = '';
     await loadActiveMessages();
+    if (sendToAll) {
+      const count = Number(data.count) || knownDeviceIds.length;
+      setStatus(`Message sent to ${count} device(s). Appears on each HUD within ~15s.`);
+      return;
+    }
     setStatus(`Message sent to ${deviceId}. Appears on device HUD within ~15s.`);
   }
 
@@ -137,6 +180,7 @@
     $('#regattaForm')?.addEventListener('submit', (ev) => {
       void sendMessage(ev).catch((e) => setStatus(String(e.message || e), true));
     });
+    $('#regattaDeviceId')?.addEventListener('change', updateSendButtonLabel);
     $('#regattaRefreshBtn')?.addEventListener('click', () => {
       void loadActiveMessages()
         .then((data) => {

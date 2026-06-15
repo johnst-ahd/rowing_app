@@ -1146,6 +1146,23 @@ async function setRegattaMessage(deviceId, text) {
   return normalizeRegattaMessage(ins.rows[0]);
 }
 
+async function broadcastRegattaMessage(text, deviceIds = null) {
+  if (!hasDb()) return [];
+  let ids = Array.isArray(deviceIds)
+    ? [...new Set(deviceIds.map((id) => String(id ?? '').trim()).filter(Boolean))]
+    : [];
+  if (!ids.length) {
+    const devices = await listRegistryDevices();
+    ids = devices.map((d) => String(d.uniqueId ?? '').trim()).filter(Boolean);
+  }
+  const messages = [];
+  for (const deviceId of ids) {
+    const message = await setRegattaMessage(deviceId, text);
+    if (message) messages.push(message);
+  }
+  return messages;
+}
+
 async function clearRegattaMessage(deviceId) {
   if (!hasDb()) return false;
   const sql = await getSql();
@@ -1190,5 +1207,6 @@ module.exports = {
   getActiveRegattaMessage,
   listActiveRegattaMessages,
   setRegattaMessage,
+  broadcastRegattaMessage,
   clearRegattaMessage,
 };

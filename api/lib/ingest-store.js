@@ -168,7 +168,20 @@ function gpsFromSample(sample, { forTrack = false } = {}) {
     sample.gps.hdg != null && Number.isFinite(Number(sample.gps.hdg))
       ? Number(sample.gps.hdg)
       : null;
-  return { t, lat, lon, acc, spd, hdg };
+  const compass =
+    sample.gps.compass != null && Number.isFinite(Number(sample.gps.compass))
+      ? Number(sample.gps.compass)
+      : null;
+  return { t, lat, lon, acc, spd, hdg, compass };
+}
+
+/** Prefer compass bow heading; fall back to GPS course when moving. */
+function resolveMapHeading(fix) {
+  if (!fix) return null;
+  if (fix.compass != null && Number.isFinite(fix.compass)) return fix.compass;
+  const spd = fix.spd != null && Number.isFinite(fix.spd) ? fix.spd : 0;
+  if (spd >= 1.2 && fix.hdg != null && Number.isFinite(fix.hdg)) return fix.hdg;
+  return fix.hdg != null && Number.isFinite(fix.hdg) ? fix.hdg : null;
 }
 
 function metersPerDegLat() {
@@ -243,7 +256,7 @@ function resetGpsSmoothState(fix) {
     smoothLat: fix.lat,
     smoothLon: fix.lon,
     speedMps: fix.spd,
-    courseDeg: fix.hdg,
+    courseDeg: resolveMapHeading(fix),
   };
 }
 
@@ -278,7 +291,7 @@ function updateGpsTrack(deviceId, fix, opts = {}) {
       smoothLat: fix.lat,
       smoothLon: fix.lon,
       speedMps: fix.spd ?? prev.speedMps,
-      courseDeg: fix.hdg ?? prev.courseDeg,
+      courseDeg: resolveMapHeading(fix) ?? prev.courseDeg,
     });
     return true;
   }
@@ -294,7 +307,10 @@ function updateGpsTrack(deviceId, fix, opts = {}) {
   if (fix.spd != null && Number.isFinite(fix.spd)) {
     speedMps = prev.speedMps != null ? 0.5 * speedMps + 0.5 * fix.spd : fix.spd;
   }
-  if (fix.hdg != null && Number.isFinite(fix.hdg)) {
+  const resolved = resolveMapHeading(fix);
+  if (resolved != null && Number.isFinite(resolved)) {
+    courseDeg = resolved;
+  } else if (fix.hdg != null && Number.isFinite(fix.hdg)) {
     courseDeg = fix.hdg;
   }
 
@@ -972,7 +988,7 @@ function getPositionsSnapshot(onlineMs = 30000) {
       longitude: lastGps.gps.lon,
       accuracy: lastGps.gps.acc ?? null,
       speed: lastGps.gps.spd ?? null,
-      course: lastGps.gps.hdg ?? null,
+      course: resolveMapHeading(gpsFromSample(lastGps)) ?? lastGps.gps.hdg ?? null,
       altitude: lastGps.gps.alt ?? null,
       fixTime: new Date(fixMs).toISOString(),
       deviceTime: new Date(fixMs).toISOString(),
@@ -986,6 +1002,9 @@ function getPositionsSnapshot(onlineMs = 30000) {
               ay: lastMotion.motion.ay,
               az: lastMotion.motion.az,
             }
+          : {}),
+        ...(lastGps.gps.compass != null && Number.isFinite(Number(lastGps.gps.compass))
+          ? { compass: Number(lastGps.gps.compass) }
           : {}),
       },
     };
@@ -1541,5 +1560,6 @@ module.exports = {
   getActiveRegattaMessage: (deviceId) => db.getActiveRegattaMessage(deviceId),
   listActiveRegattaMessages: () => db.listActiveRegattaMessages(),
   setRegattaMessage: (deviceId, text) => db.setRegattaMessage(deviceId, text),
+  broadcastRegattaMessage: (text, deviceIds) => db.broadcastRegattaMessage(text, deviceIds),
   clearRegattaMessage: (deviceId) => db.clearRegattaMessage(deviceId),
 };

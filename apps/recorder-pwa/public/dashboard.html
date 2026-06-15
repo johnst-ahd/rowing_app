@@ -130,8 +130,8 @@
         </div>
         <div class="dashboard-section__body" id="section-body-regatta" hidden>
           <p class="regatta-intro">
-            Send a message to a device while it is recording. The text appears on the rower&rsquo;s session HUD
-            (no phone notification). Devices poll every ~15&nbsp;s.
+            Send a message to one device or <strong>all devices</strong> in the current device list while they are recording.
+            The text appears on the rower&rsquo;s session HUD (no phone notification). Devices poll every ~15&nbsp;s.
           </p>
           <div id="regattaActiveList" class="regatta-active-list" aria-live="polite"></div>
           <form id="regattaForm" class="regatta-form">
@@ -148,7 +148,7 @@
               <textarea id="regattaText" rows="2" maxlength="280" required placeholder="e.g. Return to boat park after this piece"></textarea>
             </label>
             <div class="regatta-form__actions">
-              <button type="submit" class="hub-btn hub-btn--primary">Send to device HUD</button>
+              <button type="submit" class="hub-btn hub-btn--primary" id="regattaSendBtn">Send to device HUD</button>
               <button type="button" class="hub-btn hub-btn--ghost" id="regattaRefreshBtn">Refresh</button>
             </div>
           </form>

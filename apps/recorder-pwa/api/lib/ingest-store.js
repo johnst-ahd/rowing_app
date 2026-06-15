@@ -1560,5 +1560,6 @@ module.exports = {
   getActiveRegattaMessage: (deviceId) => db.getActiveRegattaMessage(deviceId),
   listActiveRegattaMessages: () => db.listActiveRegattaMessages(),
   setRegattaMessage: (deviceId, text) => db.setRegattaMessage(deviceId, text),
+  broadcastRegattaMessage: (text, deviceIds) => db.broadcastRegattaMessage(text, deviceIds),
   clearRegattaMessage: (deviceId) => db.clearRegattaMessage(deviceId),
 };
