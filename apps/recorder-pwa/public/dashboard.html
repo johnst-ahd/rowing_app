@@ -177,19 +177,46 @@
                 <input type="text" id="geofenceName" required placeholder="Boat Park" />
               </label>
               <label class="ahd-field">
-                Radius (m)
-                <input type="number" id="geofenceRadius" min="20" step="10" value="150" required />
+                Shape
+                <select id="geofenceShapeType" aria-label="Geofence shape">
+                  <option value="circle" selected>Circle</option>
+                  <option value="polygon">Polygon (draw on map)</option>
+                </select>
               </label>
             </div>
-            <div class="ahd-inline-fields">
-              <label class="ahd-field">
-                Centre latitude
-                <input type="number" id="geofenceLat" step="any" required placeholder="-37.9196" />
-              </label>
-              <label class="ahd-field">
-                Centre longitude
-                <input type="number" id="geofenceLon" step="any" required placeholder="175.5424" />
-              </label>
+            <div id="geofenceCircleFields" class="geofence-shape-fields">
+              <div class="ahd-inline-fields">
+                <label class="ahd-field">
+                  Radius (m)
+                  <input type="number" id="geofenceRadius" min="20" step="10" value="150" />
+                </label>
+              </div>
+              <div class="ahd-inline-fields">
+                <label class="ahd-field">
+                  Centre latitude
+                  <input type="number" id="geofenceLat" step="any" placeholder="-37.9196" />
+                </label>
+                <label class="ahd-field">
+                  Centre longitude
+                  <input type="number" id="geofenceLon" step="any" placeholder="175.5424" />
+                </label>
+              </div>
+              <div class="geofence-form__actions">
+                <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
+                <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
+              </div>
+            </div>
+            <div id="geofencePolygonFields" class="geofence-shape-fields" hidden>
+              <p class="geofence-draw-help">
+                Click <strong>Draw on map</strong>, then click the fleet map to place corners. Use at least three points, then finish the shape.
+              </p>
+              <p class="geofence-draw-status poll-line" id="geofenceDrawStatus">No polygon drawn yet.</p>
+              <div class="geofence-form__actions">
+                <button type="button" class="hub-btn" id="geofenceDrawBtn">Draw on map</button>
+                <button type="button" class="hub-btn hub-btn--ghost" id="geofenceFinishDrawBtn" disabled>Finish polygon</button>
+                <button type="button" class="hub-btn hub-btn--ghost" id="geofenceUndoPointBtn" disabled>Undo point</button>
+                <button type="button" class="hub-btn hub-btn--ghost" id="geofenceClearDrawBtn" disabled>Clear</button>
+              </div>
             </div>
             <div class="ahd-inline-fields geofence-form__economy">
               <label class="ahd-field">
@@ -205,9 +232,7 @@
                 Disable capsize in zone
               </label>
             </div>
-            <div class="geofence-form__actions">
-              <button type="button" class="hub-btn" id="geofencePickBtn">Pick centre on map</button>
-              <button type="button" class="hub-btn hub-btn--ghost" id="geofenceMapCentreBtn">Use map centre</button>
+            <div class="geofence-form__actions geofence-form__actions--submit">
               <button type="submit" class="hub-btn hub-btn--primary">Add zone</button>
               <button type="button" class="hub-btn hub-btn--ghost" id="geofenceRefreshBtn">Refresh</button>
             </div>

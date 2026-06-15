@@ -1,5 +1,5 @@
 /**
- * Geofence geometry helpers (circle zones).
+ * Geofence geometry helpers (circle + polygon zones).
  */
 
 const EARTH_RADIUS_M = 6371000;
@@ -32,25 +32,113 @@ function pointInCircle(lat, lon, centerLat, centerLon, radiusM) {
   return distanceM(lat, lon, centerLat, centerLon) <= radiusM;
 }
 
+/** Ray casting; ring is [[lat, lon], ...] with at least 3 points. */
+function pointInPolygon(lat, lon, ring) {
+  if (!Array.isArray(ring) || ring.length < 3) return false;
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return false;
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const pi = ring[i];
+    const pj = ring[j];
+    if (!Array.isArray(pi) || !Array.isArray(pj) || pi.length < 2 || pj.length < 2) {
+      return false;
+    }
+    const yi = Number(pi[0]);
+    const xi = Number(pi[1]);
+    const yj = Number(pj[0]);
+    const xj = Number(pj[1]);
+    if (!Number.isFinite(yi) || !Number.isFinite(xi) || !Number.isFinite(yj) || !Number.isFinite(xj)) {
+      return false;
+    }
+    const intersect =
+      yi > lat !== yj > lat && lon < ((xj - xi) * (lat - yi)) / (yj - yi + Number.EPSILON) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function parsePolygonCoords(raw) {
+  if (!raw) return [];
+  let value = raw;
+  if (typeof value === 'string') {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(value)) return [];
+  const ring = [];
+  for (const pt of value) {
+    if (Array.isArray(pt) && pt.length >= 2) {
+      const lat = Number(pt[0]);
+      const lon = Number(pt[1]);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) ring.push([lat, lon]);
+    } else if (pt && typeof pt === 'object') {
+      const lat = Number(pt.lat ?? pt.latitude);
+      const lon = Number(pt.lon ?? pt.longitude ?? pt.lng);
+      if (Number.isFinite(lat) && Number.isFinite(lon)) ring.push([lat, lon]);
+    }
+  }
+  return ring.length >= 3 ? ring : [];
+}
+
+function normalizePolygonInput(raw) {
+  return parsePolygonCoords(raw);
+}
+
+function polygonCentroid(ring) {
+  let latSum = 0;
+  let lonSum = 0;
+  for (const [lat, lon] of ring) {
+    latSum += lat;
+    lonSum += lon;
+  }
+  return { lat: latSum / ring.length, lon: lonSum / ring.length };
+}
+
+function polygonBoundingRadiusM(ring) {
+  const c = polygonCentroid(ring);
+  let maxR = 1;
+  for (const [lat, lon] of ring) {
+    maxR = Math.max(maxR, distanceM(c.lat, c.lon, lat, lon));
+  }
+  return maxR;
+}
+
+function pointInGeofence(g, lat, lon) {
+  if (!g || g.enabled === false || g.kind !== 'boat_park') return false;
+  if (g.shapeType === 'polygon') {
+    return pointInPolygon(lat, lon, g.polygonCoords);
+  }
+  return pointInCircle(lat, lon, g.centerLat, g.centerLon, g.radiusM);
+}
+
 /** @param {Array<object>} geofences */
 function findBoatParkAt(lat, lon, geofences) {
   if (!Array.isArray(geofences)) return null;
   for (const g of geofences) {
-    if (!g || g.enabled === false) continue;
-    if (g.kind !== 'boat_park') continue;
-    if (pointInCircle(lat, lon, g.centerLat, g.centerLon, g.radiusM)) return g;
+    if (pointInGeofence(g, lat, lon)) return g;
   }
   return null;
 }
 
 function normalizeGeofence(row) {
+  const shapeType =
+    String(row.shape_type ?? row.shapeType ?? 'circle').toLowerCase() === 'polygon'
+      ? 'polygon'
+      : 'circle';
+  const polygonCoords =
+    shapeType === 'polygon' ? parsePolygonCoords(row.polygon_coords ?? row.polygonCoords) : [];
   return {
     id: row.id,
     name: row.name,
     kind: row.kind || 'boat_park',
+    shapeType,
     centerLat: Number(row.center_lat ?? row.centerLat),
     centerLon: Number(row.center_lon ?? row.centerLon),
     radiusM: Number(row.radius_m ?? row.radiusM),
+    polygonCoords,
     enabled: row.enabled !== false,
     economyGpsIntervalSec: Number(
       row.economy_gps_interval_sec ?? row.economyGpsIntervalSec ?? 30,
@@ -67,6 +155,12 @@ function normalizeGeofence(row) {
 module.exports = {
   distanceM,
   pointInCircle,
+  pointInPolygon,
+  parsePolygonCoords,
+  normalizePolygonInput,
+  polygonCentroid,
+  polygonBoundingRadiusM,
+  pointInGeofence,
   findBoatParkAt,
   normalizeGeofence,
 };

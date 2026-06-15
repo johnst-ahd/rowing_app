@@ -79,6 +79,7 @@ async function initSchema() {
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS tilt_deg DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS battery_pct SMALLINT`;
   await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS heartbeat BOOLEAN`;
+  await sql`ALTER TABLE rnz_samples ADD COLUMN IF NOT EXISTS compass_deg DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_t_ms BIGINT`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION`;
@@ -105,9 +106,11 @@ async function initSchema() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'boat_park',
+      shape_type TEXT NOT NULL DEFAULT 'circle',
       center_lat DOUBLE PRECISION NOT NULL,
       center_lon DOUBLE PRECISION NOT NULL,
       radius_m DOUBLE PRECISION NOT NULL,
+      polygon_coords JSONB,
       enabled BOOLEAN NOT NULL DEFAULT true,
       economy_gps_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
       economy_upload_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
@@ -115,6 +118,22 @@ async function initSchema() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
+  `;
+  await sql`ALTER TABLE rnz_geofences ADD COLUMN IF NOT EXISTS shape_type TEXT NOT NULL DEFAULT 'circle'`;
+  await sql`ALTER TABLE rnz_geofences ADD COLUMN IF NOT EXISTS polygon_coords JSONB`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS rnz_regatta_messages (
+      id SERIAL PRIMARY KEY,
+      device_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      cleared_at TIMESTAMPTZ NULL
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_rnz_regatta_messages_active
+      ON rnz_regatta_messages (device_id)
+      WHERE cleared_at IS NULL
   `;
 
   if (!globalThis.__rnzRegistryGpsBackfill) {
@@ -197,6 +216,7 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       accuracy: s.gps?.acc ?? null,
       speed: s.gps?.spd ?? null,
       course: s.gps?.hdg ?? null,
+      compass_deg: s.gps?.compass ?? null,
       altitude: s.gps?.alt ?? null,
       hr: s.hr?.bpm ?? null,
       ax: s.motion?.ax ?? null,
@@ -215,12 +235,12 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
   await sql`
     INSERT INTO rnz_samples (
       session_id, device_ref, unique_id, t_ms,
-      latitude, longitude, accuracy, speed, course, altitude,
+      latitude, longitude, accuracy, speed, course, compass_deg, altitude,
       hr, ax, ay, az, stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     )
     SELECT
       ${sessionId}::text, ${deviceRef}::int, ${uniqueId}::text,
-      x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.altitude,
+      x.t_ms, x.latitude, x.longitude, x.accuracy, x.speed, x.course, x.compass_deg, x.altitude,
       x.hr, x.ax, x.ay, x.az, x.stroke_rate, x.capsize, x.tilt_deg, x.battery_pct, x.heartbeat
     FROM jsonb_to_recordset(${JSON.stringify(packed)}::jsonb) AS x(
       t_ms bigint,
@@ -229,6 +249,7 @@ async function insertSamples(sessionId, deviceRef, uniqueId, samples) {
       accuracy double precision,
       speed double precision,
       course double precision,
+      compass_deg double precision,
       altitude double precision,
       hr integer,
       ax double precision,
@@ -308,6 +329,21 @@ async function resolveDevice(deviceIdParam, uniqueIdParam) {
   return null;
 }
 
+/** Prefer magnetometer bow heading; fall back to GPS course when moving. */
+function resolveCourseFromRow(row) {
+  const compass =
+    row.compass_deg != null && Number.isFinite(Number(row.compass_deg))
+      ? Number(row.compass_deg)
+      : null;
+  if (compass != null) return compass;
+  const spd =
+    row.speed != null && Number.isFinite(Number(row.speed)) ? Number(row.speed) : 0;
+  const hdg =
+    row.course != null && Number.isFinite(Number(row.course)) ? Number(row.course) : null;
+  if (spd >= 1.2 && hdg != null) return hdg;
+  return hdg ?? 0;
+}
+
 function rowToTraccarPosition(row) {
   const fix = new Date(Number(row.t_ms)).toISOString();
   const attrs = {};
@@ -325,6 +361,9 @@ function rowToTraccarPosition(row) {
   if (row.tilt_deg != null) attrs.tiltDeg = Number(row.tilt_deg);
   if (row.battery_pct != null) attrs.batteryPct = Number(row.battery_pct);
   if (row.heartbeat === true) attrs.heartbeat = true;
+  if (row.compass_deg != null && Number.isFinite(Number(row.compass_deg))) {
+    attrs.compass = Number(row.compass_deg);
+  }
   return {
     id: Number(row.id),
     deviceId: Number(row.device_ref),
@@ -332,7 +371,7 @@ function rowToTraccarPosition(row) {
     longitude: row.longitude,
     altitude: row.altitude ?? 0,
     speed: row.speed ?? 0,
-    course: row.course ?? 0,
+    course: resolveCourseFromRow(row),
     accuracy: row.accuracy ?? 0,
     fixTime: fix,
     deviceTime: fix,
@@ -347,7 +386,7 @@ async function getRoutePositions(deviceRef, fromIso, toIso) {
   const fromMs = new Date(fromIso).getTime();
   const toMs = new Date(toIso).getTime();
   const rows = await sql`
-    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+    SELECT id, device_ref, unique_id, t_ms, latitude, longitude, accuracy, speed, course, compass_deg, altitude, hr, ax, ay, az,
       stroke_rate, capsize, tilt_deg
     FROM rnz_samples
     WHERE device_ref = ${deviceRef}
@@ -366,7 +405,7 @@ async function getLatestTraccarPositions(onlineMs = 30000) {
   const cutoff = Date.now() - onlineMs;
   const rows = await sql`
     SELECT DISTINCT ON (s.device_ref)
-      s.id, s.device_ref, s.unique_id, s.t_ms, s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude, s.hr, s.ax, s.ay, s.az,
+      s.id, s.device_ref, s.unique_id, s.t_ms, s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.compass_deg, s.altitude, s.hr, s.ax, s.ay, s.az,
       d.last_seen_at
     FROM rnz_samples s
     JOIN rnz_devices d ON d.id = s.device_ref
@@ -386,7 +425,7 @@ async function fetchRecentSamplesByDevice(windowMs) {
   const cutoff = Date.now() - windowMs;
   const rows = await sql`
     SELECT s.unique_id, s.session_id, s.t_ms,
-      s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.altitude,
+      s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.compass_deg, s.altitude,
       s.hr, s.ax, s.ay, s.az, s.stroke_rate, s.capsize, s.tilt_deg,
       s.battery_pct, s.heartbeat,
       d.athlete_id
@@ -414,6 +453,9 @@ async function fetchRecentSamplesByDevice(windowMs) {
               spd: row.speed,
               hdg: row.course,
               alt: row.altitude,
+              ...(row.compass_deg != null && Number.isFinite(Number(row.compass_deg))
+                ? { compass: Number(row.compass_deg) }
+                : {}),
             }
           : undefined,
       hr: row.hr != null ? { bpm: row.hr } : undefined,
@@ -751,7 +793,7 @@ async function getSessionFromDb(sessionId) {
   `;
   if (!meta.rows[0]) return null;
   const samples = await sql`
-    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, altitude, hr, ax, ay, az,
+    SELECT t_ms AS t, latitude, longitude, accuracy, speed, course, compass_deg, altitude, hr, ax, ay, az,
       stroke_rate, capsize, tilt_deg, battery_pct, heartbeat
     FROM rnz_samples
     WHERE session_id = ${sessionId}
@@ -776,6 +818,9 @@ async function getSessionFromDb(sessionId) {
               spd: s.speed,
               hdg: s.course,
               alt: s.altitude,
+              ...(s.compass_deg != null && Number.isFinite(Number(s.compass_deg))
+                ? { compass: Number(s.compass_deg) }
+                : {}),
             }
           : undefined,
       hr: s.hr != null ? { bpm: s.hr } : undefined,
@@ -944,14 +989,19 @@ async function setIdempotency(key, response) {
   `;
 }
 
-const { normalizeGeofence } = require('./geofence');
+const {
+  normalizeGeofence,
+  normalizePolygonInput,
+  polygonCentroid,
+  polygonBoundingRadiusM,
+} = require('./geofence');
 
 async function listGeofences() {
   if (!hasDb()) return [];
   const sql = await getSql();
   await initSchema();
   const rows = await sql`
-    SELECT id, name, kind, center_lat, center_lon, radius_m, enabled,
+    SELECT id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
            economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
            created_at, updated_at
     FROM rnz_geofences
@@ -965,31 +1015,68 @@ async function createGeofence(body) {
   const sql = await getSql();
   await initSchema();
   const name = String(body.name ?? '').trim();
-  const centerLat = Number(body.centerLat);
-  const centerLon = Number(body.centerLon);
-  const radiusM = Number(body.radiusM);
   if (!name) throw new Error('name is required');
-  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
-    throw new Error('centerLat and centerLon are required');
-  }
-  if (!Number.isFinite(radiusM) || radiusM <= 0) {
-    throw new Error('radiusM must be a positive number');
-  }
   const kind = String(body.kind ?? 'boat_park').trim() || 'boat_park';
   const economyGps = Math.max(5, Number(body.economyGpsIntervalSec) || 30);
   const economyUpload = Math.max(5, Number(body.economyUploadIntervalSec) || 30);
   const disableCapsize = body.disableCapsize !== false;
   const enabled = body.enabled !== false;
-  const rows = await sql`
+  const shapeType =
+    String(body.shapeType ?? 'circle').toLowerCase() === 'polygon' ? 'polygon' : 'circle';
+
+  let centerLat;
+  let centerLon;
+  let radiusM;
+  let polygonRing = null;
+
+  if (shapeType === 'polygon') {
+    const ring = normalizePolygonInput(body.polygonCoords);
+    if (ring.length < 3) {
+      throw new Error('polygonCoords requires at least 3 points');
+    }
+    const centroid = polygonCentroid(ring);
+    centerLat = centroid.lat;
+    centerLon = centroid.lon;
+    radiusM = polygonBoundingRadiusM(ring);
+    polygonRing = ring;
+  } else {
+    centerLat = Number(body.centerLat);
+    centerLon = Number(body.centerLon);
+    radiusM = Number(body.radiusM);
+    if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
+      throw new Error('centerLat and centerLon are required');
+    }
+    if (!Number.isFinite(radiusM) || radiusM <= 0) {
+      throw new Error('radiusM must be a positive number');
+    }
+  }
+
+  const rows =
+    shapeType === 'polygon'
+      ? await sql`
     INSERT INTO rnz_geofences (
-      name, kind, center_lat, center_lon, radius_m, enabled,
+      name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
       economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize
     )
     VALUES (
-      ${name}, ${kind}, ${centerLat}, ${centerLon}, ${radiusM}, ${enabled},
+      ${name}, ${kind}, ${shapeType}, ${centerLat}, ${centerLon}, ${radiusM},
+      ${JSON.stringify(polygonRing)}::jsonb, ${enabled},
       ${economyGps}, ${economyUpload}, ${disableCapsize}
     )
-    RETURNING id, name, kind, center_lat, center_lon, radius_m, enabled,
+    RETURNING id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
+              economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
+              created_at, updated_at
+  `
+      : await sql`
+    INSERT INTO rnz_geofences (
+      name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
+      economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize
+    )
+    VALUES (
+      ${name}, ${kind}, ${shapeType}, ${centerLat}, ${centerLon}, ${radiusM}, NULL, ${enabled},
+      ${economyGps}, ${economyUpload}, ${disableCapsize}
+    )
+    RETURNING id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
               economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
               created_at, updated_at
   `;
@@ -1004,6 +1091,73 @@ async function deleteGeofence(id) {
   if (!Number.isFinite(n)) return false;
   const del = await sql`DELETE FROM rnz_geofences WHERE id = ${n}`;
   return (del.rowCount ?? 0) > 0;
+}
+
+const { normalizeRegattaMessage } = require('./regatta-message');
+
+async function getActiveRegattaMessage(deviceId) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  if (!id) return null;
+  const rows = await sql`
+    SELECT id, device_id, text, created_at
+    FROM rnz_regatta_messages
+    WHERE device_id = ${id} AND cleared_at IS NULL
+    ORDER BY created_at DESC
+    LIMIT 1
+  `;
+  return normalizeRegattaMessage(rows.rows[0]);
+}
+
+async function listActiveRegattaMessages() {
+  if (!hasDb()) return [];
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT DISTINCT ON (device_id) id, device_id, text, created_at
+    FROM rnz_regatta_messages
+    WHERE cleared_at IS NULL
+    ORDER BY device_id ASC, created_at DESC
+  `;
+  return rows.rows.map(normalizeRegattaMessage).filter(Boolean);
+}
+
+async function setRegattaMessage(deviceId, text) {
+  if (!hasDb()) return null;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  const msg = String(text ?? '').trim();
+  if (!id || !msg) return null;
+
+  await sql`
+    UPDATE rnz_regatta_messages
+    SET cleared_at = NOW()
+    WHERE device_id = ${id} AND cleared_at IS NULL
+  `;
+
+  const ins = await sql`
+    INSERT INTO rnz_regatta_messages (device_id, text)
+    VALUES (${id}, ${msg})
+    RETURNING id, device_id, text, created_at
+  `;
+  return normalizeRegattaMessage(ins.rows[0]);
+}
+
+async function clearRegattaMessage(deviceId) {
+  if (!hasDb()) return false;
+  const sql = await getSql();
+  await initSchema();
+  const id = String(deviceId ?? '').trim();
+  if (!id) return false;
+  const upd = await sql`
+    UPDATE rnz_regatta_messages
+    SET cleared_at = NOW()
+    WHERE device_id = ${id} AND cleared_at IS NULL
+  `;
+  return (upd.rowCount ?? 0) > 0;
 }
 
 module.exports = {
@@ -1033,4 +1187,8 @@ module.exports = {
   listGeofences,
   createGeofence,
   deleteGeofence,
+  getActiveRegattaMessage,
+  listActiveRegattaMessages,
+  setRegattaMessage,
+  clearRegattaMessage,
 };

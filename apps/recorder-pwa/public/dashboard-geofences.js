@@ -1,12 +1,24 @@
 /**
- * Dashboard geofence zone management (Leaflet circles + /api/geofences).
+ * Dashboard geofence zone management (Leaflet circles + polygons + /api/geofences).
  */
 (function () {
   const $ = (sel) => document.querySelector(sel);
 
   let geofenceLayer = null;
+  let draftLayer = null;
   let pickMode = false;
+  let drawPolygonMode = false;
+  let polygonDraft = [];
+  let polygonReady = false;
   let geofences = [];
+
+  const GEOFENCE_STYLE = {
+    color: '#f59e0b',
+    fillColor: '#f59e0b',
+    fillOpacity: 0.12,
+    weight: 2,
+    dashArray: '6 4',
+  };
 
   function headers() {
     if (typeof window.dashboardHeaders === 'function') return window.dashboardHeaders();
@@ -36,6 +48,25 @@
     return window.dashboardFleetMap || null;
   }
 
+  function currentShapeType() {
+    return $('#geofenceShapeType')?.value === 'polygon' ? 'polygon' : 'circle';
+  }
+
+  function shapeSummary(g) {
+    if (g.shapeType === 'polygon' && Array.isArray(g.polygonCoords) && g.polygonCoords.length >= 3) {
+      return `Polygon · ${g.polygonCoords.length} points`;
+    }
+    return `${g.centerLat.toFixed(5)}, ${g.centerLon.toFixed(5)} · ${Math.round(g.radiusM)} m`;
+  }
+
+  function popupHtml(g) {
+    const shape =
+      g.shapeType === 'polygon' && g.polygonCoords?.length >= 3
+        ? `Polygon · ${g.polygonCoords.length} points`
+        : `${Math.round(g.radiusM)} m radius`;
+    return `<strong>${esc(g.name)}</strong><br>Geofence zone · ${shape}<br>GPS every ${g.economyGpsIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}`;
+  }
+
   function drawGeofences() {
     const map = getMap();
     if (!map || typeof L === 'undefined') return;
@@ -45,18 +76,136 @@
     geofenceLayer.clearLayers();
     for (const g of geofences) {
       if (!g.enabled) continue;
-      const circle = L.circle([g.centerLat, g.centerLon], {
-        radius: g.radiusM,
+      let layer;
+      if (g.shapeType === 'polygon' && Array.isArray(g.polygonCoords) && g.polygonCoords.length >= 3) {
+        layer = L.polygon(
+          g.polygonCoords.map((pt) => [pt[0], pt[1]]),
+          GEOFENCE_STYLE,
+        );
+      } else {
+        layer = L.circle([g.centerLat, g.centerLon], {
+          radius: g.radiusM,
+          ...GEOFENCE_STYLE,
+        });
+      }
+      layer.bindPopup(popupHtml(g));
+      geofenceLayer.addLayer(layer);
+    }
+  }
+
+  function ensureDraftLayer() {
+    const map = getMap();
+    if (!map || typeof L === 'undefined') return null;
+    if (!draftLayer) {
+      draftLayer = L.layerGroup().addTo(map);
+    }
+    return draftLayer;
+  }
+
+  function updateDrawStatus() {
+    const el = $('#geofenceDrawStatus');
+    if (!el) return;
+    if (drawPolygonMode) {
+      el.textContent = `Drawing… ${polygonDraft.length} point(s). Click the map to add corners, then Finish polygon.`;
+      return;
+    }
+    if (polygonReady && polygonDraft.length >= 3) {
+      el.textContent = `Polygon ready (${polygonDraft.length} points). Enter a name and click Add zone.`;
+      return;
+    }
+    el.textContent = polygonDraft.length
+      ? `${polygonDraft.length} point(s) — finish the polygon or keep drawing.`
+      : 'No polygon drawn yet.';
+  }
+
+  function updateDraftLayer() {
+    const layer = ensureDraftLayer();
+    if (!layer) return;
+    layer.clearLayers();
+    if (!polygonDraft.length) return;
+
+    const latLngs = polygonDraft.map((p) => [p.lat, p.lon]);
+    if (polygonDraft.length >= 2) {
+      L.polyline(latLngs, {
+        color: '#f59e0b',
+        weight: 2,
+        dashArray: '4 6',
+      }).addTo(layer);
+    }
+    if (polygonDraft.length >= 3) {
+      L.polygon(latLngs, {
         color: '#f59e0b',
         fillColor: '#f59e0b',
-        fillOpacity: 0.12,
+        fillOpacity: 0.08,
         weight: 2,
-        dashArray: '6 4',
-      });
-      circle.bindPopup(
-        `<strong>${esc(g.name)}</strong><br>Geofence zone · ${Math.round(g.radiusM)} m radius<br>GPS every ${g.economyGpsIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}`,
-      );
-      geofenceLayer.addLayer(circle);
+      }).addTo(layer);
+    }
+    for (const p of polygonDraft) {
+      L.circleMarker([p.lat, p.lon], {
+        radius: 5,
+        color: '#f59e0b',
+        fillColor: '#fff',
+        fillOpacity: 1,
+        weight: 2,
+      }).addTo(layer);
+    }
+  }
+
+  function updateDrawButtons() {
+    const drawing = drawPolygonMode;
+    const hasPoints = polygonDraft.length > 0;
+    const canFinish = polygonDraft.length >= 3;
+    $('#geofenceFinishDrawBtn')?.toggleAttribute('disabled', !drawing || !canFinish);
+    $('#geofenceUndoPointBtn')?.toggleAttribute('disabled', !drawing || !hasPoints);
+    $('#geofenceClearDrawBtn')?.toggleAttribute('disabled', !hasPoints);
+    const drawBtn = $('#geofenceDrawBtn');
+    if (drawBtn) {
+      drawBtn.textContent = drawing ? 'Drawing… click map' : 'Draw on map';
+      drawBtn.classList.toggle('hub-btn--primary', drawing);
+    }
+    updateDrawStatus();
+  }
+
+  function clearPolygonDraft() {
+    polygonDraft = [];
+    polygonReady = false;
+    draftLayer?.clearLayers();
+    updateDrawButtons();
+  }
+
+  function setPickMode(on) {
+    if (on && drawPolygonMode) setDrawPolygonMode(false);
+    pickMode = on;
+    const btn = $('#geofencePickBtn');
+    if (btn) {
+      btn.textContent = on ? 'Click map to set centre…' : 'Pick centre on map';
+      btn.classList.toggle('hub-btn--primary', on);
+    }
+    const map = getMap();
+    if (map && !drawPolygonMode) map.getContainer().style.cursor = on ? 'crosshair' : '';
+  }
+
+  function setDrawPolygonMode(on) {
+    if (on) setPickMode(false);
+    drawPolygonMode = on;
+    if (!on && polygonDraft.length >= 3) polygonReady = true;
+    const map = getMap();
+    if (map) map.getContainer().style.cursor = on ? 'crosshair' : '';
+    updateDrawButtons();
+    updateDraftLayer();
+  }
+
+  function updateShapeFields() {
+    const isPolygon = currentShapeType() === 'polygon';
+    const circleFields = $('#geofenceCircleFields');
+    const polygonFields = $('#geofencePolygonFields');
+    if (circleFields) circleFields.hidden = isPolygon;
+    if (polygonFields) polygonFields.hidden = !isPolygon;
+    if (isPolygon) {
+      setPickMode(false);
+    } else {
+      setDrawPolygonMode(false);
+      clearPolygonDraft();
     }
   }
 
@@ -79,7 +228,8 @@
     const el = $('#geofenceList');
     if (!el) return;
     if (!geofences.length) {
-      el.innerHTML = '<p class="poll-line">No geofence zones yet. Add one below or pick a centre on the fleet map.</p>';
+      el.innerHTML =
+        '<p class="poll-line">No geofence zones yet. Add a circle below or draw a polygon on the fleet map.</p>';
       return;
     }
     el.innerHTML = geofences
@@ -88,7 +238,7 @@
       <div class="geofence-item" data-id="${g.id}">
         <div class="geofence-item__main">
           <strong>${esc(g.name)}</strong>
-          <span class="geofence-item__meta">${g.centerLat.toFixed(5)}, ${g.centerLon.toFixed(5)} · ${Math.round(g.radiusM)} m</span>
+          <span class="geofence-item__meta">${esc(shapeSummary(g))}</span>
           <span class="geofence-item__meta">Economy: GPS ${g.economyGpsIntervalSec}s · upload ${g.economyUploadIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}</span>
         </div>
         <button type="button" class="hub-btn hub-btn--danger geofence-delete-btn" data-id="${g.id}">Delete</button>
@@ -118,9 +268,7 @@
   async function createGeofence(ev) {
     ev.preventDefault();
     const name = $('#geofenceName')?.value?.trim();
-    const centerLat = Number($('#geofenceLat')?.value);
-    const centerLon = Number($('#geofenceLon')?.value);
-    const radiusM = Number($('#geofenceRadius')?.value);
+    const shapeType = currentShapeType();
     const economyGpsIntervalSec = Number($('#geofenceGpsSec')?.value) || 30;
     const economyUploadIntervalSec = Number($('#geofenceUploadSec')?.value) || 30;
     const disableCapsize = $('#geofenceDisableCapsize')?.checked !== false;
@@ -129,29 +277,42 @@
       setStatus('Name is required.', true);
       return;
     }
-    if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
-      setStatus('Latitude and longitude are required.', true);
-      return;
-    }
-    if (!Number.isFinite(radiusM) || radiusM <= 0) {
-      setStatus('Radius must be a positive number (metres).', true);
-      return;
+
+    let payload = {
+      name,
+      kind: 'boat_park',
+      shapeType,
+      economyGpsIntervalSec,
+      economyUploadIntervalSec,
+      disableCapsize,
+    };
+
+    if (shapeType === 'polygon') {
+      if (!polygonReady || polygonDraft.length < 3) {
+        setStatus('Draw a polygon on the map with at least 3 points, then Finish polygon.', true);
+        return;
+      }
+      payload.polygonCoords = polygonDraft.map((p) => [p.lat, p.lon]);
+    } else {
+      const centerLat = Number($('#geofenceLat')?.value);
+      const centerLon = Number($('#geofenceLon')?.value);
+      const radiusM = Number($('#geofenceRadius')?.value);
+      if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
+        setStatus('Latitude and longitude are required.', true);
+        return;
+      }
+      if (!Number.isFinite(radiusM) || radiusM <= 0) {
+        setStatus('Radius must be a positive number (metres).', true);
+        return;
+      }
+      payload = { ...payload, centerLat, centerLon, radiusM };
     }
 
     setStatus('Saving…');
     const res = await fetch(`${apiBase()}/api/geofences`, {
       method: 'POST',
       headers: headers(),
-      body: JSON.stringify({
-        name,
-        kind: 'boat_park',
-        centerLat,
-        centerLon,
-        radiusM,
-        economyGpsIntervalSec,
-        economyUploadIntervalSec,
-        disableCapsize,
-      }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok || !data.ok) {
@@ -162,21 +323,20 @@
     if ($('#geofenceGpsSec')) $('#geofenceGpsSec').value = '30';
     if ($('#geofenceUploadSec')) $('#geofenceUploadSec').value = '30';
     if ($('#geofenceDisableCapsize')) $('#geofenceDisableCapsize').checked = true;
+    if ($('#geofenceShapeType')) $('#geofenceShapeType').value = 'circle';
+    clearPolygonDraft();
+    updateShapeFields();
     await loadGeofences();
   }
 
-  function setPickMode(on) {
-    pickMode = on;
-    const btn = $('#geofencePickBtn');
-    if (btn) {
-      btn.textContent = on ? 'Click map to set centre…' : 'Pick centre on map';
-      btn.classList.toggle('hub-btn--primary', on);
-    }
-    const map = getMap();
-    if (map) map.getContainer().style.cursor = on ? 'crosshair' : '';
-  }
-
   function onMapClick(e) {
+    if (drawPolygonMode) {
+      polygonDraft.push({ lat: e.latlng.lat, lon: e.latlng.lng });
+      polygonReady = false;
+      updateDraftLayer();
+      updateDrawButtons();
+      return;
+    }
     if (!pickMode) return;
     const lat = e.latlng.lat;
     const lon = e.latlng.lng;
@@ -199,14 +359,45 @@
     setStatus(`Centre set to map view ${c.lat.toFixed(5)}, ${c.lng.toFixed(5)}`);
   }
 
+  function finishPolygonDraw() {
+    if (polygonDraft.length < 3) {
+      setStatus('Need at least 3 points to finish the polygon.', true);
+      return;
+    }
+    setDrawPolygonMode(false);
+    polygonReady = true;
+    updateDrawButtons();
+    setStatus(`Polygon ready (${polygonDraft.length} points). Enter a name and click Add zone.`);
+  }
+
+  function undoPolygonPoint() {
+    if (!polygonDraft.length) return;
+    polygonDraft.pop();
+    polygonReady = false;
+    updateDraftLayer();
+    updateDrawButtons();
+  }
+
   function bind() {
     $('#geofenceForm')?.addEventListener('submit', createGeofence);
+    $('#geofenceShapeType')?.addEventListener('change', updateShapeFields);
     $('#geofencePickBtn')?.addEventListener('click', () => setPickMode(!pickMode));
     $('#geofenceMapCentreBtn')?.addEventListener('click', useMapCentre);
-    $('#geofenceRefreshBtn')?.addEventListener('click', () => void loadGeofences().catch((e) => setStatus(String(e.message || e), true)));
+    $('#geofenceDrawBtn')?.addEventListener('click', () => setDrawPolygonMode(!drawPolygonMode));
+    $('#geofenceFinishDrawBtn')?.addEventListener('click', finishPolygonDraw);
+    $('#geofenceUndoPointBtn')?.addEventListener('click', undoPolygonPoint);
+    $('#geofenceClearDrawBtn')?.addEventListener('click', () => {
+      clearPolygonDraft();
+      setDrawPolygonMode(false);
+    });
+    $('#geofenceRefreshBtn')?.addEventListener('click', () =>
+      void loadGeofences().catch((e) => setStatus(String(e.message || e), true)),
+    );
 
     const map = getMap();
     if (map) map.on('click', onMapClick);
+    updateShapeFields();
+    updateDrawButtons();
   }
 
   window.dashboardInitGeofences = function () {

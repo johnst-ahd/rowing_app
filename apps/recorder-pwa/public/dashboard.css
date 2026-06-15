@@ -1099,6 +1099,25 @@
   margin: 0;
 }
 
+.geofence-shape-fields {
+  margin-bottom: 0.75rem;
+}
+
+.geofence-draw-help {
+  margin: 0 0 0.5rem;
+  font-size: 0.82rem;
+  color: var(--ahd-muted);
+  line-height: 1.45;
+}
+
+.geofence-draw-status {
+  margin: 0 0 0.65rem;
+}
+
+.geofence-form__actions--submit {
+  margin-top: 0.35rem;
+}
+
 .regatta-intro {
   margin: 0 0 0.85rem;
   font-size: 0.85rem;

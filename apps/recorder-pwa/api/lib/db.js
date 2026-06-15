@@ -106,9 +106,11 @@ async function initSchema() {
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       kind TEXT NOT NULL DEFAULT 'boat_park',
+      shape_type TEXT NOT NULL DEFAULT 'circle',
       center_lat DOUBLE PRECISION NOT NULL,
       center_lon DOUBLE PRECISION NOT NULL,
       radius_m DOUBLE PRECISION NOT NULL,
+      polygon_coords JSONB,
       enabled BOOLEAN NOT NULL DEFAULT true,
       economy_gps_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
       economy_upload_interval_sec DOUBLE PRECISION NOT NULL DEFAULT 30,
@@ -117,6 +119,8 @@ async function initSchema() {
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
+  await sql`ALTER TABLE rnz_geofences ADD COLUMN IF NOT EXISTS shape_type TEXT NOT NULL DEFAULT 'circle'`;
+  await sql`ALTER TABLE rnz_geofences ADD COLUMN IF NOT EXISTS polygon_coords JSONB`;
   await sql`
     CREATE TABLE IF NOT EXISTS rnz_regatta_messages (
       id SERIAL PRIMARY KEY,
@@ -985,14 +989,19 @@ async function setIdempotency(key, response) {
   `;
 }
 
-const { normalizeGeofence } = require('./geofence');
+const {
+  normalizeGeofence,
+  normalizePolygonInput,
+  polygonCentroid,
+  polygonBoundingRadiusM,
+} = require('./geofence');
 
 async function listGeofences() {
   if (!hasDb()) return [];
   const sql = await getSql();
   await initSchema();
   const rows = await sql`
-    SELECT id, name, kind, center_lat, center_lon, radius_m, enabled,
+    SELECT id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
            economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
            created_at, updated_at
     FROM rnz_geofences
@@ -1006,31 +1015,68 @@ async function createGeofence(body) {
   const sql = await getSql();
   await initSchema();
   const name = String(body.name ?? '').trim();
-  const centerLat = Number(body.centerLat);
-  const centerLon = Number(body.centerLon);
-  const radiusM = Number(body.radiusM);
   if (!name) throw new Error('name is required');
-  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
-    throw new Error('centerLat and centerLon are required');
-  }
-  if (!Number.isFinite(radiusM) || radiusM <= 0) {
-    throw new Error('radiusM must be a positive number');
-  }
   const kind = String(body.kind ?? 'boat_park').trim() || 'boat_park';
   const economyGps = Math.max(5, Number(body.economyGpsIntervalSec) || 30);
   const economyUpload = Math.max(5, Number(body.economyUploadIntervalSec) || 30);
   const disableCapsize = body.disableCapsize !== false;
   const enabled = body.enabled !== false;
-  const rows = await sql`
+  const shapeType =
+    String(body.shapeType ?? 'circle').toLowerCase() === 'polygon' ? 'polygon' : 'circle';
+
+  let centerLat;
+  let centerLon;
+  let radiusM;
+  let polygonRing = null;
+
+  if (shapeType === 'polygon') {
+    const ring = normalizePolygonInput(body.polygonCoords);
+    if (ring.length < 3) {
+      throw new Error('polygonCoords requires at least 3 points');
+    }
+    const centroid = polygonCentroid(ring);
+    centerLat = centroid.lat;
+    centerLon = centroid.lon;
+    radiusM = polygonBoundingRadiusM(ring);
+    polygonRing = ring;
+  } else {
+    centerLat = Number(body.centerLat);
+    centerLon = Number(body.centerLon);
+    radiusM = Number(body.radiusM);
+    if (!Number.isFinite(centerLat) || !Number.isFinite(centerLon)) {
+      throw new Error('centerLat and centerLon are required');
+    }
+    if (!Number.isFinite(radiusM) || radiusM <= 0) {
+      throw new Error('radiusM must be a positive number');
+    }
+  }
+
+  const rows =
+    shapeType === 'polygon'
+      ? await sql`
     INSERT INTO rnz_geofences (
-      name, kind, center_lat, center_lon, radius_m, enabled,
+      name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
       economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize
     )
     VALUES (
-      ${name}, ${kind}, ${centerLat}, ${centerLon}, ${radiusM}, ${enabled},
+      ${name}, ${kind}, ${shapeType}, ${centerLat}, ${centerLon}, ${radiusM},
+      ${JSON.stringify(polygonRing)}::jsonb, ${enabled},
       ${economyGps}, ${economyUpload}, ${disableCapsize}
     )
-    RETURNING id, name, kind, center_lat, center_lon, radius_m, enabled,
+    RETURNING id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
+              economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
+              created_at, updated_at
+  `
+      : await sql`
+    INSERT INTO rnz_geofences (
+      name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
+      economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize
+    )
+    VALUES (
+      ${name}, ${kind}, ${shapeType}, ${centerLat}, ${centerLon}, ${radiusM}, NULL, ${enabled},
+      ${economyGps}, ${economyUpload}, ${disableCapsize}
+    )
+    RETURNING id, name, kind, shape_type, center_lat, center_lon, radius_m, polygon_coords, enabled,
               economy_gps_interval_sec, economy_upload_interval_sec, disable_capsize,
               created_at, updated_at
   `;
