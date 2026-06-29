@@ -67,7 +67,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final int NOTIF_ID_BOOT_RESUME = 9103;
     private static final int BOOT_RESUME_ALARM_REQUEST = 9104;
     private static final String BOOT_RETRY_COUNT_KEY = "bootRetryCount";
-    private static final int MAX_BOOT_RESUME_RETRIES = 6;
+    private static final int MAX_BOOT_RESUME_RETRIES = 20;
+    /** Keep trying after fast retries exhaust — user may unlock phone later. */
+    private static final long BOOT_RESUME_PERSISTENT_INTERVAL_MS = 15L * 60L * 1000L;
     private static final float GRAVITY_ALPHA = 0.04f;
     private static final float STILL_VAR_MAX = 0.35f;
     private static final int CALIBRATE_MIN_SAMPLES = 8;
@@ -238,14 +240,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
+        promoteDeviceProtectedSessionPrefs();
         boolean bootResume = intent != null && intent.getBooleanExtra("bootResume", false);
-        if (bootResume) {
-            promoteDeviceProtectedSessionPrefs();
-        }
         if (intent != null && !bootResume) {
             saveConfigFromIntent(intent);
         }
         loadSessionFlagsFromPrefs();
+        loadUprightFromPrefs();
         ingestBuffer = new JSONArray();
         lastIngestFlushMs = 0L;
         lastSuccessfulUploadMs = 0L;
@@ -257,6 +258,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastWindowCollectWallMs = 0L;
         startForegroundWithTypes();
         clearBootResumeNotification();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(BOOT_RETRY_COUNT_KEY, 0).apply();
+        mirrorRecordingPrefsToDeviceProtected(getApplicationContext());
         acquireWakeLock();
         if (enableMotion || (enableGps && compassAvailable)) {
             registerSensors();
@@ -307,7 +310,26 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 Thread.currentThread().interrupt();
             }
         }
+        Context app = getApplicationContext();
+        if (shouldResumeAfterBoot(app)) {
+            Log.i(TAG, "Service stopped with active session — scheduling resume");
+            mirrorRecordingPrefsToDeviceProtected(app);
+            scheduleBootResumeRetry(app);
+        }
         super.onDestroy();
+    }
+
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        Context app = getApplicationContext();
+        if (shouldResumeAfterBoot(app)) {
+            Log.i(TAG, "Task removed with active session — requesting resume");
+            mirrorRecordingPrefsToDeviceProtected(app);
+            if (!tryStartBootService(app)) {
+                scheduleBootResumeRetry(app);
+            }
+        }
+        super.onTaskRemoved(rootIntent);
     }
 
     @Override
@@ -923,6 +945,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 queue.remove(0);
             }
             p.edit().putString(PENDING_BATCHES_KEY, queue.toString()).apply();
+            mirrorRecordingPrefsToDeviceProtected(getApplicationContext());
         } catch (Exception e) {
             Log.e(TAG, "enqueuePendingBatch failed", e);
         }
@@ -1110,6 +1133,30 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 && !ingestUrl.isEmpty();
     }
 
+    private static void copySessionResumeFields(SharedPreferences.Editor ed, SharedPreferences src) {
+        ed.putBoolean("recordingActive", true)
+                .putString("sessionId", src.getString("sessionId", ""))
+                .putString("deviceId", src.getString("deviceId", ""))
+                .putString("ingestUrl", src.getString("ingestUrl", ""))
+                .putString("ingestToken", src.getString("ingestToken", ""))
+                .putString("athleteId", src.getString("athleteId", ""))
+                .putBoolean("enableGps", src.getBoolean("enableGps", false))
+                .putBoolean("enableMotion", src.getBoolean("enableMotion", true))
+                .putLong("gpsIntervalMs", src.getLong("gpsIntervalMs", 1000L))
+                .putLong("recordingStartedAt", src.getLong("recordingStartedAt", 0L))
+                .putInt(BOOT_RETRY_COUNT_KEY, src.getInt(BOOT_RETRY_COUNT_KEY, 0))
+                .putBoolean("economyActive", src.getBoolean("economyActive", false))
+                .putLong("economyGpsIntervalMs", src.getLong("economyGpsIntervalMs", 3000L))
+                .putLong("economyUploadIntervalMs", src.getLong("economyUploadIntervalMs", 6000L))
+                .putBoolean("enableCapsizeDetection", src.getBoolean("enableCapsizeDetection", true))
+                .putBoolean("liveMapActive", src.getBoolean("liveMapActive", false))
+                .putBoolean("hasUpright", src.getBoolean("hasUpright", false))
+                .putFloat("uprightX", src.getFloat("uprightX", 0f))
+                .putFloat("uprightY", src.getFloat("uprightY", 0f))
+                .putFloat("uprightZ", src.getFloat("uprightZ", 1f))
+                .putString(PENDING_BATCHES_KEY, src.getString(PENDING_BATCHES_KEY, "[]"));
+    }
+
     private static void mirrorRecordingPrefsToDeviceProtected(Context ctx) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return;
         SharedPreferences ce = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -1118,19 +1165,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             de.edit().clear().apply();
             return;
         }
-        de.edit()
-                .putBoolean("recordingActive", true)
-                .putString("sessionId", ce.getString("sessionId", ""))
-                .putString("deviceId", ce.getString("deviceId", ""))
-                .putString("ingestUrl", ce.getString("ingestUrl", ""))
-                .putString("ingestToken", ce.getString("ingestToken", ""))
-                .putString("athleteId", ce.getString("athleteId", ""))
-                .putBoolean("enableGps", ce.getBoolean("enableGps", false))
-                .putBoolean("enableMotion", ce.getBoolean("enableMotion", true))
-                .putLong("gpsIntervalMs", ce.getLong("gpsIntervalMs", 1000L))
-                .putLong("recordingStartedAt", ce.getLong("recordingStartedAt", 0L))
-                .putInt(BOOT_RETRY_COUNT_KEY, ce.getInt(BOOT_RETRY_COUNT_KEY, 0))
-                .apply();
+        copySessionResumeFields(de.edit(), ce).apply();
     }
 
     private void promoteDeviceProtectedSessionPrefs() {
@@ -1140,19 +1175,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         SharedPreferences de =
                 createDeviceProtectedStorageContext().getSharedPreferences(PREFS, MODE_PRIVATE);
         if (!hasActiveSessionPrefs(de)) return;
-        ce.edit()
-                .putBoolean("recordingActive", true)
-                .putString("sessionId", de.getString("sessionId", ""))
-                .putString("deviceId", de.getString("deviceId", ""))
-                .putString("ingestUrl", de.getString("ingestUrl", ""))
-                .putString("ingestToken", de.getString("ingestToken", ""))
-                .putString("athleteId", de.getString("athleteId", ""))
-                .putBoolean("enableGps", de.getBoolean("enableGps", false))
-                .putBoolean("enableMotion", de.getBoolean("enableMotion", true))
-                .putLong("gpsIntervalMs", de.getLong("gpsIntervalMs", 1000L))
-                .putLong("recordingStartedAt", de.getLong("recordingStartedAt", 0L))
-                .putInt(BOOT_RETRY_COUNT_KEY, de.getInt(BOOT_RETRY_COUNT_KEY, 0))
-                .apply();
+        copySessionResumeFields(ce.edit(), de).apply();
     }
 
     public static boolean shouldResumeAfterBoot(Context ctx) {
@@ -1206,11 +1229,13 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         SharedPreferences p = resolvePrefsForResume(ctx);
         if (!hasActiveSessionPrefs(p)) return;
         int count = p.getInt(BOOT_RETRY_COUNT_KEY, 0);
-        if (count >= MAX_BOOT_RESUME_RETRIES) {
+        boolean persistent = count >= MAX_BOOT_RESUME_RETRIES;
+        if (persistent) {
             showBootResumeNotification(ctx);
-            return;
+        } else {
+            p.edit().putInt(BOOT_RETRY_COUNT_KEY, count + 1).apply();
+            count++;
         }
-        p.edit().putInt(BOOT_RETRY_COUNT_KEY, count + 1).apply();
         mirrorRecordingPrefsToDeviceProtected(ctx);
 
         AlarmManager am = (AlarmManager) ctx.getSystemService(Context.ALARM_SERVICE);
@@ -1226,7 +1251,18 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                         BOOT_RESUME_ALARM_REQUEST,
                         intent,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        long delayMs = count == 0 ? 15_000L : count == 1 ? 45_000L : 120_000L;
+        long delayMs;
+        if (persistent) {
+            delayMs = BOOT_RESUME_PERSISTENT_INTERVAL_MS;
+        } else if (count == 1) {
+            delayMs = 15_000L;
+        } else if (count == 2) {
+            delayMs = 45_000L;
+        } else if (count <= 5) {
+            delayMs = 120_000L;
+        } else {
+            delayMs = 300_000L;
+        }
         long trigger = System.currentTimeMillis() + delayMs;
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
@@ -1299,6 +1335,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .edit()
             .putBoolean("liveMapActive", active)
             .apply();
+        mirrorRecordingPrefsToDeviceProtected(ctx);
     }
 
     /** Apply GPS upload interval from WebView settings (survives skipNativeStart reconnect). */
@@ -1308,6 +1345,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .edit()
             .putLong("gpsIntervalMs", ms)
             .apply();
+        mirrorRecordingPrefsToDeviceProtected(ctx);
         CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
         if (inst != null) {
             inst.mainHandler.post(inst::applyGpsIntervalChanged);
@@ -1338,6 +1376,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putLong("economyUploadIntervalMs", Math.max(1000L, uploadInterval))
             .putBoolean("enableCapsizeDetection", enableCapsize)
             .apply();
+        mirrorRecordingPrefsToDeviceProtected(ctx);
         CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
         if (inst != null) {
             inst.mainHandler.post(inst::applyEconomyModeChanged);
@@ -1384,6 +1423,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putFloat("uprightY", uprightY)
             .putFloat("uprightZ", uprightZ)
             .apply();
+        mirrorRecordingPrefsToDeviceProtected(getApplicationContext());
     }
 
     public static void setUpright(Context ctx, float x, float y, float z) {
@@ -1396,6 +1436,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             .putFloat("uprightY", y / mag)
             .putFloat("uprightZ", z / mag)
             .apply();
+        mirrorRecordingPrefsToDeviceProtected(ctx);
     }
 
     /** Latest stroke rate (spm) computed in WebView — included on GPS uploads only. */

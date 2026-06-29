@@ -18,7 +18,9 @@ public class RecordingBootReceiver extends BroadcastReceiver {
         String action = intent.getAction();
         if (ACTION_BOOT_RESUME_RETRY.equals(action)
                 || Intent.ACTION_BOOT_COMPLETED.equals(action)
+                || Intent.ACTION_LOCKED_BOOT_COMPLETED.equals(action)
                 || Intent.ACTION_USER_PRESENT.equals(action)
+                || Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)
                 || "android.intent.action.QUICKBOOT_POWERON".equals(action)
                 || "com.htc.intent.action.QUICKBOOT_POWERON".equals(action)) {
             Log.i(TAG, "Boot resume trigger: " + action);

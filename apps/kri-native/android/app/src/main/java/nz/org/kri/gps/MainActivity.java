@@ -12,6 +12,12 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
+    public void onResume() {
+        super.onResume();
+        CapsizeMonitorService.requestBootResume(getApplicationContext());
+    }
+
+    @Override
     public void onRequestPermissionsResult(
             int requestCode,
             @NonNull String[] permissions,
