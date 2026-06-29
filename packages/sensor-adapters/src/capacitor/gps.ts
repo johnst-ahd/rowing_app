@@ -1,5 +1,6 @@
 import { Geolocation } from '@capacitor/geolocation';
 import type { GpsReading, GpsWatcher } from '../types';
+import { createGpsWindowReporter } from '../gps-window-average';
 import { startBackgroundGpsWatcher } from './background-gps';
 
 export type GpsWatcherOptions = {
@@ -13,9 +14,8 @@ function startForegroundGpsWatcher(
   onError?: (msg: string) => void,
 ): GpsWatcher {
   let watchId: string | null = null;
-  let last: GpsReading | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
   let stopped = false;
+  const reporter = createGpsWindowReporter(onReading, intervalMs);
 
   void Geolocation.watchPosition(
     { enableHighAccuracy: true, timeout: 15000 },
@@ -27,7 +27,7 @@ function startForegroundGpsWatcher(
       }
       if (!pos) return;
       const c = pos.coords;
-      last = {
+      reporter.addFix({
         t: pos.timestamp ?? Date.now(),
         lat: c.latitude,
         lon: c.longitude,
@@ -35,42 +35,16 @@ function startForegroundGpsWatcher(
         spd: c.speed ?? undefined,
         hdg: c.heading ?? undefined,
         alt: c.altitude ?? undefined,
-      };
+      });
     },
   ).then((id) => {
     watchId = id;
   });
 
-  timer = setInterval(() => {
-    if (stopped) return;
-    if (last) {
-      onReading({ ...last });
-      return;
-    }
-    void Geolocation.getCurrentPosition({
-      enableHighAccuracy: true,
-      timeout: 15000,
-    })
-      .then((pos) => {
-        const c = pos.coords;
-        last = {
-          t: pos.timestamp ?? Date.now(),
-          lat: c.latitude,
-          lon: c.longitude,
-          acc: c.accuracy,
-          spd: c.speed ?? undefined,
-          hdg: c.heading ?? undefined,
-          alt: c.altitude ?? undefined,
-        };
-        if (last) onReading({ ...last });
-      })
-      .catch((e) => onError?.(e instanceof Error ? e.message : String(e)));
-  }, intervalMs);
-
   return {
     stop: async () => {
       stopped = true;
-      if (timer) clearInterval(timer);
+      reporter.stop();
       if (watchId) await Geolocation.clearWatch({ id: watchId });
     },
   };

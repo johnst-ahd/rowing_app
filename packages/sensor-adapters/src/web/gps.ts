@@ -1,5 +1,5 @@
-import type { GpsSample } from '@rowing/telemetry-types';
 import type { GpsReading, GpsWatcher } from '../types';
+import { createGpsWindowReporter } from '../gps-window-average';
 
 function positionToReading(pos: GeolocationPosition): GpsReading {
   const c = pos.coords;
@@ -25,35 +25,20 @@ export function startGpsWatcher(
   }
 
   let watchId: number | null = null;
-  let last: GpsReading | null = null;
-  let timer: ReturnType<typeof setInterval> | null = null;
+  const reporter = createGpsWindowReporter(onReading, intervalMs);
 
   watchId = navigator.geolocation.watchPosition(
     (pos) => {
-      last = positionToReading(pos);
+      reporter.addFix(positionToReading(pos));
     },
     (err) => onError?.(err.message),
     { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
   );
 
-  timer = setInterval(() => {
-    if (last) onReading({ ...last, t: Date.now() });
-    else {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          last = positionToReading(pos);
-          if (last) onReading({ ...last });
-        },
-        (err) => onError?.(err.message),
-        { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 },
-      );
-    }
-  }, intervalMs);
-
   return {
     stop: () => {
       if (watchId != null) navigator.geolocation.clearWatch(watchId);
-      if (timer) clearInterval(timer);
+      reporter.stop();
     },
   };
 }

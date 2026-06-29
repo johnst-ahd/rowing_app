@@ -676,7 +676,7 @@ export async function startRecorder(
     onLog('Hold boat steady for ~2s at start to calibrate upright orientation.');
     if (settings.enableGps) {
       onLog(
-        'Motion: fast analysis on device; uploads ride on GPS (~1/s) to keep queue small.',
+        'Motion: fast analysis on device; GPS uploads use accuracy-weighted average (~0.5s fixes per report).',
       );
     } else {
       onLog(`Motion uploads throttled to ~${Math.round(1000 / motionUploadMs)}/s.`);

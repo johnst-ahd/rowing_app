@@ -1,6 +1,7 @@
 import { registerPlugin } from '@capacitor/core';
 import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation';
 import type { GpsReading, GpsWatcher } from '../types';
+import { createGpsWindowReporter } from '../gps-window-average';
 
 const BackgroundGeolocation =
   registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
@@ -16,7 +17,7 @@ export function startBackgroundGpsWatcher(
 ): GpsWatcher {
   let watcherId: string | undefined;
   let stopped = false;
-  let lastEmit = 0;
+  const reporter = createGpsWindowReporter(onReading, intervalMs);
 
   void BackgroundGeolocation.addWatcher(
     {
@@ -38,12 +39,8 @@ export function startBackgroundGpsWatcher(
       }
       if (!location) return;
 
-      const now = Date.now();
-      if (now - lastEmit < intervalMs) return;
-      lastEmit = now;
-
-      onReading({
-        t: location.time ?? now,
+      reporter.addFix({
+        t: location.time ?? Date.now(),
         lat: location.latitude,
         lon: location.longitude,
         acc: location.accuracy,
@@ -63,6 +60,7 @@ export function startBackgroundGpsWatcher(
   return {
     stop: async () => {
       stopped = true;
+      reporter.stop();
       if (watcherId) {
         await BackgroundGeolocation.removeWatcher({ id: watcherId });
         watcherId = undefined;
