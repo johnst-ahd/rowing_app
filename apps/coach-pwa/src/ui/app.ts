@@ -19,6 +19,12 @@ type Tab = 'live' | 'history' | 'settings';
 
 declare const L: typeof import('leaflet');
 
+/** Resolve static assets for web (/) and Capacitor (./). */
+function asset(path: string): string {
+  const clean = path.replace(/^\//, '');
+  return `${import.meta.env.BASE_URL}${clean}`;
+}
+
 export function mountApp(root: HTMLElement): void {
   let settings = loadSettings();
   let tab: Tab = 'live';
@@ -269,9 +275,13 @@ export function mountApp(root: HTMLElement): void {
     const caps = capsizeCount();
     root.innerHTML = `
       <div class="coach-app">
-        <header class="coach-header">
-          <h1>RNZ Coach Monitor</h1>
-          <p>${IS_NATIVE ? 'Native · background alerts when monitoring' : 'Web preview · use APK for background alerts'}</p>
+        <header class="hub-topbar hub-topbar--manager">
+          <div class="hub-topbar-inner">
+            <div class="hub-topbar-brands">
+              <img src="${asset('assets/crewsight/crewsight-logo-full-manager-color.png')}" alt="CrewSight Manager" class="hub-crewsight-logo hub-crewsight-logo--manager" width="200" height="200" />
+            </div>
+            <p class="hub-tagline">Fleet monitor${IS_NATIVE ? ' · Native app' : ''} — background capsize alerts when monitoring</p>
+          </div>
         </header>
         ${caps > 0 ? `<div class="capsize-banner" role="alert">${caps} CAPSIZE — check crew now</div>` : ''}
         <div class="coach-monitor-bar ${monitoring ? 'monitoring' : ''}">

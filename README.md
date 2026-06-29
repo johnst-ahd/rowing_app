@@ -60,6 +60,8 @@ Open **`/dashboard.html`** (or `/dashboard`) on your deployment — the fleet mo
 - Accelerometer present + sample rate
 - Overall ingest throughput (Hz)
 
+**Native Android app** (background capsize alerts): [CrewSight-Manager.apk](https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-manager-latest/CrewSight-Manager.apk) — see [docs/COACH-APP.md](docs/COACH-APP.md).
+
 **Alternative:** Root Directory = empty (repo root) uses root `vercel.json` and `scripts/vercel-build.mjs` → output `dist/` at repo root.
 
 ## APIs

@@ -324,7 +324,7 @@ public class CoachMonitorService extends Service {
                         ? capsizeCount + " CAPSIZE — tap to open"
                         : "Watching fleet — tap Stop to turn off";
         return new NotificationCompat.Builder(this, CHANNEL_FG)
-                .setContentTitle("RNZ Coach monitoring")
+                .setContentTitle("CrewSight Manager")
                 .setContentText(detail)
                 .setSmallIcon(R.drawable.ic_stat_rowing_shell)
                 .setContentIntent(openPi)

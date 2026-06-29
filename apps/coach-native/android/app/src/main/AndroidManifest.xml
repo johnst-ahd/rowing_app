@@ -40,7 +40,7 @@
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="RNZ coach fleet monitoring and capsize alerts during active sessions" />
+                android:value="CrewSight Manager fleet monitoring and capsize alerts during active sessions" />
         </service>
     </application>
 

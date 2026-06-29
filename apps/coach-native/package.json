@@ -2,7 +2,7 @@
   "name": "coach-native",
   "version": "0.1.0",
   "private": true,
-  "description": "Capacitor native shell for RNZ Coach Monitor",
+  "description": "Capacitor native shell for CrewSight Manager",
   "scripts": {
     "build:web": "npm run build:native -w coach-pwa",
     "sync": "npm run build:web && npx cap sync",
