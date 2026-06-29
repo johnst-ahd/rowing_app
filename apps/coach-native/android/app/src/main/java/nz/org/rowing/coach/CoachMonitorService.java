@@ -285,15 +285,13 @@ public class CoachMonitorService extends Service {
     private void startForegroundWithTypes() {
         Notification notification = buildForegroundNotification(0);
         if (Build.VERSION.SDK_INT >= 34) {
-            int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
-            ServiceCompat.startForeground(this, NOTIF_ID_FG, notification, types);
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
                     this,
                     NOTIF_ID_FG,
                     notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST);
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
         } else {
+            // specialUse FGS type constant is API 34+; plain startForeground on older SDKs.
             startForeground(NOTIF_ID_FG, notification);
         }
     }
