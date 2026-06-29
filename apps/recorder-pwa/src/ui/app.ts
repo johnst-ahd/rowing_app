@@ -67,7 +67,6 @@ export function mountApp(root: HTMLElement): void {
   let syncTimer: ReturnType<typeof setInterval> | null = null;
   let sessionStartedAt: number | null = null;
   let hudTickTimer: ReturnType<typeof setInterval> | null = null;
-  let controlsCollapsed = false;
   let logExpanded = false;
   let resumeInFlight = false;
   const speedAvg = new MetricRollingAvg(SPEED_AVG_WINDOW_MS, 0.15);
@@ -185,7 +184,6 @@ export function mountApp(root: HTMLElement): void {
       syncTimer = null;
       stopHudTimer();
       sessionStartedAt = null;
-      controlsCollapsed = false;
       speedAvg.clear();
       strokeRateAvg.clear();
       void exitStageFullscreen();
@@ -338,10 +336,10 @@ export function mountApp(root: HTMLElement): void {
 
   function hubHeader(): string {
     return `
-      <header class="hub-topbar">
+      <header class="hub-topbar hub-topbar--recorder">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="${asset('assets/crewsight/crewsight-logo-full-color.png')}" alt="CrewSight" class="hub-crewsight-logo hub-crewsight-logo--recorder" width="200" height="200" />
+            <img src="${asset('assets/crewsight/crewsight-logo-full-color.png')}" alt="CrewSight" class="hub-crewsight-logo hub-crewsight-logo--recorder" width="250" height="250" />
           </div>
           <p class="hub-tagline hub-tagline--title">GPS rowing recorder${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
@@ -472,7 +470,7 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
-  function recordDrawerHtml(stats: ReturnType<RecorderController['getStats']> | undefined): string {
+  function recordIdleHtml(): string {
     return `
       <div class="ahd-toolbar">
         <h1>Session</h1>
@@ -480,38 +478,18 @@ export function mountApp(root: HTMLElement): void {
           <button type="button" class="hub-btn" data-nav="settings">Settings</button>
         </div>
       </div>
-      <section class="hub-panel actions">
-        ${
-          !recording
-            ? `<button type="button" class="hub-btn hub-btn--primary hub-btn-lg" data-action="start">Start session</button>`
-            : `
-              <button type="button" class="hub-btn" data-action="connect-hr">Connect HR strap</button>
-              <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
-            `
-        }
+      <section class="hub-panel actions actions--idle">
+        <button type="button" class="hub-btn hub-btn--primary hub-btn-lg" data-action="start">Start session</button>
         <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
       </section>
-      ${
-        recording
-          ? `
-            <section class="hub-panel">
-              <h2 class="hub-section-title">Details</h2>
-              <div class="stats-grid">
-                <div><span class="stat-val" data-stat="gps">${stats?.gpsCount ?? 0}</span><span class="stat-lbl">GPS</span></div>
-                <div><span class="stat-val" data-stat="motion">${stats?.motionCount ?? 0}</span><span class="stat-lbl">Motion</span></div>
-                <div><span class="stat-val" data-stat="tilt">${stats?.tiltDeg != null ? stats.tiltDeg.toFixed(0) : '—'}</span><span class="stat-lbl">Tilt °</span></div>
-                <div><span class="stat-val" data-pending>${stats?.pendingOutbox ?? 0}</span><span class="stat-lbl">Queued</span></div>
-              </div>
-              ${
-                stats?.lastGps
-                  ? `<p class="coords">${stats.lastGps.lat.toFixed(5)}, ${stats.lastGps.lon.toFixed(5)}</p>`
-                  : ''
-              }
-            </section>
-          `
-          : ''
-      }
-      ${logPanelHtml()}
+    `;
+  }
+
+  function recordRecordingControlsHtml(): string {
+    return `
+      <section class="hub-panel actions actions--recording record-stop-bar">
+        <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
+      </section>
     `;
   }
 
@@ -523,17 +501,8 @@ export function mountApp(root: HTMLElement): void {
         ${hubHeader()}
         <div class="hub-stats-bar" aria-live="polite">${recordStatsBar(stats)}</div>
         ${recording ? liveHudHtml() : ''}
-        ${
-          recording
-            ? `<button type="button" class="hub-btn hub-btn--ghost session-drawer-toggle" data-action="toggle-drawer" aria-expanded="${!controlsCollapsed}">
-                ${controlsCollapsed ? 'Show controls & log ▼' : 'Hide controls & log ▲'}
-              </button>`
-            : ''
-        }
-        <div class="ahd-recorder-main">
-          <div class="session-drawer ${controlsCollapsed && recording ? 'session-drawer--collapsed' : ''}" data-drawer>
-            ${recordDrawerHtml(stats)}
-          </div>
+        <div class="ahd-recorder-main ${recording ? 'ahd-recorder-main--recording' : 'ahd-recorder-main--idle'}">
+          ${recording ? recordRecordingControlsHtml() : recordIdleHtml()}
         </div>
         ${hubFooter()}
       </div>
@@ -618,7 +587,6 @@ export function mountApp(root: HTMLElement): void {
       }
     }
     sessionStartedAt = opts?.resume?.startedAt ?? Date.now();
-    controlsCollapsed = true;
     speedAvg.clear();
     strokeRateAvg.clear();
 
@@ -790,7 +758,6 @@ export function mountApp(root: HTMLElement): void {
       if (syncTimer) clearInterval(syncTimer);
       stopHudTimer();
       sessionStartedAt = null;
-      controlsCollapsed = false;
       speedAvg.clear();
       strokeRateAvg.clear();
       void exitStageFullscreen();
@@ -802,11 +769,6 @@ export function mountApp(root: HTMLElement): void {
       backgroundStatus = 'foreground';
       clearRecordingActive();
       await runSync(true);
-      render();
-    });
-
-    root.querySelector('[data-action="toggle-drawer"]')?.addEventListener('click', () => {
-      controlsCollapsed = !controlsCollapsed;
       render();
     });
 
@@ -822,10 +784,6 @@ export function mountApp(root: HTMLElement): void {
       } catch {
         pushLog('Fullscreen not supported on this device.');
       }
-    });
-
-    root.querySelector('[data-action="connect-hr"]')?.addEventListener('click', () => {
-      void controller?.connectHr();
     });
 
     root.querySelectorAll('[data-action="clear-session"]').forEach((el) => {

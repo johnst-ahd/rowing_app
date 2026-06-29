@@ -29,8 +29,57 @@
 }
 
 .hub-crewsight-logo--recorder {
-  width: min(200px, 58vw);
+  width: min(250px, 72.5vw);
   height: auto;
+}
+
+.hub-topbar--recorder {
+  background-color: #0a1628;
+  background-image: none;
+  border-bottom-color: rgba(0, 229, 255, 0.15);
+}
+
+.hub-topbar--recorder::after {
+  display: none;
+}
+
+.ahd-recorder-main--idle {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-evenly;
+  min-height: min(50vh, 440px);
+  padding-top: 0.5rem;
+  padding-bottom: 1.25rem;
+}
+
+.ahd-recorder-main--idle .ahd-toolbar {
+  margin-bottom: 0;
+}
+
+.ahd-recorder-main--idle .actions--idle {
+  flex: 1;
+  justify-content: center;
+  gap: 1.5rem;
+}
+
+.ahd-recorder-main--recording {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-bottom: 1.5rem;
+}
+
+.record-stop-bar {
+  margin-top: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+}
+
+.actions--recording {
+  gap: 0;
 }
 
 .hub-tagline--title {
@@ -87,7 +136,7 @@
 .actions {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
+  gap: 1rem;
 }
 
 .hint,
