@@ -72,7 +72,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final float STILL_VAR_MAX = 0.35f;
     private static final int CALIBRATE_MIN_SAMPLES = 8;
     private static final long CALIBRATE_WINDOW_MS = 2500L;
-    private static final long CAPSIZE_HOLD_MS = 400L;
+    private static final long CAPSIZE_HOLD_MS = 1200L;
+    /** cos(~99°) — past horizontal; ignores brief vibration spikes. */
+    private static final float CAPSIZE_TIP_DOT = -0.15f;
     private static final long CAPSIZE_UPLOAD_MIN_INTERVAL_MS = 4000L;
     /** Batched ingest — fewer HTTP posts while GPS still samples at gpsIntervalMs. */
     private static final long UPLOAD_FLUSH_INTERVAL_MS = 3_000L;
@@ -315,7 +317,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         pushRecent(t, ax, ay, az);
         tryCalibrate(t);
         loadUprightFromPrefs();
-        updateCapsize(t, ax, ay, az);
+        updateCapsize(t);
     }
 
     @Override
@@ -563,7 +565,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return (float) Math.sqrt(sum / n);
     }
 
-    private void updateCapsize(long t, float ax, float ay, float az) {
+    private void updateCapsize(long t) {
         loadEconomyFromPrefs();
         if (!enableCapsizeDetection) {
             if (capsizeActive) {
@@ -574,21 +576,21 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             return;
         }
         if (!calibrated) return;
-        float mag = (float) Math.sqrt(ax * ax + ay * ay + az * az);
+        float mag = (float) Math.sqrt(gx * gx + gy * gy + gz * gz);
         if (mag < 7f || mag > 12f) return;
 
-        float nx = ax / mag;
-        float ny = ay / mag;
-        float nz = az / mag;
+        float nx = gx / mag;
+        float ny = gy / mag;
+        float nz = gz / mag;
         float dot = nx * uprightX + ny * uprightY + nz * uprightZ;
         int tiltDeg = (int) Math.round(Math.acos(clamp(dot, -1f, 1f)) * (180.0 / Math.PI));
 
-        boolean tipped = dot < 0f;
+        boolean tipped = dot < CAPSIZE_TIP_DOT;
         if (tipped) {
             if (capsizeSinceMs == 0) capsizeSinceMs = t;
             if (!capsizeActive && t - capsizeSinceMs >= CAPSIZE_HOLD_MS) {
                 capsizeActive = true;
-                onCapsizeTriggered(t, ax, ay, az, tiltDeg);
+                onCapsizeTriggered(t, lastAx, lastAy, lastAz, tiltDeg);
             }
         } else if (dot > 0.55f) {
             capsizeSinceMs = 0;

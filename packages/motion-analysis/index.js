@@ -15,9 +15,9 @@ const DEFAULTS = {
   /** Upright calibration window — time-based so GPS-poll motion still calibrates. */
   calibrateWindowMs: 2500,
   stillVarianceMax: 0.35,
-  /** Dot product with upright gravity below this = capsize (0 ≈ 90° tilt). */
-  capsizeDotThreshold: 0,
-  capsizeHoldMs: 400,
+  /** Dot product with upright gravity below this = capsize (~99° when -0.15). */
+  capsizeDotThreshold: -0.15,
+  capsizeHoldMs: 1200,
   capsizeClearDot: 0.55,
   capsizeClearHoldMs: 1000,
   hpWindowMs: 450,
@@ -162,13 +162,12 @@ class MotionAnalyzer {
       return;
     }
 
-    const { ax, ay, az } = this.lastSample;
-    const mag = mag3(ax, ay, az);
+    const mag = mag3(this.gx, this.gy, this.gz);
     if (mag < 7 || mag > 12) {
       return;
     }
 
-    const g = norm3(ax, ay, az);
+    const g = norm3(this.gx, this.gy, this.gz);
     const tiltDot = dot3(g, this.upright);
     this.tiltDeg = Math.round(Math.acos(clamp(tiltDot, -1, 1)) * (180 / Math.PI));
 
