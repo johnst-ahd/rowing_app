@@ -1133,8 +1133,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 && !ingestUrl.isEmpty();
     }
 
-    private static void copySessionResumeFields(SharedPreferences.Editor ed, SharedPreferences src) {
-        ed.putBoolean("recordingActive", true)
+    private static SharedPreferences.Editor copySessionResumeFields(
+            SharedPreferences.Editor ed, SharedPreferences src) {
+        return ed.putBoolean("recordingActive", true)
                 .putString("sessionId", src.getString("sessionId", ""))
                 .putString("deviceId", src.getString("deviceId", ""))
                 .putString("ingestUrl", src.getString("ingestUrl", ""))
