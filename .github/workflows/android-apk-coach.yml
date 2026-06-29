@@ -1,0 +1,93 @@
+# Build RNZ Coach Monitor Android APK and publish a stable download link.
+name: Android APK (Coach)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'apps/coach-pwa/**'
+      - 'apps/coach-native/**'
+      - 'packages/vite-plugins/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/android-apk-coach.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Ensure Android platform
+        working-directory: apps/coach-native
+        run: |
+          if [ ! -f android/gradlew ]; then npx cap add android; fi
+
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses || true
+
+      - name: Build web + sync Capacitor
+        run: |
+          npm run build:coach:native
+          cd apps/coach-native && npx cap sync android
+
+      - name: Assemble debug APK
+        working-directory: apps/coach-native/android
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare release asset (arm64)
+        run: |
+          APK_DIR=apps/coach-native/android/app/build/outputs/apk/debug
+          if [ -f "$APK_DIR/app-arm64-v8a-debug.apk" ]; then
+            cp "$APK_DIR/app-arm64-v8a-debug.apk" RNZ-Coach.apk
+          else
+            cp "$APK_DIR/app-debug.apk" RNZ-Coach.apk
+          fi
+          ls -lh RNZ-Coach.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RNZ-Coach-debug-apk
+          path: RNZ-Coach.apk
+          retention-days: 90
+
+      - name: Publish GitHub Release (stable download link)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-apk-coach-latest
+          target_commitish: ${{ github.sha }}
+          name: RNZ Coach — Android APK
+          body: |
+            Coach fleet monitor — live map, history, and background capsize alerts.
+
+            1. Download **RNZ-Coach.apk** below
+            2. Open on phone → Install (allow unknown apps if asked)
+            3. Allow **Notifications**
+            4. Settings → API URL + ingest token (same as dashboard)
+            5. Tap **Start monitoring** before the session; **Stop monitoring** when finished
+
+            Background capsize alerts only run while monitoring is ON.
+          prerelease: true
+          make_latest: false
+          files: RNZ-Coach.apk

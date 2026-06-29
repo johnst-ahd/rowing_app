@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RNZ Coach</string>
+    <string name="title_activity_main">RNZ Coach</string>
+    <string name="package_name">nz.org.rowing.coach</string>
+    <string name="custom_url_scheme">nz.org.rowing.coach</string>
+</resources>

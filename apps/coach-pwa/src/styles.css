@@ -1,0 +1,199 @@
+.coach-app {
+  --bg: #0f172a;
+  --panel: #1e293b;
+  --text: #f1f5f9;
+  --muted: #94a3b8;
+  --accent: #38bdf8;
+  --danger: #ef4444;
+  --ok: #4ade80;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.coach-header {
+  padding: 0.75rem 1rem 0.5rem;
+  border-bottom: 1px solid #334155;
+}
+
+.coach-header h1 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.coach-header p {
+  margin: 0.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.coach-monitor-bar {
+  margin: 0.75rem 1rem 0;
+  padding: 0.75rem;
+  background: var(--panel);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.coach-monitor-bar.monitoring {
+  border: 1px solid #166534;
+}
+
+.coach-monitor-bar .status-line {
+  font-size: 0.9rem;
+}
+
+.coach-monitor-bar .status-line.on {
+  color: var(--ok);
+}
+
+.coach-btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.65rem 1rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.coach-btn--primary {
+  background: var(--accent);
+  color: #0f172a;
+}
+
+.coach-btn--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.coach-btn--ghost {
+  background: #334155;
+  color: var(--text);
+}
+
+.coach-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.5rem 1rem;
+}
+
+.coach-tab {
+  flex: 1;
+  background: #334155;
+  color: var(--muted);
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem;
+  font-weight: 600;
+}
+
+.coach-tab.active {
+  background: var(--accent);
+  color: #0f172a;
+}
+
+.coach-panel {
+  flex: 1;
+  padding: 0 1rem 1rem;
+  overflow: auto;
+}
+
+.coach-panel[hidden] {
+  display: none !important;
+}
+
+.coach-map {
+  height: 45vh;
+  min-height: 220px;
+  border-radius: 10px;
+  margin-bottom: 0.75rem;
+}
+
+.device-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.device-card {
+  background: var(--panel);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.device-card.capsize {
+  border: 2px solid var(--danger);
+  animation: pulse 1.2s infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+.device-card__id {
+  font-weight: 700;
+}
+
+.device-card__meta {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+.capsize-banner {
+  background: var(--danger);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 1rem;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.coach-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.coach-field input,
+.coach-field select {
+  padding: 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: var(--text);
+}
+
+.history-chart {
+  width: 100%;
+  background: var(--panel);
+  border-radius: 10px;
+  margin-top: 0.75rem;
+}
+
+.poll-line {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.history-map {
+  height: 35vh;
+  min-height: 180px;
+  border-radius: 10px;
+  margin-top: 0.5rem;
+}
