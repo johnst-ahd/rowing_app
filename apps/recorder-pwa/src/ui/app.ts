@@ -339,7 +339,7 @@ export function mountApp(root: HTMLElement): void {
       <header class="hub-topbar hub-topbar--recorder">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="${asset('assets/crewsight/crewsight-logo-full-color.png')}" alt="CrewSight" class="hub-crewsight-logo hub-crewsight-logo--recorder" width="250" height="250" />
+            <img src="${asset('assets/crewsight/crewsight-logo-full-color.png')}" alt="CrewSight" class="hub-crewsight-logo hub-crewsight-logo--recorder" width="300" height="300" />
           </div>
           <p class="hub-tagline hub-tagline--title">GPS rowing recorder${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
@@ -472,22 +472,17 @@ export function mountApp(root: HTMLElement): void {
 
   function recordIdleHtml(): string {
     return `
-      <div class="ahd-toolbar">
-        <h1>Session</h1>
-        <div class="ahd-toolbar-actions">
-          <button type="button" class="hub-btn" data-nav="settings">Settings</button>
-        </div>
-      </div>
-      <section class="hub-panel actions actions--idle">
+      <section class="hub-panel actions actions--idle session-actions-panel">
         <button type="button" class="hub-btn hub-btn--primary hub-btn-lg" data-action="start">Start session</button>
         <button type="button" class="hub-btn hub-btn--ghost" data-action="clear-session">Clear session</button>
+        <button type="button" class="hub-btn" data-nav="settings">Settings</button>
       </section>
     `;
   }
 
   function recordRecordingControlsHtml(): string {
     return `
-      <section class="hub-panel actions actions--recording record-stop-bar">
+      <section class="hub-panel actions actions--recording session-actions-panel">
         <button type="button" class="hub-btn hub-btn--danger hub-btn-lg" data-action="stop">Stop session</button>
       </section>
     `;
