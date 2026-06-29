@@ -54,7 +54,7 @@ jobs:
       - name: Sync brand assets + build web
         run: |
           node scripts/sync-brand-assets.mjs
-          node scripts/generate-launcher-icon.mjs apps/coach-pwa/public/assets/crewsight/crewsight-logo-icon-only-manager-color.png apps/coach-native/assets/icon-source.png --bg=black --scale=0.82
+          node scripts/generate-launcher-icon.mjs apps/coach-pwa/public/assets/crewsight/crewsight-logo-icon-only-manager-color.png apps/coach-native/assets/icon-source.png --bg=black --scale=1.0
           npm run build:coach:native
           node scripts/apply-android-launcher-icon.mjs apps/coach-native/android/app apps/coach-native/assets/icon-source.png
           cd apps/coach-native && npx cap sync android

@@ -49,7 +49,7 @@ jobs:
       - name: Sync brand assets + build web
         run: |
           node scripts/sync-brand-assets.mjs
-          node scripts/generate-launcher-icon.mjs apps/recorder-pwa/public/assets/crewsight/crewsight-logo-icon-only-color.png apps/recorder-native/assets/icon-source.png --bg=black --scale=0.82
+          node scripts/generate-launcher-icon.mjs apps/recorder-pwa/public/assets/crewsight/crewsight-logo-icon-only-color.png apps/recorder-native/assets/icon-source.png --bg=black --scale=1.0
           npm run build:native -w recorder-pwa
           node scripts/apply-android-launcher-icon.mjs apps/recorder-native/android/app apps/recorder-native/assets/icon-source.png
           cd apps/recorder-native && npx cap sync android
