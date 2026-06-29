@@ -4,7 +4,6 @@ import { loadSettings, saveSettings } from '../../apps/recorder-pwa/src/lib/sett
 import { mountApp } from '../../apps/recorder-pwa/src/ui/app';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
-const KRI_GPS_INTERVAL_MS = 3000;
 
 function enforceKriProfile(): void {
   const s = loadSettings();
@@ -12,11 +11,6 @@ function enforceKriProfile(): void {
   s.enableMotion = true;
   s.enableHr = false;
   s.deviceId = s.deviceId || DEFAULT_SETTINGS.deviceId;
-  if (s.gpsIntervalMs !== KRI_GPS_INTERVAL_MS) {
-    s.gpsIntervalMs = KRI_GPS_INTERVAL_MS;
-    s.motionUploadIntervalMs = KRI_GPS_INTERVAL_MS;
-    s.uploadBatchMs = Math.max(3000, KRI_GPS_INTERVAL_MS * 2);
-  }
   saveSettings(s);
 }
 
