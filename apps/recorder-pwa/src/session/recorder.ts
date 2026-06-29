@@ -214,8 +214,8 @@ export async function startRecorder(
     inBoatPark = match != null;
     activeBoatPark = match;
     if (match) {
-      effectiveGpsIntervalMs = Math.max(5000, match.economyGpsIntervalSec * 1000);
-      effectiveUploadIntervalMs = Math.max(5000, match.economyUploadIntervalSec * 1000);
+      effectiveGpsIntervalMs = Math.max(1000, match.economyGpsIntervalSec * 1000);
+      effectiveUploadIntervalMs = Math.max(1000, match.economyUploadIntervalSec * 1000);
       capsizeAllowed = !match.disableCapsize;
       lastEconomySignature = [
         match.name,

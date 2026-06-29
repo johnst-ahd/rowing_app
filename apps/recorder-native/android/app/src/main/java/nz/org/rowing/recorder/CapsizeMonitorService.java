@@ -931,8 +931,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void loadEconomyFromPrefs() {
         SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
         economyActive = p.getBoolean("economyActive", false);
-        economyGpsIntervalMs = Math.max(5000L, p.getLong("economyGpsIntervalMs", 30_000L));
-        economyUploadIntervalMs = Math.max(5000L, p.getLong("economyUploadIntervalMs", 30_000L));
+        economyGpsIntervalMs = Math.max(1000L, p.getLong("economyGpsIntervalMs", 30_000L));
+        economyUploadIntervalMs = Math.max(1000L, p.getLong("economyUploadIntervalMs", 30_000L));
         enableCapsizeDetection = p.getBoolean("enableCapsizeDetection", true);
         liveMapActive = p.getBoolean("liveMapActive", false);
     }
@@ -1232,8 +1232,8 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         ctx.getSharedPreferences(PREFS, MODE_PRIVATE)
             .edit()
             .putBoolean("economyActive", active)
-            .putLong("economyGpsIntervalMs", Math.max(5000L, gpsInterval))
-            .putLong("economyUploadIntervalMs", Math.max(5000L, uploadInterval))
+            .putLong("economyGpsIntervalMs", Math.max(1000L, gpsInterval))
+            .putLong("economyUploadIntervalMs", Math.max(1000L, uploadInterval))
             .putBoolean("enableCapsizeDetection", enableCapsize)
             .apply();
         CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;

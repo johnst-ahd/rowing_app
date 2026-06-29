@@ -4,7 +4,7 @@ import { loadSettings, saveSettings } from '../../apps/recorder-pwa/src/lib/sett
 import { mountApp } from '../../apps/recorder-pwa/src/ui/app';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
-const KRI_GPS_INTERVAL_MS = 1000;
+const KRI_GPS_INTERVAL_MS = 3000;
 
 function enforceKriProfile(): void {
   const s = loadSettings();

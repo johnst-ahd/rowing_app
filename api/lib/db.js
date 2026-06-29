@@ -1017,8 +1017,8 @@ async function createGeofence(body) {
   const name = String(body.name ?? '').trim();
   if (!name) throw new Error('name is required');
   const kind = String(body.kind ?? 'boat_park').trim() || 'boat_park';
-  const economyGps = Math.max(5, Number(body.economyGpsIntervalSec) || 30);
-  const economyUpload = Math.max(5, Number(body.economyUploadIntervalSec) || 30);
+  const economyGps = Math.max(1, Number(body.economyGpsIntervalSec) || 30);
+  const economyUpload = Math.max(1, Number(body.economyUploadIntervalSec) || 30);
   const disableCapsize = body.disableCapsize !== false;
   const enabled = body.enabled !== false;
   const shapeType =
