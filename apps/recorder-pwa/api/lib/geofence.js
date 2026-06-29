@@ -123,6 +123,19 @@ function findBoatParkAt(lat, lon, geofences) {
   return null;
 }
 
+function economyIntervalSecFromInput(input) {
+  const unified = Number(input?.economyIntervalSec ?? input?.economy_interval_sec);
+  if (Number.isFinite(unified) && unified >= 1) return Math.max(1, unified);
+  const gps = Number(input?.economyGpsIntervalSec ?? input?.economy_gps_interval_sec);
+  const upload = Number(input?.economyUploadIntervalSec ?? input?.economy_upload_interval_sec);
+  if (Number.isFinite(gps) && gps >= 1 && Number.isFinite(upload) && upload >= 1) {
+    return Math.max(1, Math.max(gps, upload));
+  }
+  if (Number.isFinite(gps) && gps >= 1) return Math.max(1, gps);
+  if (Number.isFinite(upload) && upload >= 1) return Math.max(1, upload);
+  return 30;
+}
+
 function normalizeGeofence(row) {
   const shapeType =
     String(row.shape_type ?? row.shapeType ?? 'circle').toLowerCase() === 'polygon'
@@ -130,6 +143,7 @@ function normalizeGeofence(row) {
       : 'circle';
   const polygonCoords =
     shapeType === 'polygon' ? parsePolygonCoords(row.polygon_coords ?? row.polygonCoords) : [];
+  const economyIntervalSec = economyIntervalSecFromInput(row);
   return {
     id: row.id,
     name: row.name,
@@ -140,12 +154,9 @@ function normalizeGeofence(row) {
     radiusM: Number(row.radius_m ?? row.radiusM),
     polygonCoords,
     enabled: row.enabled !== false,
-    economyGpsIntervalSec: Number(
-      row.economy_gps_interval_sec ?? row.economyGpsIntervalSec ?? 30,
-    ),
-    economyUploadIntervalSec: Number(
-      row.economy_upload_interval_sec ?? row.economyUploadIntervalSec ?? 30,
-    ),
+    economyIntervalSec,
+    economyGpsIntervalSec: economyIntervalSec,
+    economyUploadIntervalSec: economyIntervalSec,
     disableCapsize: row.disable_capsize !== false && row.disableCapsize !== false,
     createdAt: row.created_at ?? row.createdAt ?? null,
     updatedAt: row.updated_at ?? row.updatedAt ?? null,
@@ -163,4 +174,5 @@ module.exports = {
   pointInGeofence,
   findBoatParkAt,
   normalizeGeofence,
+  economyIntervalSecFromInput,
 };

@@ -994,6 +994,7 @@ const {
   normalizePolygonInput,
   polygonCentroid,
   polygonBoundingRadiusM,
+  economyIntervalSecFromInput,
 } = require('./geofence');
 
 async function listGeofences() {
@@ -1017,8 +1018,9 @@ async function createGeofence(body) {
   const name = String(body.name ?? '').trim();
   if (!name) throw new Error('name is required');
   const kind = String(body.kind ?? 'boat_park').trim() || 'boat_park';
-  const economyGps = Math.max(1, Number(body.economyGpsIntervalSec) || 30);
-  const economyUpload = Math.max(1, Number(body.economyUploadIntervalSec) || 30);
+  const economyInterval = economyIntervalSecFromInput(body);
+  const economyGps = economyInterval;
+  const economyUpload = economyInterval;
   const disableCapsize = body.disableCapsize !== false;
   const enabled = body.enabled !== false;
   const shapeType =

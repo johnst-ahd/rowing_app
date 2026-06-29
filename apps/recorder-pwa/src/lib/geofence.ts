@@ -13,8 +13,8 @@ export type GeofenceConfig = {
   radiusM: number;
   polygonCoords: Array<[number, number]>;
   enabled: boolean;
-  economyGpsIntervalSec: number;
-  economyUploadIntervalSec: number;
+  /** GPS + upload interval (s) while inside this zone. */
+  economyIntervalSec: number;
   disableCapsize: boolean;
 };
 
@@ -127,6 +127,7 @@ export function normalizeGeofence(raw: Record<string, unknown>): GeofenceConfig 
     shapeType === 'polygon'
       ? parsePolygonCoords(raw.polygonCoords ?? raw.polygon_coords)
       : [];
+  const economyIntervalSec = economyIntervalFromRaw(raw);
   return {
     id: Number(raw.id),
     name: String(raw.name ?? ''),
@@ -137,10 +138,20 @@ export function normalizeGeofence(raw: Record<string, unknown>): GeofenceConfig 
     radiusM: Number(raw.radiusM ?? raw.radius_m),
     polygonCoords,
     enabled: raw.enabled !== false,
-    economyGpsIntervalSec: Number(raw.economyGpsIntervalSec ?? raw.economy_gps_interval_sec ?? 30),
-    economyUploadIntervalSec: Number(
-      raw.economyUploadIntervalSec ?? raw.economy_upload_interval_sec ?? 30,
-    ),
+    economyIntervalSec,
     disableCapsize: raw.disableCapsize !== false && raw.disable_capsize !== false,
   };
+}
+
+function economyIntervalFromRaw(raw: Record<string, unknown>): number {
+  const unified = Number(raw.economyIntervalSec ?? raw.economy_interval_sec);
+  if (Number.isFinite(unified) && unified >= 1) return Math.max(1, unified);
+  const gps = Number(raw.economyGpsIntervalSec ?? raw.economy_gps_interval_sec);
+  const upload = Number(raw.economyUploadIntervalSec ?? raw.economy_upload_interval_sec);
+  if (Number.isFinite(gps) && gps >= 1 && Number.isFinite(upload) && upload >= 1) {
+    return Math.max(1, Math.max(gps, upload));
+  }
+  if (Number.isFinite(gps) && gps >= 1) return Math.max(1, gps);
+  if (Number.isFinite(upload) && upload >= 1) return Math.max(1, upload);
+  return 30;
 }

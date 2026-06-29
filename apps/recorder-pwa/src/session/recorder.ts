@@ -214,13 +214,13 @@ export async function startRecorder(
     inBoatPark = match != null;
     activeBoatPark = match;
     if (match) {
-      effectiveGpsIntervalMs = Math.max(1000, match.economyGpsIntervalSec * 1000);
-      effectiveUploadIntervalMs = Math.max(1000, match.economyUploadIntervalSec * 1000);
+      const intervalMs = Math.max(1000, match.economyIntervalSec * 1000);
+      effectiveGpsIntervalMs = intervalMs;
+      effectiveUploadIntervalMs = intervalMs;
       capsizeAllowed = !match.disableCapsize;
       lastEconomySignature = [
         match.name,
-        String(match.economyGpsIntervalSec),
-        String(match.economyUploadIntervalSec),
+        String(match.economyIntervalSec),
         String(match.disableCapsize),
       ].join('|');
     } else {
@@ -238,7 +238,7 @@ export async function startRecorder(
           ? inBoatPark
             ? `${match!.name}: reduced GPS/data${capsizeAllowed ? '' : ', capsize off'}.`
             : 'On water — full recording restored.'
-          : `${match!.name} config updated: GPS ${Math.round(effectiveGpsIntervalMs / 1000)}s, upload ${Math.round(effectiveUploadIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
+          : `${match!.name} config updated: every ${Math.round(effectiveGpsIntervalMs / 1000)}s${capsizeAllowed ? '' : ', capsize off'}.`,
       );
       if (nativeCapsizeMonitorOn) {
         void setNativeEconomyMode({

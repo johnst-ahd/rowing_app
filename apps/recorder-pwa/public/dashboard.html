@@ -165,7 +165,7 @@
         </div>
         <div class="dashboard-section__body" id="section-body-geofences" hidden>
           <p class="geofence-intro">
-            Define zones where phones switch to <strong>economy mode</strong>: slower GPS/uploads and
+            Define zones where phones switch to <strong>economy mode</strong>: slower GPS and uploads
             <strong>capsize detection off</strong>. Recorders fetch these zones automatically when a
             session starts.
           </p>
@@ -220,12 +220,8 @@
             </div>
             <div class="ahd-inline-fields geofence-form__economy">
               <label class="ahd-field">
-                GPS interval (s) in zone
-                <input type="number" id="geofenceGpsSec" min="1" step="1" value="30" />
-              </label>
-              <label class="ahd-field">
-                Upload interval (s) in zone
-                <input type="number" id="geofenceUploadSec" min="1" step="1" value="30" />
+                Economy interval (s) in zone
+                <input type="number" id="geofenceIntervalSec" min="1" step="1" value="30" />
               </label>
               <label class="ahd-field geofence-form__check">
                 <input type="checkbox" id="geofenceDisableCapsize" checked />

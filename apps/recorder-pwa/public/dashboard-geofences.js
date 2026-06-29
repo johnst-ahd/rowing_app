@@ -64,7 +64,7 @@
       g.shapeType === 'polygon' && g.polygonCoords?.length >= 3
         ? `Polygon · ${g.polygonCoords.length} points`
         : `${Math.round(g.radiusM)} m radius`;
-    return `<strong>${esc(g.name)}</strong><br>Geofence zone · ${shape}<br>GPS every ${g.economyGpsIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}`;
+    return `<strong>${esc(g.name)}</strong><br>Geofence zone · ${shape}<br>Every ${g.economyIntervalSec ?? g.economyGpsIntervalSec ?? 30}s · capsize ${g.disableCapsize ? 'off' : 'on'}`;
   }
 
   function drawGeofences() {
@@ -239,7 +239,7 @@
         <div class="geofence-item__main">
           <strong>${esc(g.name)}</strong>
           <span class="geofence-item__meta">${esc(shapeSummary(g))}</span>
-          <span class="geofence-item__meta">Economy: GPS ${g.economyGpsIntervalSec}s · upload ${g.economyUploadIntervalSec}s · capsize ${g.disableCapsize ? 'off' : 'on'}</span>
+          <span class="geofence-item__meta">Economy: every ${g.economyIntervalSec ?? g.economyGpsIntervalSec ?? 30}s · capsize ${g.disableCapsize ? 'off' : 'on'}</span>
         </div>
         <button type="button" class="hub-btn hub-btn--danger geofence-delete-btn" data-id="${g.id}">Delete</button>
       </div>`,
@@ -269,8 +269,7 @@
     ev.preventDefault();
     const name = $('#geofenceName')?.value?.trim();
     const shapeType = currentShapeType();
-    const economyGpsIntervalSec = Number($('#geofenceGpsSec')?.value) || 30;
-    const economyUploadIntervalSec = Number($('#geofenceUploadSec')?.value) || 30;
+    const economyIntervalSec = Number($('#geofenceIntervalSec')?.value) || 30;
     const disableCapsize = $('#geofenceDisableCapsize')?.checked !== false;
 
     if (!name) {
@@ -282,8 +281,7 @@
       name,
       kind: 'boat_park',
       shapeType,
-      economyGpsIntervalSec,
-      economyUploadIntervalSec,
+      economyIntervalSec,
       disableCapsize,
     };
 
@@ -320,8 +318,7 @@
       return;
     }
     $('#geofenceForm')?.reset();
-    if ($('#geofenceGpsSec')) $('#geofenceGpsSec').value = '30';
-    if ($('#geofenceUploadSec')) $('#geofenceUploadSec').value = '30';
+    if ($('#geofenceIntervalSec')) $('#geofenceIntervalSec').value = '30';
     if ($('#geofenceDisableCapsize')) $('#geofenceDisableCapsize').checked = true;
     if ($('#geofenceShapeType')) $('#geofenceShapeType').value = 'circle';
     clearPolygonDraft();
