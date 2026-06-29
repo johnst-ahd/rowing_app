@@ -15,7 +15,7 @@ export async function startKeepaliveAudio(deviceId: string): Promise<boolean> {
 
     if ('mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({
-        title: 'RNZ recording',
+        title: 'CrewSight recording',
         artist: deviceId || 'Row recorder',
         album: 'Active session',
       });

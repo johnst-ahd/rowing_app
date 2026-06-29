@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="theme-color" content="#0a1628" />
-    <title>Device Monitor · Altitude HD</title>
+    <title>CrewSight Manager</title>
     <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
     <link rel="stylesheet" href="/ahd-hub-theme.css" />
     <link rel="stylesheet" href="/dashboard.css" />
@@ -20,21 +20,14 @@
       <div class="hub-topbar-inner">
         <div class="hub-topbar-brands">
           <img
-            src="/altitude-hd-logo.png"
-            alt="Altitude HD"
-            class="hub-logo"
-            width="320"
-            height="120"
-          />
-          <img
-            src="/assets/rnz/rnz-logo-white.png"
-            alt="Rowing New Zealand"
-            class="hub-rnz-logo"
-            width="200"
-            height="80"
+            src="/assets/crewsight/crewsight-logo-full-color.png"
+            alt="CrewSight Manager"
+            class="hub-crewsight-logo"
+            width="220"
+            height="220"
           />
         </div>
-        <p class="hub-tagline">RNZ ingest monitor — GPS, stroke rate (15–50 spm), and capsize alerts</p>
+        <p class="hub-tagline">Fleet monitor — GPS, stroke rate, and capsize alerts</p>
       </div>
     </header>
 
@@ -85,8 +78,7 @@
           <div class="map-stage" id="mapStage">
             <div class="map-fs-bar" hidden>
               <div class="map-fs-bar__brands">
-                <img src="/assets/rnz/rnz-logomark-white.png" alt="" class="map-fs-bar__logo" width="36" height="36" />
-                <img src="/altitude-hd-logo.png" alt="Altitude HD" class="map-fs-bar__logo map-fs-bar__logo--ahd" width="120" height="45" />
+                <img src="/assets/crewsight/crewsight-logo-icon-only-color.png" alt="CrewSight" class="map-fs-bar__logo map-fs-bar__logo--crewsight" width="48" height="48" />
                 <span class="map-fs-bar__title">Fleet map</span>
               </div>
               <button type="button" class="hub-btn hub-btn--ghost map-fs-exit-btn" id="mapFullscreenExitBtn">Exit fullscreen</button>
@@ -417,7 +409,7 @@
             <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
             <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
             <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
-            <a class="hub-btn hub-btn--ghost" href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Altitude HD hub</a>
+            <a class="hub-btn hub-btn--ghost" href="/">CrewSight app</a>
           </div>
           <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
           <p class="poll-line" id="pollStatus">Connecting…</p>
@@ -553,8 +545,8 @@
     </div>
 
     <footer class="ahd-footer">
-      Altitude HD · RNZ Row Recorder ·
-      <a href="https://traccar-overlay.vercel.app/">traccar-overlay.vercel.app</a>
+      CrewSight Manager ·
+      <a href="/">CrewSight app</a>
     </footer>
 
     <script

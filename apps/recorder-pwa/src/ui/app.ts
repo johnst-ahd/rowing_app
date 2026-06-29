@@ -41,7 +41,6 @@ import {
 type View = 'record' | 'settings';
 
 const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
-const IS_KRI = import.meta.env.VITE_APP_BRAND === 'kri';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION;
 const APP_VERSION_CODE = import.meta.env.VITE_APP_VERSION_CODE;
 
@@ -268,17 +267,6 @@ export function mountApp(root: HTMLElement): void {
     const avgMps = speedAvg.average();
     setHudText('[data-hud-split]', formatSplit500m(avgMps));
 
-    if (IS_KRI) {
-      setHudText('[data-hud-device]', settings.deviceId || '(device not set)');
-      const lastGpsMs = stats?.lastGps?.t ?? 0;
-      const gpsActive = lastGpsMs > 0 && Date.now() - lastGpsMs <= 30_000;
-      const gpsEl = root.querySelector('[data-hud-gps-status]');
-      if (gpsEl) {
-        gpsEl.textContent = gpsActive ? 'GPS active (last 30s)' : 'GPS waiting…';
-        gpsEl.setAttribute('data-gps-active', gpsActive ? 'true' : 'false');
-      }
-    }
-
     const splitSec = splitSecFromMps(avgMps);
     updateSpectrumRail(
       root.querySelector('[data-rail-speed]') as HTMLElement | null,
@@ -349,28 +337,13 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function hubHeader(): string {
-    if (IS_KRI) {
-      return `
-      <header class="hub-topbar">
-        <div class="hub-topbar-inner">
-          <div class="hub-topbar-brands hub-topbar-brands--kri">
-            <img src="${asset('assets/kri/kri-logo.png')}" alt="Karāpiro Rowing Inc" class="hub-kri-logo" width="144" height="144" />
-            <div class="hub-kri-titles">
-              <p class="hub-kicker">KRI Safety System</p>
-              <p class="hub-tagline">GPS + capsize safety${IS_NATIVE ? ' · Native app' : ''}</p>
-            </div>
-          </div>
-        </div>
-      </header>
-    `;
-    }
     return `
       <header class="hub-topbar">
         <div class="hub-topbar-inner">
           <div class="hub-topbar-brands">
-            <img src="${asset('assets/rnz/rnz-logo-white.png')}" alt="Rowing New Zealand" class="hub-rnz-logo hub-rnz-logo--recorder" width="280" height="112" />
+            <img src="${asset('assets/crewsight/crewsight-logo-full-color.png')}" alt="CrewSight" class="hub-crewsight-logo hub-crewsight-logo--recorder" width="200" height="200" />
           </div>
-          <p class="hub-tagline hub-tagline--title">Row Recorder${IS_NATIVE ? ' · Native app' : ''}</p>
+          <p class="hub-tagline hub-tagline--title">GPS rowing recorder${IS_NATIVE ? ' · Native app' : ''}</p>
         </div>
       </header>
     `;
@@ -378,17 +351,12 @@ export function mountApp(root: HTMLElement): void {
 
   function hubFooter(): string {
     const version = buildVersionLabel();
-    const appName = IS_KRI ? 'KRI GPS' : 'RNZ Row Recorder';
-    const installLink = IS_KRI
-      ? `<a href="${asset('install-kri.html')}">Install Android app</a> ·`
-      : `<a href="${asset('install-native.html')}">Install Android app</a> ·`;
     return `
       <footer class="ahd-footer">
         <p class="ahd-footer__line">
-          Altitude HD · ${appName} ·
-          ${installLink}
-          <a href="${asset('dashboard.html')}" target="_blank" rel="noopener">Monitor</a> ·
-          <a href="https://traccar-overlay.vercel.app/" target="_blank" rel="noopener">Hub</a>
+          CrewSight ·
+          <a href="${asset('install-native.html')}">Install Android app</a> ·
+          <a href="${asset('dashboard.html')}" target="_blank" rel="noopener">CrewSight Manager</a>
         </p>
         ${version ? `<p class="ahd-footer__version">${esc(version)}</p>` : ''}
       </footer>
@@ -407,9 +375,9 @@ export function mountApp(root: HTMLElement): void {
       ? `${stats.lastGps.lat.toFixed(4)}, ${stats.lastGps.lon.toFixed(4)}`
       : 'No GPS fix';
     const spm =
-      !IS_KRI && stats?.strokeRate != null
+      stats?.strokeRate != null
         ? `${stats.strokeRate} spm`
-        : !IS_KRI && recording
+        : recording
           ? 'SPM —'
           : '';
     const bg =
@@ -455,40 +423,10 @@ export function mountApp(root: HTMLElement): void {
     `;
   }
 
-  function kriMetricsHtml(): string {
-    return `
-        <div class="session-live-hud__metrics session-live-hud__metrics--kri">
-          <div class="session-metric session-metric--timer">
-            <span class="session-metric__value" data-hud-timer>0:00</span>
-            <span class="session-metric__label">Time</span>
-          </div>
-          <div class="session-metric session-metric--spm">
-            <span class="session-metric__value" data-hud-spm>—</span>
-            <span class="session-metric__label">Strokes /min</span>
-          </div>
-          <div class="session-metric session-metric--pace">
-            <span class="session-metric__value" data-hud-split>—</span>
-            <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
-          </div>
-        </div>`;
-  }
-
   function liveHudHtml(): string {
     const regattaText = controller?.getStats()?.regattaMessage?.text?.trim() || '';
     return `
       <section class="session-live-hud" aria-live="polite">
-        ${
-          IS_KRI
-            ? `
-        <div class="session-live-hud__kri">
-          <div class="session-live-hud__device" data-hud-device>${esc(settings.deviceId || '(device not set)')}</div>
-          <div class="session-live-hud__gps-status" data-hud-gps-status data-gps-active="false">
-            GPS waiting…
-          </div>
-        </div>
-        `
-            : ''
-        }
         <div class="session-live-hud__alert" data-hud-capsize ${capsizeActive ? '' : 'hidden'} role="alert">
           ⚠ CAPSIZE — boat tipped. Check crew now.
         </div>
@@ -500,10 +438,6 @@ export function mountApp(root: HTMLElement): void {
           <span class="session-zone-badge__label">Locating…</span>
           <span class="session-zone-badge__sub"></span>
         </div>
-        ${
-          IS_KRI
-            ? kriMetricsHtml()
-            : `
         <div class="session-live-hud__metrics">
           <div class="session-metric session-metric--timer">
             <span class="session-metric__value" data-hud-timer>0:00</span>
@@ -521,8 +455,7 @@ export function mountApp(root: HTMLElement): void {
             <span class="session-metric__value" data-hud-split>—</span>
             <span class="session-metric__label">Pace /500m <span class="session-metric__sub">10s avg</span></span>
           </div>
-        </div>`
-        }
+        </div>
         <div class="session-live-hud__bar">
           <button type="button" class="hub-btn hub-btn--ghost session-live-hud__fs" data-action="toggle-fullscreen">Fullscreen</button>
         </div>
@@ -930,11 +863,8 @@ export function mountApp(root: HTMLElement): void {
       clearRecordingActive();
     }
   }
-  if (IS_KRI) {
-    pushLog('KRI GPS ready. Set Device ID in Settings, then start a session.');
-  } else {
-    pushLog('RNZ Row Recorder ready. Set Device ID in Settings, then start a session.');
-    if (IS_NATIVE) {
+  pushLog('CrewSight ready. Set Device ID in Settings, then start a session.');
+  if (IS_NATIVE) {
       void (async () => {
         await new Promise<void>((resolve) => {
           requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
@@ -954,7 +884,6 @@ export function mountApp(root: HTMLElement): void {
           refreshLogPre();
         }
       })();
-    }
   }
 }
 

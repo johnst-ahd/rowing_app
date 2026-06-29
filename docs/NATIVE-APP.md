@@ -1,4 +1,4 @@
-# RNZ Row Recorder — native app (Capacitor)
+# CrewSight — native app (Capacitor)
 
 The native shell wraps the same Vite UI as the PWA but uses **native GPS, accelerometer, and BLE** so recording continues with the screen locked (especially on iOS).
 

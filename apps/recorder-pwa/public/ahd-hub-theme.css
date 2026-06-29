@@ -1,4 +1,4 @@
-/* Altitude HD hub theme — shared with traccar-overlay.vercel.app */
+/* CrewSight hub theme */
 
 :root {
   --ahd-bg: #0a1628;
@@ -10,15 +10,16 @@
   --ahd-muted: #94a3b8;
   --ahd-safety: #4ade80;
   --ahd-danger: #f87171;
-  --rnz-teal: #0d9488;
+  --cs-teal: #0d9488;
+  --cs-gold: #fbbf24;
 }
 
 .hub-page {
   font-family: 'Segoe UI', system-ui, sans-serif;
   background-color: var(--ahd-bg);
   background-image:
-    linear-gradient(180deg, rgba(10, 22, 40, 0.92) 0%, rgba(10, 22, 40, 0.88) 100%),
-    url('/assets/rnz/rnz-waves-black-wide.jpg');
+    radial-gradient(ellipse 120% 80% at 50% -20%, rgba(0, 229, 255, 0.08) 0%, transparent 55%),
+    linear-gradient(180deg, #0a1628 0%, #061018 100%);
   background-size: cover;
   background-position: center top;
   background-attachment: fixed;
@@ -32,11 +33,8 @@
   content: '';
   position: fixed;
   inset: 0;
-  background: url('/assets/rnz/rnz-ngaru-dark.png') repeat;
-  background-size: 280px;
-  opacity: 0.06;
+  background: radial-gradient(circle at 80% 90%, rgba(13, 148, 136, 0.06) 0%, transparent 45%);
   pointer-events: none;
-  /* Behind all page content (Android WebView was painting this over the app UI). */
   z-index: -1;
 }
 
@@ -49,12 +47,14 @@
 }
 
 .hub-topbar {
-  background-color: #000;
-  background-image: url('/assets/rnz/rnz-waves-black-wide.jpg');
+  background-color: #050d18;
+  background-image:
+    radial-gradient(ellipse 90% 120% at 50% 0%, rgba(0, 229, 255, 0.1) 0%, transparent 60%),
+    linear-gradient(180deg, #0a1628 0%, #050d18 100%);
   background-repeat: no-repeat;
   background-size: cover;
   background-position: center center;
-  border-bottom: 1px solid rgba(13, 148, 136, 0.35);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.25);
   padding: clamp(16px, 2.5vw, 24px) clamp(16px, 4vw, 48px);
   position: relative;
   overflow: hidden;
@@ -100,6 +100,21 @@
   width: min(160px, 36vw);
   height: auto;
   object-fit: contain;
+}
+
+.hub-crewsight-logo {
+  display: block;
+  width: min(220px, 52vw);
+  height: auto;
+  object-fit: contain;
+}
+
+.hub-crewsight-logo--icon {
+  width: min(120px, 28vw);
+}
+
+.hub-crewsight-logo--recorder {
+  width: min(200px, 58vw);
 }
 
 .hub-tagline {

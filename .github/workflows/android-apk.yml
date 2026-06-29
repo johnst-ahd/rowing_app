@@ -49,7 +49,7 @@ jobs:
       - name: Sync brand assets + build web
         run: |
           node scripts/sync-brand-assets.mjs
-          node scripts/generate-launcher-icon.mjs apps/recorder-pwa/public/assets/rnz/rnz-logomark-white.png apps/recorder-native/assets/icon-source.png --bg=black --scale=0.765
+          node scripts/generate-launcher-icon.mjs apps/recorder-pwa/public/assets/crewsight/crewsight-logo-icon-only-color.png apps/recorder-native/assets/icon-source.png --bg=black --scale=0.82
           npm run build:native -w recorder-pwa
           node scripts/apply-android-launcher-icon.mjs apps/recorder-native/android/app apps/recorder-native/assets/icon-source.png
           cd apps/recorder-native && npx cap sync android
@@ -62,17 +62,17 @@ jobs:
         run: |
           APK_DIR=apps/recorder-native/android/app/build/outputs/apk/debug
           if [ -f "$APK_DIR/app-arm64-v8a-debug.apk" ]; then
-            cp "$APK_DIR/app-arm64-v8a-debug.apk" RNZ-Row-Recorder.apk
+            cp "$APK_DIR/app-arm64-v8a-debug.apk" CrewSight.apk
           else
-            cp "$APK_DIR/app-debug.apk" RNZ-Row-Recorder.apk
+            cp "$APK_DIR/app-debug.apk" CrewSight.apk
           fi
-          ls -lh RNZ-Row-Recorder.apk
+          ls -lh CrewSight.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RNZ-Row-Recorder-debug-apk
-          path: RNZ-Row-Recorder.apk
+          name: CrewSight-debug-apk
+          path: CrewSight.apk
           retention-days: 90
 
       - name: Publish GitHub Release (stable download link)
@@ -80,11 +80,11 @@ jobs:
         with:
           tag_name: android-apk-latest
           target_commitish: ${{ github.sha }}
-          name: RNZ Row Recorder — Android APK
+          name: CrewSight — Android APK
           body: |
             Sideload this APK on Samsung / Android (no Play Store).
 
-            1. Download **RNZ-Row-Recorder.apk** below
+            1. Download **CrewSight.apk** below
             2. Open on phone → Install (allow unknown apps if asked)
             3. Battery → Unrestricted; Location → Allow all the time
             4. App Settings → Device ID → Start session
@@ -92,4 +92,4 @@ jobs:
             Ingest: https://rowing-app-recorder-pwa.vercel.app/api/ingest
           prerelease: true
           make_latest: false
-          files: RNZ-Row-Recorder.apk
+          files: CrewSight.apk

@@ -1,6 +1,6 @@
 @import url('../public/ahd-hub-theme.css');
 
-/* Recorder PWA — Altitude HD hub layout */
+/* CrewSight recorder layout */
 
 .ahd-recorder-page #app {
   position: relative;
@@ -28,28 +28,8 @@
   max-width: 100%;
 }
 
-.hub-kri-logo {
-  display: block;
-  width: min(96px, 22vw);
-  height: auto;
-  object-fit: contain;
-}
-
-.hub-kri-titles {
-  text-align: left;
-}
-
-.hub-kicker {
-  margin: 0;
-  font-size: clamp(1.35rem, 5.5vw, 1.85rem);
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  color: var(--ahd-text);
-  line-height: 1.15;
-}
-
-.hub-rnz-logo--recorder {
-  width: min(280px, 72vw);
+.hub-crewsight-logo--recorder {
+  width: min(200px, 58vw);
   height: auto;
 }
 
@@ -345,45 +325,6 @@
   color: #ffffff;
   -webkit-text-fill-color: #ffffff;
   text-wrap: pretty;
-}
-
-.session-live-hud__kri {
-  margin: 0 0 0.55rem;
-}
-
-.session-live-hud__device {
-  font-size: clamp(1.1rem, 5.2vw, 1.65rem);
-  font-weight: 900;
-  letter-spacing: 0.01em;
-  line-height: 1.15;
-}
-
-.session-live-hud__gps-status {
-  margin-top: 0.35rem;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  color: var(--ahd-muted);
-}
-
-.session-live-hud__gps-status::before {
-  content: '';
-  width: 0.52rem;
-  height: 0.52rem;
-  border-radius: 999px;
-  background: #94a3b8;
-  box-shadow: 0 0 0 1px rgba(148, 163, 184, 0.35);
-}
-
-.session-live-hud__gps-status[data-gps-active='true'] {
-  color: #16a34a;
-}
-
-.session-live-hud__gps-status[data-gps-active='true']::before {
-  background: #22c55e;
-  box-shadow: 0 0 8px rgba(34, 197, 94, 0.75);
 }
 
 .session-live-hud__metrics {

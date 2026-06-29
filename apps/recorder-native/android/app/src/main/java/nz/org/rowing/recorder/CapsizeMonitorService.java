@@ -1298,7 +1298,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Notification notification =
                 new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                        .setContentTitle("RNZ session recording")
+                        .setContentTitle("CrewSight session recording")
                         .setContentText("Tap to resume GPS after restart")
                         .setSmallIcon(R.drawable.ic_stat_rowing_shell)
                         .setContentIntent(pi)
@@ -1639,7 +1639,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void acquireWakeLock() {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm == null) return;
-        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "RNZ::SessionRecorder");
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "CrewSight::SessionRecorder");
         wakeLock.acquire(4 * 60 * 60 * 1000L);
     }
 
@@ -1682,7 +1682,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             detail = "Capsize monitoring — runs with screen off";
         }
         return new NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("RNZ session recording")
+            .setContentTitle("CrewSight session recording")
             .setContentText(detail)
             .setSmallIcon(R.drawable.ic_stat_rowing_shell)
             .setContentIntent(pi)

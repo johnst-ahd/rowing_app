@@ -2,7 +2,7 @@
   "name": "recorder-native",
   "version": "0.1.0",
   "private": true,
-  "description": "Capacitor native shell for RNZ rowing recorder",
+  "description": "Capacitor native shell for CrewSight",
   "scripts": {
     "build:web": "npm run build:native -w recorder-pwa",
     "sync": "npm run build:web && npx cap sync",

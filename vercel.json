@@ -19,12 +19,12 @@
   "redirects": [
     {
       "source": "/downloads/RNZ-Row-Recorder.apk",
-      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk",
+      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/CrewSight.apk",
       "permanent": false
     },
     {
-      "source": "/downloads/KRI-GPS.apk",
-      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-kri-latest/KRI-GPS.apk",
+      "source": "/downloads/CrewSight.apk",
+      "destination": "https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/CrewSight.apk",
       "permanent": false
     }
   ],

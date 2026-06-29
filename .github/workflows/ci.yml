@@ -24,8 +24,5 @@ jobs:
       - name: Vercel build (monorepo)
         run: npm run build
 
-      - name: KRI native web smoke build
-        run: npm run test:kri
-
       - name: Verify API modules load
         run: node -e "require('./apps/recorder-pwa/api/history.js'); require('./apps/recorder-pwa/api/ingest.js'); console.log('api ok')"

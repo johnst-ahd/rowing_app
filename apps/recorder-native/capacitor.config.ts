@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'nz.org.rowing.recorder',
-  appName: 'RNZ Row Recorder',
+  appName: 'CrewSight',
   webDir: '../recorder-pwa/dist',
   server: {
     androidScheme: 'https',

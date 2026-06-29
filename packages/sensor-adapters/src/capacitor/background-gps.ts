@@ -22,7 +22,7 @@ export function startBackgroundGpsWatcher(
   void BackgroundGeolocation.addWatcher(
     {
       backgroundMessage: 'Recording rowing session — open app to view.',
-      backgroundTitle: 'RNZ Row Recorder',
+      backgroundTitle: 'CrewSight',
       requestPermissions: true,
       stale: false,
       distanceFilter: 0,

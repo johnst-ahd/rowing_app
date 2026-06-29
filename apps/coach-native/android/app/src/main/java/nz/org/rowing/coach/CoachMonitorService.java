@@ -12,6 +12,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.text.TextUtils;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
 import androidx.core.app.NotificationCompat;
@@ -255,7 +256,7 @@ public class CoachMonitorService extends Service {
             lastAlertKey = "";
             return;
         }
-        String key = String.join(",", capsized);
+        String key = TextUtils.join(",", capsized);
         long now = System.currentTimeMillis();
         boolean changed = !key.equals(lastAlertKey);
         boolean repeat = now - lastCapsizeAlertMs >= CAPSIZE_REPEAT_MS;
@@ -283,9 +284,15 @@ public class CoachMonitorService extends Service {
 
     private void startForegroundWithTypes() {
         Notification notification = buildForegroundNotification(0);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= 34) {
             int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
             ServiceCompat.startForeground(this, NOTIF_ID_FG, notification, types);
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(
+                    this,
+                    NOTIF_ID_FG,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MANIFEST);
         } else {
             startForeground(NOTIF_ID_FG, notification);
         }

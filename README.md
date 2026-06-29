@@ -1,6 +1,6 @@
-# RNZ Rowing Recorder (PWA)
+# CrewSight
 
-Phone Progressive Web App to record **GPS**, **accelerometer**, and **heart rate (BLE)** during rowing sessions. All data uploads to the **RNZ ingest API** on your Vercel deployment (no Traccar on the phone). See [docs/INGEST-ONLY.md](docs/INGEST-ONLY.md).
+GPS rowing recorder PWA — records **GPS**, **accelerometer**, and **heart rate (BLE)** during rowing sessions. Data uploads to the ingest API on your Vercel deployment. See [docs/INGEST-ONLY.md](docs/INGEST-ONLY.md).
 
 ## Quick start
 
@@ -50,9 +50,9 @@ Full setup: [docs/NATIVE-APP.md](docs/NATIVE-APP.md)
 
 Set `INGEST_TOKEN` in Vercel env. In the app **Settings**, set **Ingest API URL** to `https://your-deployment.vercel.app/api/ingest`.
 
-## Device monitor dashboard
+## CrewSight Manager
 
-Open **`/dashboard.html`** (or `/dashboard`) on your deployment. It polls `/api/devices` every 1–10 s and shows per device:
+Open **`/dashboard.html`** (or `/dashboard`) on your deployment — the fleet monitor for live GPS, stroke rate, and capsize alerts. It polls `/api/devices` every 1–10 s and shows per device:
 
 - Online / offline (last seen within 30 s)
 - GPS refresh rate (Hz) and last coordinates
