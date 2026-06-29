@@ -13,8 +13,10 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.util.Log;
+import android.content.pm.ServiceInfo;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
@@ -180,7 +182,7 @@ public class CoachMonitorService extends Service {
         Log.i(TAG, "Coach monitoring stopped by user");
         clearMonitoring(this);
         mainHandler.removeCallbacks(pollRunnable);
-        stopForeground(STOP_FOREGROUND_REMOVE);
+        stopForeground(true);
         stopSelf();
     }
 
@@ -206,7 +208,7 @@ public class CoachMonitorService extends Service {
             int code = conn.getResponseCode();
             InputStream stream = code >= 200 && code < 300 ? conn.getInputStream() : conn.getErrorStream();
             if (stream == null) return;
-            String body = new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+            String body = readUtf8(stream);
             List<String> capsized = parseCapsizedDevices(body);
             mainHandler.post(() -> handleCapsizeDevices(capsized));
         } catch (Exception e) {
@@ -214,6 +216,16 @@ public class CoachMonitorService extends Service {
         } finally {
             if (conn != null) conn.disconnect();
         }
+    }
+
+    private static String readUtf8(InputStream stream) throws java.io.IOException {
+        ByteArrayOutputStream buf = new ByteArrayOutputStream();
+        byte[] chunk = new byte[4096];
+        int n;
+        while ((n = stream.read(chunk)) != -1) {
+            buf.write(chunk, 0, n);
+        }
+        return buf.toString(StandardCharsets.UTF_8.name());
     }
 
     private static List<String> parseCapsizedDevices(String jsonBody) {
@@ -272,7 +284,7 @@ public class CoachMonitorService extends Service {
     private void startForegroundWithTypes() {
         Notification notification = buildForegroundNotification(0);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            int types = android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
+            int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
             ServiceCompat.startForeground(this, NOTIF_ID_FG, notification, types);
         } else {
             startForeground(NOTIF_ID_FG, notification);
