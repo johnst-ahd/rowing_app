@@ -57,13 +57,41 @@ export function mountApp(root: HTMLElement): void {
         fetchDevices(settings),
         fetchMapPositions(settings),
       ]);
-      devices = dev;
+      devices = mergeCoachDevicesWithMap(dev, pos);
       positions = pos;
       render();
       updateMap();
+      setStatus(`Updated · ${devices.length} device(s)`, false);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : String(e), true);
     }
+  }
+
+  function mergeCoachDevicesWithMap(
+    apiDevices: FleetDevice[],
+    mapPositions: MapPosition[],
+  ): FleetDevice[] {
+    const mapById = new Map(mapPositions.map((p) => [p.deviceId, p]));
+    const byId = new Map<string, FleetDevice>();
+    for (const d of apiDevices) {
+      const p = mapById.get(d.deviceId);
+      byId.set(d.deviceId, {
+        ...d,
+        gpsAgeSec: p?.fixAgeSec ?? d.gps?.ageSec ?? undefined,
+      });
+    }
+    for (const p of mapPositions) {
+      if (!byId.has(p.deviceId)) {
+        byId.set(p.deviceId, {
+          deviceId: p.deviceId,
+          online: true,
+          lastSeenAgoSec: p.fixAgeSec,
+          gpsAgeSec: p.fixAgeSec,
+          rowing: { capsize: p.capsize, strokeRate: p.strokeRate ?? null },
+        });
+      }
+    }
+    return [...byId.values()];
   }
 
   function setStatus(msg: string, err = false) {
@@ -74,10 +102,23 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
+  function destroyMap() {
+    if (map) {
+      map.remove();
+      map = null;
+      markersLayer = null;
+      markers.clear();
+    }
+  }
+
   function ensureMap() {
-    if (map || typeof L === 'undefined') return;
+    if (typeof L === 'undefined') return;
     const el = root.querySelector('#coachMap') as HTMLElement | null;
     if (!el) return;
+    if (map && map.getContainer() !== el) {
+      destroyMap();
+    }
+    if (map) return;
     map = L.map(el).setView([-37.93, 175.55], 12);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
@@ -91,12 +132,16 @@ export function mountApp(root: HTMLElement): void {
     if (!map || !markersLayer) return;
     const seen = new Set<string>();
     for (const p of positions) {
+      if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
       seen.add(p.deviceId);
       const latlng = L.latLng(p.latitude, p.longitude);
+      const fixAge = p.fixAgeSec;
       const cap = Boolean(p.capsize);
+      const amber = !cap && fixAge != null && fixAge > 30 && fixAge <= 300;
+      const color = cap ? '#ef4444' : amber ? '#fbbf24' : '#38bdf8';
       const icon = L.divIcon({
-        className: cap ? 'coach-marker capsize' : 'coach-marker',
-        html: `<span style="background:${cap ? '#ef4444' : '#38bdf8'};width:14px;height:14px;border-radius:50%;display:block;border:2px solid #fff"></span>`,
+        className: cap ? 'coach-marker capsize' : amber ? 'coach-marker amber' : 'coach-marker',
+        html: `<span style="background:${color};width:14px;height:14px;border-radius:50%;display:block;border:2px solid #fff"></span>`,
         iconSize: [14, 14],
         iconAnchor: [7, 7],
       });
@@ -311,9 +356,18 @@ export function mountApp(root: HTMLElement): void {
                 d.rowing?.strokeRateValid && d.rowing.strokeRate != null
                   ? `${Math.round(d.rowing.strokeRate)} spm`
                   : '—';
+              const gpsAge = d.gpsAgeSec;
+              const gpsLabel =
+                gpsAge == null
+                  ? 'GPS —'
+                  : gpsAge <= 30
+                    ? 'GPS live'
+                    : gpsAge <= 300
+                      ? `GPS ${gpsAge}s ago`
+                      : 'GPS stale';
               return `<li class="device-card ${cap ? 'capsize' : ''}">
                 <div class="device-card__id">${esc(d.deviceId)} ${cap ? '· CAPSIZE' : ''}</div>
-                <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
+                <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
               </li>`;
             })
             .join('')}</ul>

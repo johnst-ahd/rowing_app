@@ -18,7 +18,7 @@ You do **not** need Android Studio on your phone. Pick one:
 
 ### A) Direct download link (Samsung / Android)
 
-**https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/RNZ-Row-Recorder.apk** (~10 MB arm64 build)
+**https://github.com/JohnSt-AHD/rowing_app/releases/download/android-apk-latest/CrewSight.apk** (~10 MB arm64 build)
 
 Install page: **https://rowing-app-recorder-pwa.vercel.app/install-native.html**
 
@@ -40,7 +40,7 @@ npm run native:apk
 
 This creates:
 
-`apps/recorder-native/install/RNZ-Row-Recorder.apk`
+`apps/recorder-native/install/CrewSight.apk`
 
 Copy that file to the phone and tap it to install. Windows Explorer opens the folder when done.
 
@@ -55,7 +55,7 @@ Copy that file to the phone and tap it to install. Windows Explorer opens the fo
 
 ## After install (Samsung S21)
 
-1. **Settings → Apps → RNZ Row Recorder → Battery** → **Unrestricted**
+1. **Settings → Apps → CrewSight → Battery** → **Unrestricted**
 2. **Location** → **Allow all the time**
 3. In the app: **Settings** → Device ID → **Start session**
 
@@ -146,7 +146,7 @@ Android does not allow apps to toggle these silently — the user must confirm e
 
 **Capsize / stroke with screen off (v1.0.10+):** When **Allow background** and **GPS** are both on, motion uses the native accelerometer (`@capgo/capacitor-accelerometer`) so capsize and stroke rate can keep running while the screen is locked (Android, with the GPS notification active). Enable **Accelerometer** in session settings. Without GPS background, motion may still pause when the screen is off — keep GPS on for reliable capsize alerts.
 
-**Capsize alarm when minimized (v1.0.11+):** On capsize, the app posts a **high-priority notification** (sound + vibration) so you are alerted when the screen is off or another app is in front. Allow **Notifications** for RNZ Row Recorder. In-app beeps still play when the app is visible.
+**Capsize alarm when minimized (v1.0.11+):** On capsize, the app posts a **high-priority notification** (sound + vibration) so you are alerted when the screen is off or another app is in front. Allow **Notifications** for CrewSight. In-app beeps still play when the app is visible.
 
 **Native capsize monitor (v1.0.14+):** With **Allow background** + **Accelerometer**, a separate **Android foreground service** watches the accelerometer and **POSTs capsize directly to ingest** (for the fleet monitor) even when the WebView is paused. You will see a second notification: “RNZ capsize monitor active”. Hold the boat still ~3s at session start to calibrate (or let the native service self-calibrate).
 

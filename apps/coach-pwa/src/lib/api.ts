@@ -3,17 +3,14 @@ import { authHeaders, type CoachSettings } from './settings';
 export type FleetDevice = {
   deviceId: string;
   online?: boolean;
-  gps?: boolean;
   lastSeenAgoSec?: number;
+  gps?: { ageSec?: number | null; present?: boolean };
+  /** Resolved GPS fix age (map + API). */
+  gpsAgeSec?: number;
   rowing?: {
     strokeRate?: number | null;
     strokeRateValid?: boolean;
     capsize?: boolean;
-  };
-  gpsLast?: {
-    lat?: number;
-    lon?: number;
-    speed?: number;
   };
 };
 

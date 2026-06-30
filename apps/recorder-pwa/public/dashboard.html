@@ -38,16 +38,6 @@
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item" id="refreshRateLabel">Refresh: —</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
-      <span class="hub-stats-item" id="serverHealth">Server: —</span>
-      <span class="hub-stats-sep" aria-hidden="true">·</span>
-      <span class="hub-stats-item" id="gpsHealth">GPS health: —</span>
-      <span class="hub-stats-sep" aria-hidden="true">·</span>
-      <span class="hub-stats-item" id="latencyHealth">Latency: —</span>
-      <span class="hub-stats-sep" aria-hidden="true">·</span>
-      <span class="hub-stats-item" id="heartbeatHealth">Heartbeat: —</span>
-      <span class="hub-stats-sep" aria-hidden="true">·</span>
-      <span class="hub-stats-item" id="batteryHealth">Battery: —</span>
-      <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item" id="strokeSummary">Stroke: —</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item" id="capsizeSummary">Capsize: —</span>
@@ -71,6 +61,7 @@
             <h2 class="hub-section-title">Fleet map</h2>
           </button>
           <div class="dashboard-section__tools">
+            <button type="button" class="hub-btn hub-btn--ghost" id="refreshBtn">Refresh now</button>
             <button type="button" class="hub-btn hub-btn--ghost" id="mapFullscreenBtn">Fullscreen map</button>
           </div>
         </div>
@@ -83,23 +74,23 @@
               </div>
               <button type="button" class="hub-btn hub-btn--ghost map-fs-exit-btn" id="mapFullscreenExitBtn">Exit fullscreen</button>
             </div>
-            <p class="map-legend">
-              <span class="map-legend-item map-legend-item--live">● Active (GPS ≤30s)</span>
-              <span class="map-legend-item map-legend-item--amber">● Delayed (30s–5min)</span>
-              <span class="map-legend-item map-legend-item--lost">● Last known (&gt;5min)</span>
-              <span class="map-legend-item map-legend-item--capsize">● Capsize alert</span>
-              <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smoothed: predict-to-now on all devices (display only)</span>
-              <span class="map-legend-item map-legend-item--geofence">◯ Geofence zone (economy mode)</span>
+            <p class="map-legend map-legend--compact">
+              <span class="map-legend-item map-legend-item--live">● Live (≤30s)</span>
+              <span class="map-legend-item map-legend-item--amber">● Delayed</span>
+              <span class="map-legend-item map-legend-item--lost">● Stale</span>
+              <span class="map-legend-item map-legend-item--capsize">● Capsize</span>
+              <span class="map-legend-item map-legend-item--interpolate" id="mapLegendInterpolate" hidden>↝ Smoothed display</span>
             </p>
             <div id="fleetMap" class="fleet-map" role="application" aria-label="Device locations map"></div>
             <p class="poll-line map-status" id="mapStatus">Loading map…</p>
+            <p class="poll-line map-status map-status--poll" id="pollStatus">Connecting…</p>
           </div>
         </div>
       </section>
 
-      <section class="hub-panel dashboard-section" data-section-id="devices" data-default-open="false">
+      <section class="hub-panel dashboard-section dashboard-section--open" data-section-id="devices" data-default-open="true">
         <div class="dashboard-section__head">
-          <button type="button" class="dashboard-section__toggle" aria-expanded="false" aria-controls="section-body-devices">
+          <button type="button" class="dashboard-section__toggle" aria-expanded="true" aria-controls="section-body-devices">
             <span class="dashboard-section__chevron" aria-hidden="true"></span>
             <h2 class="hub-section-title">Devices</h2>
           </button>
@@ -108,7 +99,7 @@
             <button type="button" class="hub-btn hub-btn--ghost devices-toolbar-btn" id="devicesCollapseAllBtn">Collapse all</button>
           </div>
         </div>
-        <div class="dashboard-section__body" id="section-body-devices" hidden>
+        <div class="dashboard-section__body" id="section-body-devices">
           <div class="devices-grid" id="devicesGrid"></div>
         </div>
       </section>
@@ -359,6 +350,16 @@
           </button>
         </div>
         <div class="dashboard-section__body" id="section-body-settings" hidden>
+          <details class="dashboard-health-details">
+            <summary class="dashboard-health-summary">System health</summary>
+            <div class="dashboard-health-strip" aria-live="polite">
+              <span class="dashboard-health-item" id="serverHealth">Server: —</span>
+              <span class="dashboard-health-item" id="gpsHealth">GPS health: —</span>
+              <span class="dashboard-health-item" id="latencyHealth">Latency: —</span>
+              <span class="dashboard-health-item" id="heartbeatHealth">Heartbeat: —</span>
+              <span class="dashboard-health-item" id="batteryHealth">Battery: —</span>
+            </div>
+          </details>
           <div class="ahd-inline-fields">
             <label class="ahd-field">
               Ingest token
@@ -407,12 +408,8 @@
               </select>
             </label>
             <button type="button" class="hub-btn hub-btn--primary" id="applyBtn">Apply</button>
-            <button type="button" class="hub-btn" id="refreshBtn">Refresh now</button>
-            <a class="hub-btn hub-btn--ghost" href="/">Recorder</a>
-            <a class="hub-btn hub-btn--ghost" href="/">CrewSight app</a>
           </div>
           <p class="poll-line poll-line--warn" id="storageWarning" hidden></p>
-          <p class="poll-line" id="pollStatus">Connecting…</p>
         </div>
       </section>
 

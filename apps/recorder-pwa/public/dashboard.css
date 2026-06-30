@@ -60,6 +60,41 @@
   font-size: 13px;
 }
 
+.map-legend--compact {
+  gap: 0.65rem 1.1rem;
+  font-size: 12px;
+}
+
+.dashboard-health-details {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--ahd-border);
+  border-radius: 8px;
+  background: rgba(10, 22, 40, 0.45);
+}
+
+.dashboard-health-summary {
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ahd-muted);
+  user-select: none;
+}
+
+.dashboard-health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin-top: 0.75rem;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ahd-muted);
+}
+
+.dashboard-health-item {
+  white-space: nowrap;
+}
+
 .map-legend-item--live {
   color: var(--ahd-safety);
 }

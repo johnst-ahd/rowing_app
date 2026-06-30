@@ -569,13 +569,18 @@ function sensorStats(samples, windowMs, deviceId) {
   const windowSec = windowMs / 1000;
   const rate = (n) => (windowSec > 0 ? Math.round((n / windowSec) * 10) / 10 : 0);
 
+  // Rates/counts use the stats window; last fix/age match the map (any recent sample).
+  const latestGpsFix = latestGpsFromSamples(samples);
+  const gpsLast = latestGpsFix ?? lastGps;
+  const gpsAgeSec = gpsLast ? Math.round((now - gpsLast.t) / 1000) : null;
+
   return {
     gps: {
-      present: gpsCount > 0,
+      present: gpsCount > 0 || latestGpsFix != null,
       rateHz: rate(gpsCount),
       count: gpsCount,
-      last: lastGps,
-      ageSec: lastGps ? Math.round((now - lastGps.t) / 1000) : null,
+      last: gpsLast,
+      ageSec: gpsAgeSec,
     },
     motion: {
       present: motionCount > 0,

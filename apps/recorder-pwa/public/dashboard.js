@@ -737,6 +737,99 @@ function mergeMapWithDeviceGps(devices, positions) {
   return [...byId.values()];
 }
 
+/**
+ * Build device grid rows: merge /api/devices with live map positions so cards
+ * stay in sync with map markers (including map-only devices within staleSec).
+ * @param {object[]} apiDevices
+ * @param {object[]} mapPositions
+ * @param {number} windowSec
+ */
+function buildDevicesForGrid(apiDevices, mapPositions, windowSec) {
+  /** @type {Map<string, object>} */
+  const mapById = new Map();
+  for (const p of mapPositions || []) {
+    if (p.latitude != null && p.longitude != null) mapById.set(p.deviceId, p);
+  }
+
+  /** @type {Map<string, object>} */
+  const byId = new Map();
+  for (const d of apiDevices || []) {
+    byId.set(d.deviceId, enrichDeviceWithMapPosition(d, mapById.get(d.deviceId)));
+  }
+
+  for (const p of mapPositions || []) {
+    if (p.latitude == null || p.longitude == null) continue;
+    if (byId.has(p.deviceId)) continue;
+    byId.set(p.deviceId, mapPositionToDeviceCard(p, windowSec));
+  }
+
+  return [...byId.values()].sort(
+    (a, b) => (a.lastSeenAgoSec ?? 9999) - (b.lastSeenAgoSec ?? 9999),
+  );
+}
+
+/** @param {object} d @param {object|undefined} p */
+function enrichDeviceWithMapPosition(d, p) {
+  if (!p) return d;
+  const { lat, lon } = displayLatLonForPosition(p);
+  const fixAge = p.fixAgeSec;
+  const gps = { ...(d.gps || {}) };
+  if (fixAge != null || p.latitude != null) {
+    gps.present = true;
+    if (fixAge != null) gps.ageSec = fixAge;
+    gps.last = {
+      t: p.fixMs ?? (fixAge != null ? Date.now() - fixAge * 1000 : Date.now()),
+      lat,
+      lon,
+      acc: p.accuracy ?? gps.last?.acc ?? null,
+    };
+  }
+  const rowing = { ...(d.rowing || {}) };
+  if (p.capsize) rowing.capsize = true;
+  if (p.strokeRateValid && p.strokeRate != null) {
+    rowing.strokeRate = p.strokeRate;
+    rowing.strokeRateValid = true;
+  }
+  return { ...d, gps, rowing };
+}
+
+/** @param {object} p @param {number} windowSec */
+function mapPositionToDeviceCard(p, windowSec) {
+  const { lat, lon } = displayLatLonForPosition(p);
+  const fixAge = p.fixAgeSec ?? null;
+  return {
+    deviceId: p.deviceId,
+    athleteId: p.athleteId ?? null,
+    sessionId: '',
+    online: Boolean(p.online),
+    lastSeenAgoSec: p.lastSeenAgoSec ?? fixAge ?? null,
+    windowSec,
+    totalSamples: 0,
+    ingestRateHz: 0,
+    gps: {
+      present: true,
+      rateHz: 0,
+      count: 0,
+      last: { lat, lon, acc: p.accuracy ?? null, t: p.fixMs ?? Date.now() },
+      ageSec: fixAge,
+    },
+    motion: { present: false, rateHz: 0, count: 0 },
+    hr: { present: false, rateHz: 0, count: 0 },
+    heartbeat: { present: false, rateHz: 0, count: 0 },
+    battery: {
+      pct: p.batteryPct ?? null,
+      ageSec: p.batteryAgeSec ?? null,
+    },
+    rowing: {
+      strokeRate: p.strokeRate ?? null,
+      strokeRateValid: Boolean(p.strokeRateValid),
+      capsize: Boolean(p.capsize),
+      tiltDeg: p.tiltDeg ?? null,
+      calibrated: false,
+    },
+  };
+}
+
 async function fetchMapPositions() {
   const url = `${apiBase()}/api/map-positions?onlineSec=${ONLINE_SEC}&staleSec=${staleSec()}&predictMode=${encodeURIComponent(currentPredictMode())}`;
   const started = performance.now();
@@ -979,13 +1072,18 @@ async function poll() {
     setCapsizeUiActive((data.devices || []).some((d) => d.rowing?.capsize));
 
     grid.innerHTML = '';
-    if (!data.devices?.length) {
+    const devicesForGrid = buildDevicesForGrid(
+      data.devices,
+      mapPositions,
+      data.windowSec ?? Number(windowSec),
+    );
+    if (!devicesForGrid.length) {
       const hint = data.persisted
         ? 'No devices in the last window. Check the phone is recording and Device ID matches.'
         : 'No devices visible — add POSTGRES_URL on Vercel (Storage → Postgres), redeploy, then record again.';
       grid.innerHTML = `<p class="empty">${hint}</p>`;
     } else {
-      for (const d of data.devices) {
+      for (const d of devicesForGrid) {
         d.windowSec = data.windowSec;
         grid.appendChild(renderDevice(d));
       }
@@ -993,20 +1091,20 @@ async function poll() {
 
     if (typeof window.mergeHistoryDevices === 'function') {
       window.mergeHistoryDevices(
-        (data.devices || []).map((d) => d.deviceId).filter(Boolean),
+        devicesForGrid.map((d) => d.deviceId).filter(Boolean),
       );
     }
 
     if (window.dashboardMonitorCharts?.onPoll) {
-      window.dashboardMonitorCharts.onPoll(data);
+      window.dashboardMonitorCharts.onPoll({ ...data, devices: devicesForGrid });
     }
 
     if (typeof window.dashboardOnDevicesPoll === 'function') {
-      window.dashboardOnDevicesPoll(data.devices);
+      window.dashboardOnDevicesPoll(devicesForGrid);
     }
 
     const t = new Date(data.polledAt || Date.now()).toLocaleTimeString();
-    status.textContent = `Updated ${t} · ${data.devices?.length ?? 0} device(s)`;
+    status.textContent = `Updated ${t} · ${devicesForGrid.length} device(s)`;
     status.classList.remove('err');
   } catch (e) {
     lastPollDurationMs = Math.round(performance.now() - pollStarted);

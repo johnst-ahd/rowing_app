@@ -32,7 +32,7 @@ Numeric `deviceId` in snapshot is assigned in `rnz_devices` when the device firs
 
 ## 4. traccar-overlay
 
-On the **hub main page** (`index.html`), use **Settings → Position data source** to switch between **Traccar** and **RNZ recorder**. The choice is saved in the browser and sent as `?source=traccar` or `?source=rowing` on every `/api/traccar` request.
+On the **hub main page** (`index.html`), use **Settings → Position data source** to switch between **Traccar** and **CrewSight**. The choice is saved in the browser and sent as `?source=traccar` or `?source=rowing` on every `/api/traccar` request.
 
 In **traccar-overlay** Vercel env:
 
