@@ -61,7 +61,10 @@ jobs:
 
       - name: Assemble debug APK
         working-directory: apps/coach-native/android
-        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace 2>&1 | tee ../gradle-build.log
+          exit ${PIPESTATUS[0]}
 
       - name: Prepare release asset (arm64)
         run: |
