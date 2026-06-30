@@ -1,4 +1,5 @@
 import type { MapPosition } from './api';
+import { resolveSpeedMps } from './map-smooth';
 import { colorForDevice, type ChartSeries } from './history-track';
 
 const WINDOW_MS = 5 * 60 * 1000;
@@ -42,8 +43,8 @@ export function recordLiveSpeedSamples(positions: MapPosition[]): void {
   for (const p of positions) {
     if (!p.deviceId || !Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
     seen.add(p.deviceId);
-    const speed = p.speed;
-    if (speed == null || !Number.isFinite(speed) || speed < 0) continue;
+    const speed = resolveSpeedMps(p);
+    if (speed == null) continue;
 
     const t = p.fixMs ?? now;
     let buf = buffers.get(p.deviceId);

@@ -463,6 +463,16 @@ function attachSmoothMapCoords(rawPositions, predictMode = 'rowing') {
 
     return {
       ...p,
+      speed:
+        p.speed ??
+        (track?.speedMps != null && Number.isFinite(track.speedMps)
+          ? Math.max(0, track.speedMps)
+          : null),
+      course:
+        p.course ??
+        (track?.courseDeg != null && Number.isFinite(track.courseDeg)
+          ? track.courseDeg
+          : null),
       smoothLatitude: clamped.lat,
       smoothLongitude: clamped.lon,
       smoothFixAgeSec: smoothAgeSec,
@@ -1125,10 +1135,10 @@ function getPositionsSnapshot(onlineMs = 30000) {
 function latestGpsFromSamples(samples) {
   let lastGps = null;
   for (const s of samples) {
-    if (s.gps && s.gps.lat != null && s.gps.lon != null) {
-      if (!lastGps || s.t >= lastGps.t) {
-        lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc ?? null };
-      }
+    const fix = gpsFromSample(s);
+    if (!fix) continue;
+    if (!lastGps || fix.t >= lastGps.t) {
+      lastGps = fix;
     }
   }
   return lastGps;
@@ -1137,7 +1147,7 @@ function latestGpsFromSamples(samples) {
 /**
  * @param {object} opts
  * @param {string} opts.deviceId
- * @param {{ t: number, lat: number, lon: number, acc?: number|null }} opts.fix
+ * @param {{ t: number, lat: number, lon: number, acc?: number|null, spd?: number|null, hdg?: number|null }} opts.fix
  * @param {number} [opts.lastSeenMs]
  * @param {boolean} [opts.online]
  * @param {number} opts.now
@@ -1161,6 +1171,8 @@ function buildRawMapPositionFromFix({
     latitude: fix.lat,
     longitude: fix.lon,
     accuracy: fix.acc ?? null,
+    speed: fix.spd != null && Number.isFinite(fix.spd) ? fix.spd : null,
+    course: fix.hdg != null && Number.isFinite(fix.hdg) ? fix.hdg : null,
     fixMs,
     fixAgeSec: Math.round((now - fixMs) / 1000),
     lastSeenAgoSec: Math.round((now - lastSeen) / 1000),
@@ -1186,15 +1198,12 @@ function getRawMemoryMapPositions(onlineMs, now) {
       }
     }
     if (!lastGps) continue;
+    const fix = gpsFromSample(lastGps);
+    if (!fix) continue;
     out.push(
       buildRawMapPositionFromFix({
         deviceId: row.deviceId,
-        fix: {
-          t: lastGps.t,
-          lat: lastGps.gps.lat,
-          lon: lastGps.gps.lon,
-          acc: lastGps.gps.acc ?? null,
-        },
+        fix,
         lastSeenMs: row.updatedAt,
         online: now - row.updatedAt <= onlineMs,
         now,

@@ -86,6 +86,20 @@ function fixMsFor(p: MapPosition): number {
   return Date.now();
 }
 
+/** Latest speed estimate for a device (from API or derived between fixes). */
+export function trackSpeedMps(deviceId: string): number | null {
+  const state = tracks.get(deviceId);
+  if (state?.speedMps == null || !Number.isFinite(state.speedMps) || state.speedMps < 0) {
+    return null;
+  }
+  return state.speedMps;
+}
+
+export function resolveSpeedMps(p: MapPosition): number | null {
+  if (p.speed != null && Number.isFinite(p.speed) && p.speed >= 0) return p.speed;
+  return trackSpeedMps(p.deviceId);
+}
+
 export function syncMapTracks(positions: MapPosition[]) {
   const seen = new Set<string>();
   for (const p of positions) {

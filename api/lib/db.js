@@ -569,7 +569,7 @@ async function getMapPositions(onlineMs, staleMs) {
   const staleCutoff = now - staleMs;
   const rows = await sql`
     SELECT DISTINCT ON (s.unique_id)
-      s.unique_id, s.latitude, s.longitude, s.accuracy, s.t_ms, s.hr,
+      s.unique_id, s.latitude, s.longitude, s.accuracy, s.speed, s.course, s.t_ms, s.hr,
       d.last_seen_at, d.athlete_id
     FROM rnz_samples s
     JOIN rnz_devices d ON d.unique_id = s.unique_id
@@ -589,6 +589,8 @@ async function getMapPositions(onlineMs, staleMs) {
       latitude: row.latitude,
       longitude: row.longitude,
       accuracy: row.accuracy,
+      speed: row.speed != null ? Number(row.speed) : null,
+      course: row.course != null ? Number(row.course) : null,
       fixMs,
       fixAgeSec: Math.round((now - fixMs) / 1000),
       lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),

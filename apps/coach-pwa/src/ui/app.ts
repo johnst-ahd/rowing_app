@@ -25,6 +25,7 @@ import {
   clearMapTracks,
   displayLatLon,
   onMapDisplayTick,
+  resolveSpeedMps,
   syncMapTracks,
 } from '../lib/map-smooth';
 import { loadSettings, saveSettings, DEFAULT_API_BASE_URL, type CoachSettings } from '../lib/settings';
@@ -265,7 +266,7 @@ export function mountApp(root: HTMLElement): void {
       if (ago > ONLINE_SEC) continue;
       rows.push({
         ...d,
-        speedMps: p.speed ?? null,
+        speedMps: resolveSpeedMps(p),
         displayName: deviceDisplayName(d),
         colorIndex: colorIdx++,
       });
