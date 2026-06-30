@@ -199,9 +199,10 @@ function distanceMeters(aLat, aLon, bLat, bLon) {
 }
 
 function emaAlphaForAccuracy(acc) {
-  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.75;
-  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.65;
-  return 0.5;
+  // Lower alpha = heavier smoothing (v1.0.34 uploads raw ~1 Hz fixes).
+  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.48;
+  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.38;
+  return 0.28;
 }
 
 /** Cap fix age used for prediction when uploads are fresh but sample t lags (clock/batch). */
@@ -318,13 +319,17 @@ function updateGpsTrack(deviceId, fix, opts = {}) {
   let speedMps = jumpM / dtSec;
   let courseDeg = bearingDeg(prev.lat, prev.lon, fix.lat, fix.lon);
   if (fix.spd != null && Number.isFinite(fix.spd)) {
-    speedMps = prev.speedMps != null ? 0.5 * speedMps + 0.5 * fix.spd : fix.spd;
+    speedMps = prev.speedMps != null ? 0.35 * speedMps + 0.65 * fix.spd : fix.spd;
   }
   const resolved = resolveMapHeading(fix);
   if (resolved != null && Number.isFinite(resolved)) {
     courseDeg = resolved;
   } else if (fix.hdg != null && Number.isFinite(fix.hdg)) {
     courseDeg = fix.hdg;
+  }
+  if (prev.courseDeg != null && courseDeg != null && Number.isFinite(prev.courseDeg)) {
+    const diff = ((courseDeg - prev.courseDeg + 540) % 360) - 180;
+    courseDeg = (prev.courseDeg + 0.35 * diff + 360) % 360;
   }
 
   const alpha = emaAlphaForAccuracy(fix.acc);
@@ -418,9 +423,17 @@ function attachSmoothMapCoords(rawPositions, predictMode = 'rowing') {
 
       if (canPredict && predictFixAgeSec > 0) {
         const predictSec = Math.min(predictFixAgeSec, MAX_PREDICT_SEC);
+        const anchorLat =
+          track.smoothLat != null && Number.isFinite(track.smoothLat)
+            ? track.smoothLat
+            : rawLat;
+        const anchorLon =
+          track.smoothLon != null && Number.isFinite(track.smoothLon)
+            ? track.smoothLon
+            : rawLon;
         [smoothLat, smoothLon] = destinationLatLon(
-          rawLat,
-          rawLon,
+          anchorLat,
+          anchorLon,
           courseDeg,
           speedMps * predictSec,
         );
