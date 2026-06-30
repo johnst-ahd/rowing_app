@@ -585,6 +585,10 @@ export function mountApp(root: HTMLElement): void {
     speedAvg.clear();
     strokeRateAvg.clear();
 
+    if (!opts?.resume) {
+      await clearPendingOutbox();
+    }
+
     controller = await startRecorder(
       s,
       () => updateLiveHud(),

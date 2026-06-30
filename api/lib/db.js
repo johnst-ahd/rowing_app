@@ -487,6 +487,23 @@ async function fetchRecentSamplesByDevice(windowMs) {
 }
 
 /**
+ * Server ingest time per device (updated on each persistBatch).
+ * @returns {Promise<Map<string, number>>}
+ */
+async function getDeviceIngestTimes() {
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT unique_id, last_seen_at FROM rnz_devices
+  `;
+  const byDevice = new Map();
+  for (const row of rows.rows) {
+    byDevice.set(String(row.unique_id), new Date(row.last_seen_at).getTime());
+  }
+  return byDevice;
+}
+
+/**
  * Latest GPS fix per device from registry (one row read — works across serverless instances).
  */
 async function getRegistryMapPositions(onlineMs, staleMs) {
@@ -1184,6 +1201,7 @@ module.exports = {
   initSchema,
   persistBatch,
   fetchRecentSamplesByDevice,
+  getDeviceIngestTimes,
   getMapPositions,
   getRegistryMapPositions,
   getRegistryGpsByDevice,

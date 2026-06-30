@@ -173,12 +173,21 @@ export async function startRecorder(
         ? Math.min(
             MAX_BATCH_SAMPLES,
             Math.ceil(
-              Math.max(settings.uploadBatchMs, 8000) / motionUploadMs,
+              Math.max(
+                settings.uploadBatchMs,
+                settings.liveMapMode && settings.enableGps
+                  ? LIVE_MAP_PUSH_MS
+                  : MOTION_BATCH_MIN_MS,
+              ) / motionUploadMs,
             ) + 4,
           )
         : MAX_BATCH_SAMPLES;
+  const motionBatchMinMs =
+    settings.liveMapMode && settings.enableGps
+      ? LIVE_MAP_PUSH_MS
+      : MOTION_BATCH_MIN_MS;
   const batchIntervalMs = settings.enableMotion
-    ? Math.max(settings.uploadBatchMs, MOTION_BATCH_MIN_MS)
+    ? Math.max(settings.uploadBatchMs, motionBatchMinMs)
     : settings.uploadBatchMs;
 
   const liveMapPushEnabled = () =>

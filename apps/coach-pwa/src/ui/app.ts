@@ -85,7 +85,7 @@ export function mountApp(root: HTMLElement): void {
         byId.set(p.deviceId, {
           deviceId: p.deviceId,
           online: true,
-          lastSeenAgoSec: p.fixAgeSec,
+          lastSeenAgoSec: p.lastSeenAgoSec ?? p.fixAgeSec,
           gpsAgeSec: p.fixAgeSec,
           rowing: { capsize: p.capsize, strokeRate: p.strokeRate ?? null },
         });

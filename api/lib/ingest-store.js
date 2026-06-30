@@ -735,9 +735,10 @@ async function getSession(sessionId) {
   return { sessionId, ...row };
 }
 
-function buildDeviceEntry(entry, windowMs, onlineMs, now) {
+function buildDeviceEntry(entry, windowMs, onlineMs, now, lastIngestMs) {
   const stats = sensorStats(entry.samples, windowMs, entry.deviceId);
-  const lastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
+  const sampleLastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
+  const lastSeenMs = Math.max(sampleLastSeenMs, lastIngestMs ?? 0);
   const online = now - lastSeenMs <= onlineMs;
   const hbMem = lastHeartbeatByDevice.get(entry.deviceId);
   const batFromSamples = latestBatteryFromSamples(entry.samples || []);
@@ -828,10 +829,19 @@ async function listDevices(opts = {}) {
   if (hasPostgres) {
     try {
       const fetchMs = Math.max(windowMs, 30 * 60 * 1000);
-      const fromDb = await db.fetchRecentSamplesByDevice(fetchMs);
-      const registryGps = await db.getRegistryGpsByDevice();
+      const [fromDb, registryGps, ingestTimes] = await Promise.all([
+        db.fetchRecentSamplesByDevice(fetchMs),
+        db.getRegistryGpsByDevice(),
+        db.getDeviceIngestTimes(),
+      ]);
       for (const entry of fromDb.values()) {
-        const built = buildDeviceEntry(entry, windowMs, onlineMs, now);
+        const built = buildDeviceEntry(
+          entry,
+          windowMs,
+          onlineMs,
+          now,
+          ingestTimes.get(entry.deviceId),
+        );
         const prev = byDevice.get(entry.deviceId);
         const patched = applyRegistryGpsToDevice(
           built,
@@ -866,6 +876,7 @@ async function listDevices(opts = {}) {
             windowMs,
             onlineMs,
             now,
+            ingestTimes.get(deviceId),
           ),
           regFix,
           now,
