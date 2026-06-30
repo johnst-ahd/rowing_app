@@ -2,6 +2,7 @@ import { authHeaders, type CoachSettings } from './settings';
 
 export type FleetDevice = {
   deviceId: string;
+  athleteId?: string | null;
   online?: boolean;
   lastSeenAgoSec?: number;
   gps?: { ageSec?: number | null; present?: boolean; displayAgeSec?: number | null; ingestAgoSec?: number | null };

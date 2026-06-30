@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">CrewSight Manager</string>
-    <string name="title_activity_main">CrewSight Manager</string>
+    <string name="app_name">CS Manager</string>
+    <string name="title_activity_main">CS Manager</string>
     <string name="package_name">nz.org.rowing.coach</string>
     <string name="custom_url_scheme">nz.org.rowing.coach</string>
 </resources>

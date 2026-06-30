@@ -2,6 +2,13 @@ import '../styles.css';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { HistoryPanel } from './history-panel';
+import { drawMultiSeriesChart } from '../lib/history-charts';
+import {
+  clearLiveSpeedBuffers,
+  liveSpeedVsDistanceSeries,
+  recordLiveSpeedSamples,
+} from '../lib/live-speed-buffer';
+import { colorForDevice } from '../lib/history-track';
 import {
   fetchDevices,
   fetchMapPositions,
@@ -30,6 +37,14 @@ import {
 } from '../lib/gps-age';
 
 type Tab = 'live' | 'history' | 'settings';
+
+type LiveDeviceRow = FleetDevice & {
+  speedMps: number | null;
+  displayName: string;
+  colorIndex: number;
+};
+
+const ONLINE_SEC = 120;
 
 /** Resolve static assets for web (/) and Capacitor (./). */
 function asset(path: string): string {
@@ -72,6 +87,7 @@ export function mountApp(root: HTMLElement): void {
       devices = mergeCoachDevicesWithMap(dev, pos);
       positions = pos;
       syncMapTracks(pos);
+      recordLiveSpeedSamples(pos);
       updateLivePanel();
       updateMap();
       setStatus(`Updated · ${devices.length} device(s)`, false);
@@ -105,7 +121,11 @@ export function mountApp(root: HTMLElement): void {
           online: true,
           lastSeenAgoSec: p.lastSeenAgoSec ?? p.fixAgeSec,
           gpsAgeSec: displayGpsAgeSec(p.fixAgeSec, p.lastSeenAgoSec) ?? p.fixAgeSec,
-          rowing: { capsize: p.capsize, strokeRate: p.strokeRate ?? null },
+          rowing: {
+            capsize: p.capsize,
+            strokeRate: p.strokeRate ?? null,
+            strokeRateValid: p.strokeRate != null,
+          },
         });
       }
     }
@@ -216,18 +236,88 @@ export function mountApp(root: HTMLElement): void {
     setTimeout(() => map?.invalidateSize(), 100);
   }
 
-  function deviceCardHtml(d: FleetDevice): string {
+  function deviceDisplayName(d: FleetDevice): string {
+    const name = String(d.athleteId ?? '').trim();
+    return name || d.deviceId;
+  }
+
+  function formatSpeedKmh(mps: number | null | undefined): string {
+    if (mps == null || !Number.isFinite(mps) || mps < 0) return '—';
+    return `${(mps * 3.6).toFixed(1)} km/h`;
+  }
+
+  function formatSpm(d: FleetDevice): string {
+    if (d.rowing?.strokeRateValid && d.rowing.strokeRate != null) {
+      return `${Math.round(d.rowing.strokeRate)} spm`;
+    }
+    return '— spm';
+  }
+
+  function activeLiveDevices(): LiveDeviceRow[] {
+    const posById = new Map(positions.map((p) => [p.deviceId, p]));
+    const rows: LiveDeviceRow[] = [];
+    let colorIdx = 0;
+    for (const d of devices) {
+      if (!d.online) continue;
+      const p = posById.get(d.deviceId);
+      if (!p) continue;
+      const ago = d.lastSeenAgoSec ?? p.lastSeenAgoSec ?? p.fixAgeSec ?? 999;
+      if (ago > ONLINE_SEC) continue;
+      rows.push({
+        ...d,
+        speedMps: p.speed ?? null,
+        displayName: deviceDisplayName(d),
+        colorIndex: colorIdx++,
+      });
+    }
+    rows.sort((a, b) => (b.speedMps ?? -1) - (a.speedMps ?? -1));
+    return rows;
+  }
+
+  function deviceCardHtml(d: LiveDeviceRow, expanded: boolean): string {
     const cap = Boolean(d.rowing?.capsize);
-    const spm =
-      d.rowing?.strokeRateValid && d.rowing.strokeRate != null
-        ? `${Math.round(d.rowing.strokeRate)} spm`
-        : '—';
     const gpsAge = d.gpsAgeSec ?? resolveGpsDisplayAge(d);
     const gpsLabel = gpsAge == null ? 'GPS —' : gpsStatusLabel(gpsAge);
-    return `<li class="device-card ${cap ? 'capsize' : ''}">
-      <div class="device-card__id">${esc(d.deviceId)} ${cap ? '· CAPSIZE' : ''}</div>
-      <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
+    const accent = colorForDevice(d.colorIndex);
+    return `<li>
+      <details class="device-card ${cap ? 'capsize' : ''}" data-device-id="${esc(d.deviceId)}" ${expanded ? 'open' : ''}>
+        <summary class="device-card__summary">
+          <span class="device-card__lead">
+            <span class="device-card__dot" style="background:${accent}"></span>
+            <span class="device-card__name">${esc(d.displayName)}</span>
+            ${d.displayName !== d.deviceId ? `<span class="device-card__id-tag">${esc(d.deviceId)}</span>` : ''}
+            ${cap ? '<span class="device-card__alert">CAPSIZE</span>' : ''}
+          </span>
+          <span class="device-card__head-stats">
+            <span>${formatSpeedKmh(d.speedMps)}</span>
+            <span>${formatSpm(d)}</span>
+          </span>
+        </summary>
+        <div class="device-card__body">
+          <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
+        </div>
+      </details>
     </li>`;
+  }
+
+  function expandedDeviceIds(): Set<string> {
+    return new Set(
+      [...root.querySelectorAll<HTMLDetailsElement>('details.device-card[open]')].map(
+        (el) => el.dataset.deviceId ?? '',
+      ).filter(Boolean),
+    );
+  }
+
+  function updateLiveChart(activeIds: string[]): void {
+    const canvas = root.querySelector('[data-live-speed-chart]') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    const series = liveSpeedVsDistanceSeries(activeIds);
+    drawMultiSeriesChart(canvas, series, {
+      title: 'Speed vs distance (last 5 min)',
+      xLabel: 'metres',
+      yLabel: 'km/h',
+      yFormat: (v) => `${v.toFixed(0)}`,
+    });
   }
 
   function updateLivePanel() {
@@ -238,8 +328,17 @@ export function mountApp(root: HTMLElement): void {
       banner.hidden = caps === 0;
       if (caps > 0) banner.textContent = `${caps} CAPSIZE — check crew now`;
     }
+    const active = activeLiveDevices();
+    const expanded = expandedDeviceIds();
     const list = root.querySelector('[data-device-list]');
-    if (list) list.innerHTML = devices.map(deviceCardHtml).join('');
+    if (list) {
+      list.innerHTML = active.length
+        ? active.map((d) => deviceCardHtml(d, expanded.has(d.deviceId))).join('')
+        : '<li class="device-list__empty">No active devices on the water</li>';
+    }
+    const countEl = root.querySelector('[data-active-count]');
+    if (countEl) countEl.textContent = String(active.length);
+    updateLiveChart(active.map((d) => d.deviceId));
   }
 
   async function onStartMonitoring() {
@@ -270,6 +369,7 @@ export function mountApp(root: HTMLElement): void {
     stopPollTimer();
     stopMapTick();
     clearMapTracks();
+    clearLiveSpeedBuffers();
     render();
   }
 
@@ -331,7 +431,11 @@ export function mountApp(root: HTMLElement): void {
         <section class="coach-panel" data-panel="live" ${tab === 'live' ? '' : 'hidden'}>
           <p class="poll-line" data-poll-status>—</p>
           <div id="coachMap" class="coach-map"></div>
-          <ul class="device-list" data-device-list>${devices.map(deviceCardHtml).join('')}</ul>
+          <div class="live-devices-section">
+            <h2 class="live-devices__title">Active devices <span class="live-devices__count" data-active-count>0</span></h2>
+            <ul class="device-list" data-device-list></ul>
+          </div>
+          <canvas class="live-speed-chart history-chart" data-live-speed-chart height="200"></canvas>
         </section>
         <section class="coach-panel coach-panel--history" data-panel="history" ${tab === 'history' ? '' : 'hidden'}>
           <div data-history-root></div>
@@ -390,6 +494,7 @@ export function mountApp(root: HTMLElement): void {
     if (tab === 'live') {
       ensureMap();
       updateMap();
+      updateLivePanel();
     }
   }
 
