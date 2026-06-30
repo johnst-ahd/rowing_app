@@ -13,7 +13,7 @@ import {
   startNativeMonitoring,
   stopNativeMonitoring,
 } from '../lib/native-monitor';
-import { loadSettings, saveSettings, type CoachSettings } from '../lib/settings';
+import { loadSettings, saveSettings, DEFAULT_API_BASE_URL, type CoachSettings } from '../lib/settings';
 
 type Tab = 'live' | 'history' | 'settings';
 
@@ -387,7 +387,7 @@ export function mountApp(root: HTMLElement): void {
         </section>
         <section class="coach-panel" data-panel="settings" ${tab === 'settings' ? '' : 'hidden'}>
           <label class="coach-field">API base URL
-            <input type="url" id="apiBase" value="${esc(settings.apiBaseUrl)}" placeholder="https://your-app.vercel.app" />
+            <input type="url" id="apiBase" value="${esc(settings.apiBaseUrl)}" placeholder="${esc(DEFAULT_API_BASE_URL)}" />
           </label>
           <label class="coach-field">Ingest token (Bearer)
             <input type="password" id="ingestToken" value="${esc(settings.ingestToken)}" autocomplete="off" />

@@ -1,14 +1,35 @@
 export const LS_API_BASE = 'coach_api_base';
 export const LS_TOKEN = 'coach_ingest_token';
 
+/** Production fleet API (same deployment as rower ingest). */
+export const DEFAULT_API_BASE_URL =
+  'https://rowing-app-recorder-pwa.vercel.app';
+
+const IS_NATIVE = import.meta.env.VITE_PLATFORM === 'native';
+
 export type CoachSettings = {
   apiBaseUrl: string;
   ingestToken: string;
 };
 
+function defaultApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin && !IS_NATIVE) {
+    try {
+      const host = new URL(window.location.origin).hostname;
+      if (host === 'localhost' || host === '127.0.0.1') {
+        return window.location.origin;
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return DEFAULT_API_BASE_URL;
+}
+
 export function loadSettings(): CoachSettings {
+  const stored = localStorage.getItem(LS_API_BASE)?.trim() ?? '';
   return {
-    apiBaseUrl: localStorage.getItem(LS_API_BASE)?.trim() ?? '',
+    apiBaseUrl: stored || defaultApiBaseUrl(),
     ingestToken: localStorage.getItem(LS_TOKEN)?.trim() ?? '',
   };
 }
