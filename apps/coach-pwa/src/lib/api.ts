@@ -22,28 +22,41 @@ export type MapPosition = {
   strokeRate?: number | null;
   capsize?: boolean;
   fixAgeSec?: number;
+  lastSeenAgoSec?: number;
 };
 
+function apiBase(settings: CoachSettings): string {
+  return String(settings.apiBaseUrl ?? '').replace(/\/$/, '');
+}
+
 export async function fetchDevices(settings: CoachSettings): Promise<FleetDevice[]> {
-  const url = `${settings.apiBaseUrl.replace(/\/$/, '')}/api/devices?windowSec=60&onlineSec=120`;
+  const url = `${apiBase(settings)}/api/devices?windowSec=60&onlineSec=120`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) {
     throw new Error(`Devices ${res.status}`);
   }
   const data = (await res.json()) as { devices?: FleetDevice[] };
-  return data.devices ?? [];
+  return (data.devices ?? []).map((d) => ({
+    ...d,
+    deviceId: String(d.deviceId ?? ''),
+  }));
 }
 
 export async function fetchMapPositions(settings: CoachSettings): Promise<MapPosition[]> {
-  const url = `${settings.apiBaseUrl.replace(/\/$/, '')}/api/positions?onlineSec=120`;
+  const url = `${apiBase(settings)}/api/map-positions?onlineSec=120&staleSec=3600`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) {
-    throw new Error(`Positions ${res.status}`);
+    throw new Error(`Map ${res.status}`);
   }
   const data = (await res.json()) as { positions?: MapPosition[] };
-  return (data.positions ?? []).filter(
-    (p) => Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
-  );
+  return (data.positions ?? [])
+    .map((p) => ({
+      ...p,
+      deviceId: String(p.deviceId ?? ''),
+    }))
+    .filter(
+      (p) => p.deviceId && Number.isFinite(p.latitude) && Number.isFinite(p.longitude),
+    );
 }
 
 export type SessionSummary = {
@@ -58,8 +71,7 @@ export async function listSessions(
   settings: CoachSettings,
   deviceId: string,
 ): Promise<SessionSummary[]> {
-  const base = settings.apiBaseUrl.replace(/\/$/, '');
-  const url = `${base}/api/history?list=sessions&uniqueId=${encodeURIComponent(deviceId)}`;
+  const url = `${apiBase(settings)}/api/history?list=sessions&uniqueId=${encodeURIComponent(deviceId)}`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) throw new Error(`Sessions ${res.status}`);
   const data = (await res.json()) as { sessions?: SessionSummary[] };
@@ -79,8 +91,7 @@ export async function loadSessionTrack(
   settings: CoachSettings,
   sessionId: string,
 ): Promise<HistoryPoint[]> {
-  const base = settings.apiBaseUrl.replace(/\/$/, '');
-  const url = `${base}/api/history?format=dashboard&sessionId=${encodeURIComponent(sessionId)}`;
+  const url = `${apiBase(settings)}/api/history?format=dashboard&sessionId=${encodeURIComponent(sessionId)}`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) throw new Error(`History ${res.status}`);
   const data = (await res.json()) as { track?: HistoryPoint[] };

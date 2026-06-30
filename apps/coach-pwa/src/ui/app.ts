@@ -427,7 +427,7 @@ export function mountApp(root: HTMLElement): void {
         sel.innerHTML = sessions
           .map(
             (s) =>
-              `<option value="${esc(s.session_id)}">${esc(s.started_at)} (${s.session_id.slice(0, 8)}…)</option>`,
+              `<option value="${esc(s.session_id)}">${esc(s.started_at)} (${esc(String(s.session_id).slice(0, 8))}…)</option>`,
           )
           .join('');
       })().catch((e) => setStatus(String(e), true));
@@ -459,8 +459,8 @@ export function mountApp(root: HTMLElement): void {
   });
 }
 
-function esc(s: string): string {
-  return s
+function esc(s: unknown): string {
+  return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/"/g, '&quot;');
