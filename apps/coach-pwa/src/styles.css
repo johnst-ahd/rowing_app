@@ -91,6 +91,20 @@
   border-radius: 10px;
   margin-bottom: 0.75rem;
   border: 1px solid var(--ahd-border);
+  z-index: 0;
+}
+
+.coach-map.leaflet-container {
+  background: #1e293b;
+  font-family: inherit;
+}
+
+.history-map.leaflet-container {
+  background: #1e293b;
+}
+
+.capsize-banner[hidden] {
+  display: none !important;
 }
 
 .device-list {

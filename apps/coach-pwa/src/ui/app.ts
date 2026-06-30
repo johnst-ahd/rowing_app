@@ -1,4 +1,6 @@
 import '../styles.css';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   fetchDevices,
   fetchMapPositions,
@@ -16,8 +18,6 @@ import {
 import { loadSettings, saveSettings, DEFAULT_API_BASE_URL, type CoachSettings } from '../lib/settings';
 
 type Tab = 'live' | 'history' | 'settings';
-
-declare const L: typeof import('leaflet');
 
 /** Resolve static assets for web (/) and Capacitor (./). */
 function asset(path: string): string {
@@ -40,6 +40,7 @@ export function mountApp(root: HTMLElement): void {
   let historyMap: L.Map | null = null;
   let historyLine: L.Polyline | null = null;
   let sessions: { session_id: string; started_at: string }[] = [];
+  let mapAutoFitDone = false;
 
   const capsizeCount = () =>
     devices.filter((d) => d.rowing?.capsize || positions.some((p) => p.deviceId === d.deviceId && p.capsize)).length;
@@ -59,7 +60,7 @@ export function mountApp(root: HTMLElement): void {
       ]);
       devices = mergeCoachDevicesWithMap(dev, pos);
       positions = pos;
-      render();
+      updateLivePanel();
       updateMap();
       setStatus(`Updated · ${devices.length} device(s)`, false);
     } catch (e) {
@@ -113,29 +114,39 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function ensureMap() {
-    if (typeof L === 'undefined') return;
     const el = root.querySelector('#coachMap') as HTMLElement | null;
     if (!el) return;
     if (map && map.getContainer() !== el) {
       destroyMap();
+      mapAutoFitDone = false;
     }
     if (map) return;
-    map = L.map(el).setView([-37.93, 175.55], 12);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap',
-    }).addTo(map);
-    markersLayer = L.layerGroup().addTo(map);
+    try {
+      map = L.map(el, { preferCanvas: true }).setView([-37.93, 175.55], 12);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap',
+      }).addTo(map);
+      markersLayer = L.layerGroup().addTo(map);
+      setTimeout(() => map?.invalidateSize(), 150);
+    } catch (e) {
+      setStatus(
+        `Map failed to load: ${e instanceof Error ? e.message : String(e)}`,
+        true,
+      );
+    }
   }
 
   function updateMap() {
     ensureMap();
     if (!map || !markersLayer) return;
     const seen = new Set<string>();
+    const latlngs: L.LatLng[] = [];
     for (const p of positions) {
       if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
       seen.add(p.deviceId);
       const latlng = L.latLng(p.latitude, p.longitude);
+      latlngs.push(latlng);
       const fixAge = p.fixAgeSec;
       const cap = Boolean(p.capsize);
       const amber = !cap && fixAge != null && fixAge > 30 && fixAge <= 300;
@@ -162,7 +173,44 @@ export function mountApp(root: HTMLElement): void {
         markers.delete(id);
       }
     }
+    if (latlngs.length > 0 && !mapAutoFitDone) {
+      map.fitBounds(L.latLngBounds(latlngs), { padding: [32, 32], maxZoom: 15 });
+      mapAutoFitDone = true;
+    }
     setTimeout(() => map?.invalidateSize(), 100);
+  }
+
+  function deviceCardHtml(d: FleetDevice): string {
+    const cap = Boolean(d.rowing?.capsize);
+    const spm =
+      d.rowing?.strokeRateValid && d.rowing.strokeRate != null
+        ? `${Math.round(d.rowing.strokeRate)} spm`
+        : '—';
+    const gpsAge = d.gpsAgeSec;
+    const gpsLabel =
+      gpsAge == null
+        ? 'GPS —'
+        : gpsAge <= 30
+          ? 'GPS live'
+          : gpsAge <= 300
+            ? `GPS ${gpsAge}s ago`
+            : 'GPS stale';
+    return `<li class="device-card ${cap ? 'capsize' : ''}">
+      <div class="device-card__id">${esc(d.deviceId)} ${cap ? '· CAPSIZE' : ''}</div>
+      <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
+    </li>`;
+  }
+
+  function updateLivePanel() {
+    if (tab !== 'live') return;
+    const caps = capsizeCount();
+    const banner = root.querySelector('[data-capsize-banner]') as HTMLElement | null;
+    if (banner) {
+      banner.hidden = caps === 0;
+      if (caps > 0) banner.textContent = `${caps} CAPSIZE — check crew now`;
+    }
+    const list = root.querySelector('[data-device-list]');
+    if (list) list.innerHTML = devices.map(deviceCardHtml).join('');
   }
 
   function drawLineChart(
@@ -318,6 +366,8 @@ export function mountApp(root: HTMLElement): void {
   }
 
   function render() {
+    if (tab === 'live') destroyMap();
+    mapAutoFitDone = false;
     const caps = capsizeCount();
     root.innerHTML = `
       <div class="coach-app">
@@ -329,7 +379,7 @@ export function mountApp(root: HTMLElement): void {
             <p class="hub-tagline">Fleet monitor${IS_NATIVE ? ' · Native app' : ''} — background capsize alerts when monitoring</p>
           </div>
         </header>
-        ${caps > 0 ? `<div class="capsize-banner" role="alert">${caps} CAPSIZE — check crew now</div>` : ''}
+        <div class="capsize-banner" data-capsize-banner role="alert" ${caps > 0 ? '' : 'hidden'}>${caps > 0 ? `${caps} CAPSIZE — check crew now` : ''}</div>
         <div class="coach-monitor-bar ${monitoring ? 'monitoring' : ''}">
           <div class="status-line ${monitoring ? 'on' : ''}">
             ${monitoring
@@ -350,28 +400,7 @@ export function mountApp(root: HTMLElement): void {
         <section class="coach-panel" data-panel="live" ${tab === 'live' ? '' : 'hidden'}>
           <p class="poll-line" data-poll-status>—</p>
           <div id="coachMap" class="coach-map"></div>
-          <ul class="device-list">${devices
-            .map((d) => {
-              const cap = Boolean(d.rowing?.capsize);
-              const spm =
-                d.rowing?.strokeRateValid && d.rowing.strokeRate != null
-                  ? `${Math.round(d.rowing.strokeRate)} spm`
-                  : '—';
-              const gpsAge = d.gpsAgeSec;
-              const gpsLabel =
-                gpsAge == null
-                  ? 'GPS —'
-                  : gpsAge <= 30
-                    ? 'GPS live'
-                    : gpsAge <= 300
-                      ? `GPS ${gpsAge}s ago`
-                      : 'GPS stale';
-              return `<li class="device-card ${cap ? 'capsize' : ''}">
-                <div class="device-card__id">${esc(d.deviceId)} ${cap ? '· CAPSIZE' : ''}</div>
-                <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
-              </li>`;
-            })
-            .join('')}</ul>
+          <ul class="device-list" data-device-list>${devices.map(deviceCardHtml).join('')}</ul>
         </section>
         <section class="coach-panel" data-panel="history" ${tab === 'history' ? '' : 'hidden'}>
           <label class="coach-field">Device
@@ -402,7 +431,9 @@ export function mountApp(root: HTMLElement): void {
     root.querySelector('[data-stop-monitor]')?.addEventListener('click', () => void onStopMonitoring());
     root.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
-        tab = (btn as HTMLElement).dataset.tab as Tab;
+        const next = (btn as HTMLElement).dataset.tab as Tab;
+        if (tab === 'live' && next !== 'live') destroyMap();
+        tab = next;
         render();
         if (tab === 'live') {
           ensureMap();
