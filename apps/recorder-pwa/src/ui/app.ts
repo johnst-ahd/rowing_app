@@ -395,7 +395,7 @@ export function mountApp(root: HTMLElement): void {
     const np = stats?.nativePulse;
     let gpsDiag = '';
     if (recording && np?.serviceRunning && np.enableGps) {
-      const up = np.lastGpsUploadAgoMs ?? -1;
+      const up = np.lastGpsSampleOfferedAgoMs ?? np.lastGpsUploadAgoMs ?? -1;
       const fused = np.lastFusedDeliveryAgoMs ?? -1;
       const interval = np.gpsIntervalMs ?? 1000;
       const uploadStale = up >= interval * 3;

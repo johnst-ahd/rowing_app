@@ -33,6 +33,8 @@ export type NativeRecordingPulse = {
   gpsIntervalMs?: number;
   /** Ms since last timer/callback GPS upload enqueue. */
   lastGpsUploadAgoMs?: number | null;
+  /** Ms since a GPS sample was last added to the ingest buffer. */
+  lastGpsSampleOfferedAgoMs?: number | null;
   /** Ms since last fused/legacy location callback. */
   lastFusedDeliveryAgoMs?: number | null;
   /** Ms since last good fix was cached in memory/prefs. */

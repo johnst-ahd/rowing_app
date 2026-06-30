@@ -108,6 +108,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
     private static final String HEARTBEAT_GPS_COUNT_KEY = "heartbeatGpsCount";
     private static final String PULSE_LAST_GPS_UPLOAD_WALL_MS = "pulseLastGpsUploadWallMs";
+    private static final String PULSE_LAST_GPS_OFFERED_WALL_MS = "pulseLastGpsOfferedWallMs";
     private static final String PULSE_LAST_FUSED_DELIVERY_WALL_MS = "pulseLastFusedDeliveryWallMs";
     private static final String PULSE_LATEST_GPS_CACHED_WALL_MS = "pulseLatestGpsCachedWallMs";
     private static final String PULSE_INGEST_BUFFER_COUNT = "pulseIngestBufferCount";
@@ -150,8 +151,12 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private long lastCapsizeUploadMs;
     private long lastBatteryReportMs;
     private long lastGpsUploadWallMs;
+    /** When a GPS sample was last added to the ingest buffer (not timer intent). */
+    private long lastGpsSampleOfferedMs;
     private long lastUploadedFixTimeMs;
     private long lastUploadedGpsBucket = -1L;
+    /** Rate-limit stale-GPS fallback when timer stalls but ingest flush continues. */
+    private long lastStaleGpsPiggybackWallMs;
     private double lastUploadedLat = Double.NaN;
     private double lastUploadedLon = Double.NaN;
     private Location latestGpsLocation;
@@ -200,6 +205,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
                 uploadExecutor.execute(
                         () -> {
+                            maybeRefreshStaleGpsUpload();
                             maybeAutoFlushIngest(false);
                             mainHandler.post(CapsizeMonitorService.this::scheduleIngestFlush);
                         });
@@ -260,8 +266,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastSuccessfulUploadMs = 0L;
         lastBatteryReportMs = 0L;
         lastGpsUploadWallMs = 0L;
+        lastGpsSampleOfferedMs = 0L;
         lastUploadedFixTimeMs = 0L;
         lastUploadedGpsBucket = -1L;
+        lastStaleGpsPiggybackWallMs = 0L;
         gpsWindowBuffer.clear();
         lastWindowCollectWallMs = 0L;
         startForegroundWithTypes();
@@ -498,7 +506,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         long ingestT = System.currentTimeMillis();
         long bucket = ingestT / interval;
         if (bucket <= lastUploadedGpsBucket) {
-            if (System.currentTimeMillis() - lastGpsUploadWallMs < interval) return;
+            if (System.currentTimeMillis() - lastGpsSampleOfferedMs < interval) return;
             bucket = lastUploadedGpsBucket + 1;
         }
         Location uploadLoc = resolveUploadLocation();
@@ -514,8 +522,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
 
         lastUploadedGpsBucket = bucket;
-        lastGpsUploadWallMs = System.currentTimeMillis();
-        savePulseDiagnostics();
         lastUploadedFixTimeMs = ingestT;
         lastUploadedLat = uploadLoc.getLatitude();
         lastUploadedLon = uploadLoc.getLongitude();
@@ -906,6 +912,55 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         }
     }
 
+    /**
+     * Push cached GPS when the timer path stops enqueueing but HTTP ingest still succeeds
+     * (heartbeats suppressed). Uses lastGpsSampleOfferedMs — not timer intent alone.
+     */
+    private void maybeRefreshStaleGpsUpload() {
+        if (!enableGps) return;
+        long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
+        long now = System.currentTimeMillis();
+        long sinceOffered =
+                lastGpsSampleOfferedMs > 0L ? now - lastGpsSampleOfferedMs : Long.MAX_VALUE;
+        if (sinceOffered < interval * 2L) return;
+
+        long minGap = Math.max(effectiveUploadFlushMs(), interval);
+        if (lastStaleGpsPiggybackWallMs > 0L && now - lastStaleGpsPiggybackWallMs < minGap) {
+            return;
+        }
+
+        Location loc = resolveUploadLocation();
+        if (loc == null || !isGpsFixUsable(loc)) return;
+        Location uploadLoc = copyLocationForUpload(loc);
+        uploadLoc.setTime(now);
+        if (!canUploadGpsFix(uploadLoc, true)) return;
+
+        lastStaleGpsPiggybackWallMs = now;
+
+        SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+        int fallback = p.getInt(HEARTBEAT_GPS_COUNT_KEY, 0) + 1;
+        p.edit().putInt(HEARTBEAT_GPS_COUNT_KEY, fallback).apply();
+        Log.i(
+                TAG,
+                "Stale GPS fallback (#"
+                        + fallback
+                        + ") — last offered "
+                        + sinceOffered
+                        + "ms ago, ingest still active");
+
+        try {
+            enqueueGpsSample(uploadLoc, now, true);
+        } catch (Exception e) {
+            Log.e(TAG, "Stale GPS fallback enqueue failed", e);
+        }
+    }
+
+    private void markGpsSampleOffered(long t) {
+        lastGpsSampleOfferedMs = t;
+        lastGpsUploadWallMs = t;
+        savePulseDiagnostics();
+    }
+
     private void enqueueGpsSample(Location location, long t, boolean flushNow) {
         try {
             JSONObject sample = new JSONObject();
@@ -933,6 +988,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             if (appendFreshStrokeRate(derived)) hasDerived = true;
             if (hasDerived) sample.put("derived", derived);
             offerIngestSample(sample, flushNow);
+            markGpsSampleOffered(t);
         } catch (Exception e) {
             recordUploadResult(-1, 1, false);
             Log.e(TAG, "GPS sample enqueue failed", e);
@@ -961,6 +1017,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void enqueueHeartbeatSample(long t) {
         if (lastSuccessfulUploadMs > 0L
                 && t - lastSuccessfulUploadMs < HEARTBEAT_INTERVAL_MS - 1000L) {
+            maybeRefreshStaleGpsUpload();
             return;
         }
         try {
@@ -980,13 +1037,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             JSONObject sample = new JSONObject();
             sample.put("t", t);
             sample.put("derived", derived);
-            if (appendCachedGpsToSample(sample)) {
+            boolean piggyback = appendCachedGpsToSample(sample);
+            if (piggyback) {
                 SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
                 int hbGps = p.getInt(HEARTBEAT_GPS_COUNT_KEY, 0) + 1;
                 p.edit().putInt(HEARTBEAT_GPS_COUNT_KEY, hbGps).apply();
                 Log.d(TAG, "Heartbeat piggyback GPS (#" + hbGps + ")");
             }
             offerIngestSample(sample, false);
+            if (piggyback) markGpsSampleOffered(t);
         } catch (Exception e) {
             Log.e(TAG, "Heartbeat sample enqueue failed", e);
         }
@@ -1249,6 +1308,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putLong(PULSE_LAST_GPS_UPLOAD_WALL_MS, lastGpsUploadWallMs)
+                .putLong(PULSE_LAST_GPS_OFFERED_WALL_MS, lastGpsSampleOfferedMs)
                 .putLong(PULSE_LAST_FUSED_DELIVERY_WALL_MS, lastFusedDeliveryWallMs)
                 .putLong(PULSE_LATEST_GPS_CACHED_WALL_MS, latestGpsCachedWallMs)
                 .putInt(PULSE_INGEST_BUFFER_COUNT, ingestBuffer.length())
@@ -1292,6 +1352,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 inst != null
                         ? inst.lastGpsUploadWallMs
                         : p.getLong(PULSE_LAST_GPS_UPLOAD_WALL_MS, 0L);
+        long lastGpsSampleOfferedMs =
+                inst != null
+                        ? inst.lastGpsSampleOfferedMs
+                        : p.getLong(PULSE_LAST_GPS_OFFERED_WALL_MS, 0L);
         long lastFusedDeliveryWallMs =
                 inst != null
                         ? inst.lastFusedDeliveryWallMs
@@ -1309,6 +1373,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         ret.put(
                 "lastGpsUploadAgoMs",
                 lastGpsUploadWallMs > 0L ? now - lastGpsUploadWallMs : JSONObject.NULL);
+        ret.put(
+                "lastGpsSampleOfferedAgoMs",
+                lastGpsSampleOfferedMs > 0L ? now - lastGpsSampleOfferedMs : JSONObject.NULL);
         ret.put(
                 "lastFusedDeliveryAgoMs",
                 lastFusedDeliveryWallMs > 0L ? now - lastFusedDeliveryWallMs : JSONObject.NULL);
