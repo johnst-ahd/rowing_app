@@ -85,9 +85,11 @@ export class HistoryPanel {
     this.host.querySelector('[data-device-add]')?.addEventListener('blur', () => this.addDeviceFromInput());
 
     const tlMount = this.host.querySelector('[data-timeline-mount]') as HTMLElement;
-    this.timeline = new HistoryTimeline(tlMount, (sel) => {
-      this.selection = sel;
-      this.refreshViews();
+    this.timeline = new HistoryTimeline(tlMount, {
+      onChange: (sel) => {
+        this.selection = sel;
+        this.refreshViews();
+      },
     });
 
     void this.loadDeviceList();
