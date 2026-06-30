@@ -18,7 +18,6 @@ export function weightedAverageGpsFixes(fixes: GpsReading[]): GpsReading | null 
   let wSum = 0;
   let lat = 0;
   let lon = 0;
-  let t = fixes[0].t;
   let spdSum = 0;
   let spdW = 0;
   let altSum = 0;
@@ -33,7 +32,6 @@ export function weightedAverageGpsFixes(fixes: GpsReading[]): GpsReading | null 
     lat += f.lat * w;
     lon += f.lon * w;
     accSum += (f.acc ?? 25) * w;
-    if (f.t >= t) t = f.t;
     if (f.spd != null && f.spd >= 0) {
       spdSum += f.spd * w;
       spdW += w;
@@ -51,7 +49,7 @@ export function weightedAverageGpsFixes(fixes: GpsReading[]): GpsReading | null 
   if (wSum <= 0) return { ...fixes[fixes.length - 1] };
 
   return {
-    t,
+    t: Date.now(),
     lat: lat / wSum,
     lon: lon / wSum,
     acc: accSum / wSum,

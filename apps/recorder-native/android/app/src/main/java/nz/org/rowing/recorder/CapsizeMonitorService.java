@@ -101,8 +101,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long GPS_MAX_SCHEDULED_CACHE_AGE_MS = 30L * 60L * 1000L;
     /** Fused may deliver slightly aged fixes to refresh cache while stationary. */
     private static final long FUSED_MAX_UPDATE_AGE_MS = 5L * 60L * 1000L;
-    /** If Android fix clock lags more than this, timestamp sample at receive time. */
-    private static final long GPS_STALE_FIX_CLOCK_MS = 8_000L;
     /** Fused callbacks at least this often while uploads follow gpsIntervalMs. */
     private static final long FUSED_MIN_UPDATE_MS = 500L;
     /** Ignore duplicate coords within this window (repeat fused callbacks). */
@@ -410,7 +408,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (gpsWindowBuffer.size() >= GPS_WINDOW_MAX) {
             gpsWindowBuffer.remove(0);
         }
-        gpsWindowBuffer.add(new GpsWindowFix(location, ingestTimeMs(location)));
+        gpsWindowBuffer.add(new GpsWindowFix(location, System.currentTimeMillis()));
     }
 
     private static float fixWeight(float accM) {
@@ -493,7 +491,9 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         if (uploadLoc == null && latestGpsLocation != null) {
             uploadLoc = copyLocationForUpload(latestGpsLocation);
         }
-        if (uploadLoc == null || !canUploadGpsFix(uploadLoc, scheduledTick)) return;
+        if (uploadLoc == null) return;
+        uploadLoc.setTime(ingestT);
+        if (!canUploadGpsFix(uploadLoc, scheduledTick)) return;
         if (ingestT - lastUploadedFixTimeMs < GPS_COORD_DEDUPE_MS
                 && sameCoords(uploadLoc, lastUploadedLat, lastUploadedLon)) {
             gpsWindowBuffer.clear();
@@ -524,16 +524,15 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
     }
 
-    /** Ingest freshness — uses receive time when satellite fix clock stalls. */
+    /** Ingest freshness — wall clock on the averaged upload location. */
     private static boolean isGpsFixFreshForUpload(Location location) {
         if (location == null) return false;
-        long t = ingestTimeMs(location);
-        return System.currentTimeMillis() - t <= GPS_MAX_UPLOAD_FIX_AGE_MS;
+        return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
     }
 
     private static Location copyLocationForUpload(Location source) {
         Location out = new Location(source);
-        out.setTime(ingestTimeMs(source));
+        out.setTime(System.currentTimeMillis());
         return out;
     }
 
@@ -1555,17 +1554,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     }
 
     /**
-     * Ingest timestamp: prefer Android fix time when fresh; otherwise receive time so
-     * dashboard age does not climb when fix clock stalls but coords still update.
+     * Sample ingest timestamp — always wall clock so dashboard fix age matches upload time,
+     * not Android satellite fix time (which can lag minutes behind).
      */
     private static long ingestTimeMs(Location location) {
-        long now = System.currentTimeMillis();
-        if (location == null) return now;
-        long fixTime = location.getTime();
-        if (fixTime <= 0L || fixTime > now + 5_000L) return now;
-        long fixAge = now - fixTime;
-        if (fixAge > GPS_STALE_FIX_CLOCK_MS) return now;
-        return fixTime;
+        return System.currentTimeMillis();
     }
 
     private void registerLocation() {
