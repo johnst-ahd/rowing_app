@@ -72,6 +72,22 @@ export type SessionSummary = {
   sample_count?: number;
 };
 
+export type HistoryDevice = {
+  uniqueId?: string;
+  unique_id?: string;
+  deviceId?: string;
+  name?: string;
+  sampleCount?: number;
+};
+
+export async function listHistoryDevices(settings: CoachSettings): Promise<HistoryDevice[]> {
+  const url = `${apiBase(settings)}/api/history?list=devices`;
+  const res = await fetch(url, { headers: authHeaders(settings) });
+  if (!res.ok) throw new Error(`Devices ${res.status}`);
+  const data = (await res.json()) as { devices?: HistoryDevice[] };
+  return data.devices ?? [];
+}
+
 export async function listSessions(
   settings: CoachSettings,
   deviceId: string,
@@ -92,13 +108,44 @@ export type HistoryPoint = {
   capsize?: boolean;
 };
 
+export type DashboardHistoryPayload = {
+  track?: HistoryPoint[];
+  from?: string;
+  to?: string;
+  uniqueId?: string;
+};
+
+export async function loadDeviceHistoryRange(
+  settings: CoachSettings,
+  deviceId: string,
+  fromIso: string,
+  toIso: string,
+): Promise<DashboardHistoryPayload> {
+  const url =
+    `${apiBase(settings)}/api/history?format=dashboard` +
+    `&uniqueId=${encodeURIComponent(deviceId)}` +
+    `&from=${encodeURIComponent(fromIso)}` +
+    `&to=${encodeURIComponent(toIso)}`;
+  const res = await fetch(url, { headers: authHeaders(settings) });
+  if (!res.ok) throw new Error(`History ${deviceId} ${res.status}`);
+  const data = (await res.json()) as DashboardHistoryPayload;
+  return data;
+}
+
 export async function loadSessionTrack(
   settings: CoachSettings,
   sessionId: string,
 ): Promise<HistoryPoint[]> {
+  const payload = await loadSessionDashboard(settings, sessionId);
+  return payload.track ?? [];
+}
+
+export async function loadSessionDashboard(
+  settings: CoachSettings,
+  sessionId: string,
+): Promise<DashboardHistoryPayload> {
   const url = `${apiBase(settings)}/api/history?format=dashboard&sessionId=${encodeURIComponent(sessionId)}`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) throw new Error(`History ${res.status}`);
-  const data = (await res.json()) as { track?: HistoryPoint[] };
-  return data.track ?? [];
+  return (await res.json()) as DashboardHistoryPayload;
 }

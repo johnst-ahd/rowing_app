@@ -1,11 +1,10 @@
 import '../styles.css';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
+import { HistoryPanel } from './history-panel';
 import {
   fetchDevices,
   fetchMapPositions,
-  listSessions,
-  loadSessionTrack,
   type FleetDevice,
   type MapPosition,
 } from '../lib/api';
@@ -50,11 +49,9 @@ export function mountApp(root: HTMLElement): void {
   let markersLayer: L.LayerGroup | null = null;
   /** @type {Map<string, L.Marker>} */
   const markers = new Map<string, L.Marker>();
-  let historyMap: L.Map | null = null;
-  let historyLine: L.Polyline | null = null;
-  let sessions: { session_id: string; started_at: string }[] = [];
   let mapAutoFitDone = false;
   let mapTickUnsub: (() => void) | null = null;
+  let historyPanel: HistoryPanel | null = null;
 
   const capsizeCount = () =>
     devices.filter((d) => d.rowing?.capsize || positions.some((p) => p.deviceId === d.deviceId && p.capsize)).length;
@@ -245,120 +242,6 @@ export function mountApp(root: HTMLElement): void {
     if (list) list.innerHTML = devices.map(deviceCardHtml).join('');
   }
 
-  function drawLineChart(
-    canvas: HTMLCanvasElement,
-    points: { x: number; y: number }[],
-    opts: { title: string; xLabel: string; yLabel: string; color: string },
-  ) {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const w = canvas.width;
-    const h = canvas.height;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, w, h);
-    ctx.fillStyle = '#f1f5f9';
-    ctx.font = '12px system-ui';
-    ctx.fillText(opts.title, 8, 16);
-    if (points.length < 2) {
-      ctx.fillStyle = '#94a3b8';
-      ctx.fillText('No data', 8, 36);
-      return;
-    }
-    const pad = 28;
-    const xs = points.map((p) => p.x);
-    const ys = points.map((p) => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
-    const sx = (x: number) =>
-      pad + ((x - minX) / Math.max(maxX - minX, 1e-6)) * (w - pad * 2);
-    const sy = (y: number) =>
-      h - pad - ((y - minY) / Math.max(maxY - minY, 1e-6)) * (h - pad * 2);
-    ctx.strokeStyle = opts.color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    points.forEach((p, i) => {
-      const px = sx(p.x);
-      const py = sy(p.y);
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    });
-    ctx.stroke();
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillText(opts.xLabel, w - 60, h - 6);
-    ctx.save();
-    ctx.translate(10, h / 2);
-    ctx.rotate(-Math.PI / 2);
-    ctx.fillText(opts.yLabel, 0, 0);
-    ctx.restore();
-  }
-
-  function trackToDistanceSpeed(track: Awaited<ReturnType<typeof loadSessionTrack>>) {
-    const withGps = track.filter((p) => p.lat != null && p.lon != null && p.speed != null);
-    let dist = 0;
-    const points: { x: number; y: number; t: number }[] = [];
-    for (let i = 0; i < withGps.length; i++) {
-      const p = withGps[i];
-      if (i > 0) {
-        const prev = withGps[i - 1];
-        const dt = (p.t - prev.t) / 1000;
-        if (dt > 0 && dt < 120 && p.speed != null) {
-          dist += p.speed * dt;
-        }
-      }
-      points.push({ x: dist, y: p.speed ?? 0, t: p.t });
-    }
-    return points;
-  }
-
-  async function loadHistorySession(sessionId: string) {
-    const track = await loadSessionTrack(settings, sessionId);
-    const distSpeed = trackToDistanceSpeed(track);
-    const timeSpeed = track
-      .filter((p) => p.speed != null)
-      .map((p) => ({ x: (p.t - track[0].t) / 1000, y: p.speed ?? 0 }));
-
-    const speedTime = root.querySelector('#chartSpeedTime') as HTMLCanvasElement | null;
-    const speedDist = root.querySelector('#chartSpeedDist') as HTMLCanvasElement | null;
-    if (speedTime) {
-      speedTime.width = speedTime.clientWidth * 2;
-      speedTime.height = 320;
-      drawLineChart(
-        speedTime,
-        timeSpeed.map((p) => ({ x: p.x, y: p.y })),
-        { title: 'Speed vs time', xLabel: 's', yLabel: 'm/s', color: '#38bdf8' },
-      );
-    }
-    if (speedDist) {
-      speedDist.width = speedDist.clientWidth * 2;
-      speedDist.height = 320;
-      drawLineChart(
-        speedDist,
-        distSpeed.map((p) => ({ x: p.x, y: p.y })),
-        { title: 'Speed vs distance', xLabel: 'm', yLabel: 'm/s', color: '#a78bfa' },
-      );
-    }
-
-    const mapEl = root.querySelector('#historyMap') as HTMLElement | null;
-    if (mapEl && typeof L !== 'undefined') {
-      if (!historyMap) {
-        historyMap = L.map(mapEl);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(historyMap);
-      }
-      if (historyLine) historyMap.removeLayer(historyLine);
-      const latlngs = track
-        .filter((p) => p.lat != null && p.lon != null)
-        .map((p) => [p.lat!, p.lon!] as [number, number]);
-      if (latlngs.length >= 2) {
-        historyLine = L.polyline(latlngs, { color: '#38bdf8', weight: 4 }).addTo(historyMap);
-        historyMap.fitBounds(historyLine.getBounds(), { padding: [24, 24] });
-      }
-      setTimeout(() => historyMap?.invalidateSize(), 120);
-    }
-  }
-
   async function onStartMonitoring() {
     settings = loadSettings();
     if (!settings.apiBaseUrl) {
@@ -450,18 +333,8 @@ export function mountApp(root: HTMLElement): void {
           <div id="coachMap" class="coach-map"></div>
           <ul class="device-list" data-device-list>${devices.map(deviceCardHtml).join('')}</ul>
         </section>
-        <section class="coach-panel" data-panel="history" ${tab === 'history' ? '' : 'hidden'}>
-          <label class="coach-field">Device
-            <input type="text" id="historyDevice" placeholder="Device ID" />
-          </label>
-          <button type="button" class="coach-btn coach-btn--ghost" data-load-sessions>Load sessions</button>
-          <label class="coach-field">Session
-            <select id="historySession"><option value="">— load sessions first —</option></select>
-          </label>
-          <button type="button" class="coach-btn coach-btn--primary" data-load-track>Load trace & charts</button>
-          <div id="historyMap" class="history-map"></div>
-          <canvas id="chartSpeedTime" class="history-chart" height="160"></canvas>
-          <canvas id="chartSpeedDist" class="history-chart" height="160"></canvas>
+        <section class="coach-panel coach-panel--history" data-panel="history" ${tab === 'history' ? '' : 'hidden'}>
+          <div data-history-root></div>
         </section>
         <section class="coach-panel" data-panel="settings" ${tab === 'settings' ? '' : 'hidden'}>
           <label class="coach-field">API base URL
@@ -480,6 +353,10 @@ export function mountApp(root: HTMLElement): void {
     root.querySelectorAll('[data-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
         const next = (btn as HTMLElement).dataset.tab as Tab;
+        if (tab === 'history' && next !== 'history') {
+          historyPanel?.destroy();
+          historyPanel = null;
+        }
         if (tab === 'live' && next !== 'live') destroyMap();
         tab = next;
         render();
@@ -497,29 +374,18 @@ export function mountApp(root: HTMLElement): void {
       saveSettings(settings);
       setStatus('Settings saved');
     });
-    root.querySelector('[data-load-sessions]')?.addEventListener('click', () => {
-      void (async () => {
-        settings = loadSettings();
-        const deviceId = (root.querySelector('#historyDevice') as HTMLInputElement).value.trim();
-        if (!deviceId) return;
-        sessions = await listSessions(settings, deviceId);
-        const sel = root.querySelector('#historySession') as HTMLSelectElement;
-        sel.innerHTML = sessions
-          .map(
-            (s) =>
-              `<option value="${esc(s.session_id)}">${esc(s.started_at)} (${esc(String(s.session_id).slice(0, 8))}…)</option>`,
-          )
-          .join('');
-      })().catch((e) => setStatus(String(e), true));
-    });
-    root.querySelector('[data-load-track]')?.addEventListener('click', () => {
-      void (async () => {
-        settings = loadSettings();
-        const sessionId = (root.querySelector('#historySession') as HTMLSelectElement).value;
-        if (!sessionId) return;
-        await loadHistorySession(sessionId);
-      })().catch((e) => setStatus(String(e), true));
-    });
+
+    if (tab === 'history') {
+      const historyRoot = root.querySelector('[data-history-root]') as HTMLElement | null;
+      if (historyRoot) {
+        historyPanel = new HistoryPanel(
+          historyRoot,
+          () => loadSettings(),
+          (msg, err) => setStatus(msg, err),
+        );
+        historyPanel.mount();
+      }
+    }
 
     if (tab === 'live') {
       ensureMap();

@@ -203,6 +203,263 @@
   border: 1px solid var(--ahd-border);
 }
 
+.coach-panel--history {
+  max-width: 720px;
+}
+
+.history-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.history-devices-field {
+  border: 1px solid var(--ahd-border);
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  margin: 0 0 0.5rem;
+}
+
+.history-devices-field legend {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ahd-muted);
+  padding: 0 0.35rem;
+}
+
+.history-hint {
+  font-weight: 400;
+  opacity: 0.85;
+}
+
+.history-device-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-device-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid var(--ahd-border);
+  font-size: 13px;
+  color: var(--ahd-text);
+  cursor: pointer;
+}
+
+.history-device-add {
+  margin-bottom: 0.35rem;
+}
+
+.history-map-wrap {
+  margin-top: 0.5rem;
+}
+
+.history-map {
+  height: 38vh;
+  min-height: 200px;
+  border-radius: 10px;
+  border: 1px solid var(--ahd-border);
+}
+
+.history-charts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-top: 0.65rem;
+}
+
+.history-chart {
+  width: 100%;
+  min-height: 200px;
+  background: var(--ahd-bg-card);
+  border: 1px solid var(--ahd-border);
+  border-radius: 10px;
+}
+
+.history-stats {
+  margin-top: 0.75rem;
+}
+
+.history-stats__title {
+  margin: 0 0 0.5rem;
+  font-size: 14px;
+  color: var(--ahd-text);
+}
+
+.history-stats__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.5rem;
+}
+
+.history-stats__card {
+  background: var(--ahd-bg-card);
+  border: 1px solid var(--ahd-border);
+  border-left: 3px solid var(--device-color, var(--ahd-accent));
+  border-radius: 10px;
+  padding: 0.65rem 0.75rem;
+}
+
+.history-stats__device {
+  font-weight: 700;
+  color: var(--ahd-text);
+  margin-bottom: 0.35rem;
+}
+
+.history-stats__dl {
+  margin: 0;
+  display: grid;
+  gap: 0.25rem;
+  font-size: 12px;
+}
+
+.history-stats__dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.history-stats__dl dt {
+  color: var(--ahd-muted);
+}
+
+.history-stats__dl dd {
+  margin: 0;
+  color: var(--ahd-text);
+  font-weight: 600;
+}
+
+.history-timeline {
+  margin: 0.75rem 0;
+  padding: 0.75rem;
+  background: var(--ahd-bg-card);
+  border: 1px solid var(--ahd-border);
+  border-radius: 10px;
+}
+
+.history-timeline__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.history-timeline__title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--ahd-text);
+}
+
+.history-timeline__times {
+  font-size: 11px;
+  color: var(--ahd-muted);
+}
+
+.history-timeline__track {
+  position: relative;
+  height: 28px;
+  background: rgba(15, 23, 42, 0.9);
+  border-radius: 6px;
+  border: 1px solid var(--ahd-border);
+  margin-bottom: 0.5rem;
+}
+
+.history-timeline__track--dist {
+  height: 22px;
+  margin-top: 0.35rem;
+}
+
+.history-timeline__range,
+.history-timeline__dist-range {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 229, 255, 0.22);
+  border-top: 2px solid rgba(0, 229, 255, 0.65);
+  border-bottom: 2px solid rgba(0, 229, 255, 0.65);
+  pointer-events: none;
+}
+
+.history-timeline__shade {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.history-timeline__shade--left {
+  left: 0;
+}
+
+.history-timeline__shade--right {
+  right: 0;
+}
+
+.history-timeline__handle {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 28px;
+  margin: -14px 0 0 -7px;
+  padding: 0;
+  border: 2px solid #fff;
+  border-radius: 4px;
+  background: var(--ahd-accent);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 2;
+}
+
+.history-timeline__handle--dist {
+  height: 22px;
+  margin-top: -11px;
+  background: #a78bfa;
+}
+
+.history-timeline__controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 13px;
+  color: var(--ahd-text);
+}
+
+.history-timeline__check,
+.history-timeline__dist-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.history-timeline__dist-input input {
+  width: 4.5rem;
+  padding: 4px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--ahd-border);
+  background: rgba(15, 23, 42, 0.8);
+  color: var(--ahd-text);
+}
+
+.history-timeline__dist-row {
+  margin-top: 0.35rem;
+}
+
+.history-timeline__dist-label {
+  display: block;
+  font-size: 11px;
+  color: var(--ahd-muted);
+  margin-bottom: 0.25rem;
+}
+
 .coach-btn {
   border: none;
   border-radius: 8px;
