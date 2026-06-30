@@ -18,11 +18,16 @@ export type MapPosition = {
   deviceId: string;
   latitude: number;
   longitude: number;
+  smoothLatitude?: number;
+  smoothLongitude?: number;
   speed?: number | null;
+  course?: number | null;
   strokeRate?: number | null;
   capsize?: boolean;
   fixAgeSec?: number;
+  fixMs?: number;
   lastSeenAgoSec?: number;
+  online?: boolean;
 };
 
 function apiBase(settings: CoachSettings): string {
@@ -43,7 +48,7 @@ export async function fetchDevices(settings: CoachSettings): Promise<FleetDevice
 }
 
 export async function fetchMapPositions(settings: CoachSettings): Promise<MapPosition[]> {
-  const url = `${apiBase(settings)}/api/map-positions?onlineSec=120&staleSec=3600`;
+  const url = `${apiBase(settings)}/api/map-positions?onlineSec=120&staleSec=3600&predictMode=rowing`;
   const res = await fetch(url, { headers: authHeaders(settings) });
   if (!res.ok) {
     throw new Error(`Map ${res.status}`);

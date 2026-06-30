@@ -15,7 +15,7 @@ const ONLINE_SEC = 120;
 const GPS_LIVE_SEC = 30;
 const GPS_STALE_SEC = 300;
 /** Dead-reckoning cap after last fix (seconds). */
-const MAP_INTERPOLATE_MAX_SEC = 4;
+const MAP_INTERPOLATE_MAX_SEC = 8;
 const MAP_INTERPOLATE_MIN_SPEED_MPS = 0.25;
 const MAP_INTERPOLATE_TICK_MS = 100;
 const EARTH_RADIUS_M = 6371000;

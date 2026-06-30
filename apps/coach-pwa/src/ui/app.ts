@@ -15,6 +15,12 @@ import {
   startNativeMonitoring,
   stopNativeMonitoring,
 } from '../lib/native-monitor';
+import {
+  clearMapTracks,
+  displayLatLon,
+  onMapDisplayTick,
+  syncMapTracks,
+} from '../lib/map-smooth';
 import { loadSettings, saveSettings, DEFAULT_API_BASE_URL, type CoachSettings } from '../lib/settings';
 
 type Tab = 'live' | 'history' | 'settings';
@@ -41,6 +47,7 @@ export function mountApp(root: HTMLElement): void {
   let historyLine: L.Polyline | null = null;
   let sessions: { session_id: string; started_at: string }[] = [];
   let mapAutoFitDone = false;
+  let mapTickUnsub: (() => void) | null = null;
 
   const capsizeCount = () =>
     devices.filter((d) => d.rowing?.capsize || positions.some((p) => p.deviceId === d.deviceId && p.capsize)).length;
@@ -60,6 +67,7 @@ export function mountApp(root: HTMLElement): void {
       ]);
       devices = mergeCoachDevicesWithMap(dev, pos);
       positions = pos;
+      syncMapTracks(pos);
       updateLivePanel();
       updateMap();
       setStatus(`Updated · ${devices.length} device(s)`, false);
@@ -137,6 +145,27 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
+  function markerIcon(p: MapPosition): L.DivIcon {
+    const fixAge = p.fixAgeSec;
+    const cap = Boolean(p.capsize);
+    const amber = !cap && fixAge != null && fixAge > 30 && fixAge <= 300;
+    const color = cap ? '#ef4444' : amber ? '#fbbf24' : '#38bdf8';
+    return L.divIcon({
+      className: cap ? 'coach-marker capsize' : amber ? 'coach-marker amber' : 'coach-marker',
+      html: `<span style="background:${color};width:14px;height:14px;border-radius:50%;display:block;border:2px solid #fff"></span>`,
+      iconSize: [14, 14],
+      iconAnchor: [7, 7],
+    });
+  }
+
+  function mapLatLngFor(p: MapPosition): L.LatLng {
+    const display = displayLatLon(p.deviceId);
+    if (display) return L.latLng(display.lat, display.lon);
+    const lat = p.smoothLatitude ?? p.latitude;
+    const lon = p.smoothLongitude ?? p.longitude;
+    return L.latLng(lat, lon);
+  }
+
   function updateMap() {
     ensureMap();
     if (!map || !markersLayer) return;
@@ -145,18 +174,9 @@ export function mountApp(root: HTMLElement): void {
     for (const p of positions) {
       if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
       seen.add(p.deviceId);
-      const latlng = L.latLng(p.latitude, p.longitude);
+      const latlng = mapLatLngFor(p);
       latlngs.push(latlng);
-      const fixAge = p.fixAgeSec;
-      const cap = Boolean(p.capsize);
-      const amber = !cap && fixAge != null && fixAge > 30 && fixAge <= 300;
-      const color = cap ? '#ef4444' : amber ? '#fbbf24' : '#38bdf8';
-      const icon = L.divIcon({
-        className: cap ? 'coach-marker capsize' : amber ? 'coach-marker amber' : 'coach-marker',
-        html: `<span style="background:${color};width:14px;height:14px;border-radius:50%;display:block;border:2px solid #fff"></span>`,
-        iconSize: [14, 14],
-        iconAnchor: [7, 7],
-      });
+      const icon = markerIcon(p);
       let m = markers.get(p.deviceId);
       if (m) {
         m.setLatLng(latlng);
@@ -341,6 +361,7 @@ export function mountApp(root: HTMLElement): void {
     monitoring = true;
     serviceRunning = IS_NATIVE;
     startPollTimer();
+    startMapTick();
     render();
     void pollLive();
   }
@@ -352,12 +373,27 @@ export function mountApp(root: HTMLElement): void {
     monitoring = false;
     serviceRunning = false;
     stopPollTimer();
+    stopMapTick();
+    clearMapTracks();
     render();
+  }
+
+  function startMapTick() {
+    stopMapTick();
+    mapTickUnsub = onMapDisplayTick((deviceId, lat, lon) => {
+      const m = markers.get(deviceId);
+      if (m) m.setLatLng([lat, lon]);
+    });
+  }
+
+  function stopMapTick() {
+    mapTickUnsub?.();
+    mapTickUnsub = null;
   }
 
   function startPollTimer() {
     stopPollTimer();
-    pollTimer = setInterval(() => void pollLive(), 3000);
+    pollTimer = setInterval(() => void pollLive(), 2000);
   }
 
   function stopPollTimer() {
@@ -481,7 +517,10 @@ export function mountApp(root: HTMLElement): void {
 
   void (async () => {
     await refreshMonitoringStatus();
-    if (monitoring) startPollTimer();
+    if (monitoring) {
+      startPollTimer();
+      startMapTick();
+    }
     render();
     void pollLive();
   })();

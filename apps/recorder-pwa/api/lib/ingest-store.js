@@ -8,9 +8,9 @@ const RING_TRIM_TO = 3000;
 const MAX_GPS_ACCURACY_M = 150;
 const MAX_TRACK_SPEED_MPS = 25;
 /** Max seconds to project track forward from last fix timestamp to now. */
-const MAX_PREDICT_SEC = 2.5;
+const MAX_PREDICT_SEC = 5;
 /** Keep smoothed marker within this distance of the latest raw fix. */
-const MAX_SMOOTH_OFFSET_M = 10;
+const MAX_SMOOTH_OFFSET_M = 22;
 /** Min speed before predict-to-now (m/s). */
 const MIN_PREDICT_SPEED_MPS = 0.25;
 /** Cap speed used for map prediction (rowing shell). */
@@ -199,9 +199,22 @@ function distanceMeters(aLat, aLon, bLat, bLon) {
 }
 
 function emaAlphaForAccuracy(acc) {
-  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.75;
-  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.65;
-  return 0.5;
+  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.55;
+  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.42;
+  return 0.32;
+}
+
+/** Cap fix age used for prediction when uploads are fresh but sample t lags (clock/batch). */
+function effectiveFixAgeSec(fixAgeSec, lastSeenAgoSec, online) {
+  if (fixAgeSec == null || !Number.isFinite(fixAgeSec)) return fixAgeSec;
+  if (online === false || lastSeenAgoSec == null || lastSeenAgoSec > 15) {
+    return fixAgeSec;
+  }
+  const pipelineLag = fixAgeSec - lastSeenAgoSec;
+  if (pipelineLag > 10) {
+    return Math.min(fixAgeSec, lastSeenAgoSec + 4);
+  }
+  return fixAgeSec;
 }
 
 function bearingDeg(lat1, lon1, lat2, lon2) {
@@ -378,6 +391,11 @@ function attachSmoothMapCoords(rawPositions, predictMode = 'rowing') {
       Number.isFinite(fixMs) && fixMs > 0
         ? Math.max(0, (now - fixMs) / 1000)
         : Number(p.fixAgeSec);
+    const predictFixAgeSec = effectiveFixAgeSec(
+      fixAgeSec,
+      p.lastSeenAgoSec,
+      p.online,
+    );
 
     let smoothLat = rawLat;
     let smoothLon = rawLon;
@@ -392,14 +410,14 @@ function attachSmoothMapCoords(rawPositions, predictMode = 'rowing') {
       const courseDeg = track.courseDeg;
       const canPredict =
         p.online !== false &&
-        fixAgeSec != null &&
-        fixAgeSec <= MAX_PREDICT_FIX_AGE_SEC &&
+        predictFixAgeSec != null &&
+        predictFixAgeSec <= MAX_PREDICT_FIX_AGE_SEC &&
         speedMps >= MIN_PREDICT_SPEED_MPS &&
         courseDeg != null &&
         Number.isFinite(courseDeg);
 
-      if (canPredict && fixAgeSec > 0) {
-        const predictSec = Math.min(fixAgeSec, MAX_PREDICT_SEC);
+      if (canPredict && predictFixAgeSec > 0) {
+        const predictSec = Math.min(predictFixAgeSec, MAX_PREDICT_SEC);
         [smoothLat, smoothLon] = destinationLatLon(
           rawLat,
           rawLon,
