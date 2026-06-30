@@ -43,7 +43,6 @@ import java.lang.ref.WeakReference;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONArray;
@@ -56,10 +55,10 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
     private static final String TAG = "SessionRecorder";
     public static final String PREFS = "rnz_capsize_monitor";
-    /** Collect fixes every 500ms; upload interval follows user/geofence setting. */
-    private static final long GPS_COLLECT_INTERVAL_MS = 500L;
-    private static final float GPS_WEIGHT_MIN_ACC_M = 5f;
-    private static final int GPS_WINDOW_MAX = 120;
+    /** Fused/legacy minimum update interval while tracking at gpsIntervalMs. */
+    private static final long FUSED_MIN_UPDATE_MS = 500L;
+    /** Cap fused update rate in economy geofence mode. */
+    private static final long ECONOMY_LOCATION_TRACK_MS = 5_000L;
     private static WeakReference<CapsizeMonitorService> runningInstance;
     private static final String CHANNEL_ID = "rnz_capsize_native";
     private static final int NOTIF_ID_FOREGROUND = 9101;
@@ -101,8 +100,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private static final long GPS_MAX_SCHEDULED_CACHE_AGE_MS = 30L * 60L * 1000L;
     /** Fused may deliver slightly aged fixes to refresh cache while stationary. */
     private static final long FUSED_MAX_UPDATE_AGE_MS = 5L * 60L * 1000L;
-    /** Fused callbacks at least this often while uploads follow gpsIntervalMs. */
-    private static final long FUSED_MIN_UPDATE_MS = 500L;
     /** Ignore duplicate coords within this window (repeat fused callbacks). */
     private static final long GPS_COORD_DEDUPE_MS = 500L;
     private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
@@ -166,28 +163,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private long lastLocationReregisterWallMs;
     private long lastFusedNudgeWallMs;
     private int nativeGpsCount;
-    private final ArrayList<GpsWindowFix> gpsWindowBuffer = new ArrayList<>();
-    private long lastWindowCollectWallMs;
-
-    private static final class GpsWindowFix {
-        final double lat;
-        final double lon;
-        final float acc;
-        final float spd;
-        final float hdg;
-        final float alt;
-        final long t;
-
-        GpsWindowFix(Location loc, long ingestT) {
-            lat = loc.getLatitude();
-            lon = loc.getLongitude();
-            acc = loc.hasAccuracy() ? loc.getAccuracy() : 25f;
-            spd = loc.hasSpeed() && loc.getSpeed() >= 0f ? loc.getSpeed() : -1f;
-            hdg = loc.hasBearing() && loc.getBearing() >= 0f ? loc.getBearing() : -1f;
-            alt = loc.hasAltitude() ? (float) loc.getAltitude() : Float.NaN;
-            t = ingestT;
-        }
-    }
     private int sampleCount;
     private float lastAx;
     private float lastAy;
@@ -270,8 +245,6 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastUploadedFixTimeMs = 0L;
         lastUploadedGpsBucket = -1L;
         lastStaleGpsPiggybackWallMs = 0L;
-        gpsWindowBuffer.clear();
-        lastWindowCollectWallMs = 0L;
         startForegroundWithTypes();
         clearBootResumeNotification();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit().putInt(BOOT_RETRY_COUNT_KEY, 0).apply();
@@ -415,147 +388,22 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         lastFusedDeliveryWallMs = System.currentTimeMillis();
         savePulseDiagnostics();
         cacheGpsLocation(location);
-        addFixToGpsWindow(location);
-        long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
-        if (System.currentTimeMillis() - lastGpsUploadWallMs >= interval - 50L) {
-            uploadWindowAverageGps(false);
+    }
+
+    /** In-memory cache, then SharedPreferences last good fix. */
+    private Location resolveCachedUploadLocation() {
+        if (latestGpsLocation != null) {
+            return copyLocationForUpload(latestGpsLocation);
         }
-    }
-
-    private void addFixToGpsWindow(Location location) {
-        if (!enableGps || location == null || !isGpsFixUsable(location)) return;
-        long now = System.currentTimeMillis();
-        if (now - lastWindowCollectWallMs < GPS_COLLECT_INTERVAL_MS) return;
-        lastWindowCollectWallMs = now;
-        if (gpsWindowBuffer.size() >= GPS_WINDOW_MAX) {
-            gpsWindowBuffer.remove(0);
-        }
-        gpsWindowBuffer.add(new GpsWindowFix(location, System.currentTimeMillis()));
-    }
-
-    private static float fixWeight(float accM) {
-        float a = Math.max(accM, GPS_WEIGHT_MIN_ACC_M);
-        return 1f / (a * a);
-    }
-
-    private Location windowFixToLocation(GpsWindowFix f) {
-        Location loc = new Location("weighted");
-        loc.setLatitude(f.lat);
-        loc.setLongitude(f.lon);
-        loc.setAccuracy(f.acc);
-        loc.setTime(f.t);
-        if (f.spd >= 0f) loc.setSpeed(f.spd);
-        if (!Float.isNaN(f.alt)) loc.setAltitude(f.alt);
-        if (f.hdg >= 0f) loc.setBearing(f.hdg);
-        return loc;
-    }
-
-    private Location weightedAverageWindowLocation() {
-        if (gpsWindowBuffer.isEmpty()) return null;
-        if (gpsWindowBuffer.size() == 1) {
-            return windowFixToLocation(gpsWindowBuffer.get(0));
-        }
-        double latSum = 0d;
-        double lonSum = 0d;
-        double wSum = 0d;
-        double accSum = 0d;
-        double spdSum = 0d;
-        double spdW = 0d;
-        double altSum = 0d;
-        double altW = 0d;
-        long t = gpsWindowBuffer.get(0).t;
-        float bestHdg = -1f;
-        float bestHdgW = 0f;
-        for (GpsWindowFix f : gpsWindowBuffer) {
-            float w = fixWeight(f.acc);
-            wSum += w;
-            latSum += f.lat * w;
-            lonSum += f.lon * w;
-            accSum += f.acc * w;
-            if (f.t >= t) t = f.t;
-            if (f.spd >= 0f) {
-                spdSum += f.spd * w;
-                spdW += w;
+        Location prefLoc = locationFromPrefs(getSharedPreferences(PREFS, MODE_PRIVATE));
+        if (prefLoc != null) {
+            latestGpsLocation = prefLoc;
+            if (latestGpsCachedWallMs <= 0L) {
+                latestGpsCachedWallMs = System.currentTimeMillis();
             }
-            if (!Float.isNaN(f.alt)) {
-                altSum += f.alt * w;
-                altW += w;
-            }
-            if (f.hdg >= 0f && w >= bestHdgW) {
-                bestHdgW = w;
-                bestHdg = f.hdg;
-            }
+            return copyLocationForUpload(prefLoc);
         }
-        if (wSum <= 0d) {
-            return windowFixToLocation(gpsWindowBuffer.get(gpsWindowBuffer.size() - 1));
-        }
-        Location loc = new Location("weighted");
-        loc.setLatitude(latSum / wSum);
-        loc.setLongitude(lonSum / wSum);
-        loc.setAccuracy((float) (accSum / wSum));
-        loc.setTime(t);
-        if (spdW > 0d) loc.setSpeed((float) (spdSum / spdW));
-        if (altW > 0d) loc.setAltitude(altSum / altW);
-        if (bestHdg >= 0f) loc.setBearing(bestHdg);
-        return loc;
-    }
-
-    private void uploadWindowAverageGps(boolean scheduledTick) {
-        if (!enableGps || uploadExecutor == null || uploadExecutor.isShutdown()) return;
-        long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
-        long ingestT = System.currentTimeMillis();
-        long bucket = ingestT / interval;
-        if (bucket <= lastUploadedGpsBucket) {
-            if (System.currentTimeMillis() - lastGpsSampleOfferedMs < interval) return;
-            bucket = lastUploadedGpsBucket + 1;
-        }
-        Location uploadLoc = resolveUploadLocation();
-        if (uploadLoc == null) return;
-        uploadLoc.setTime(ingestT);
-        if (!canUploadGpsFix(uploadLoc, scheduledTick)) return;
-        // Timer uploads always refresh server fix age; dedupe only for fused callbacks.
-        if (!scheduledTick
-                && ingestT - lastUploadedFixTimeMs < GPS_COORD_DEDUPE_MS
-                && sameCoords(uploadLoc, lastUploadedLat, lastUploadedLon)) {
-            gpsWindowBuffer.clear();
-            return;
-        }
-
-        lastUploadedGpsBucket = bucket;
-        lastUploadedFixTimeMs = ingestT;
-        lastUploadedLat = uploadLoc.getLatitude();
-        lastUploadedLon = uploadLoc.getLongitude();
-        nativeGpsCount++;
-        saveLastGpsToPrefs(uploadLoc, ingestT, nativeGpsCount);
-        gpsWindowBuffer.clear();
-        final Location averagedLoc = uploadLoc;
-        final long sampleT = ingestT;
-        final boolean flushNow = scheduledTick;
-        uploadExecutor.execute(
-                () -> {
-                    SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
-                    enqueueGpsSample(averagedLoc, sampleT, flushNow);
-                    flushPendingIngest(p, MAX_PENDING_FLUSH_ON_GPS);
-                });
-    }
-
-    /** Window average, in-memory cache, then SharedPreferences last good fix. */
-    private Location resolveUploadLocation() {
-        Location uploadLoc = weightedAverageWindowLocation();
-        if (uploadLoc == null && latestGpsLocation != null) {
-            uploadLoc = copyLocationForUpload(latestGpsLocation);
-        }
-        if (uploadLoc == null) {
-            Location prefLoc = locationFromPrefs(getSharedPreferences(PREFS, MODE_PRIVATE));
-            if (prefLoc != null) {
-                uploadLoc = copyLocationForUpload(prefLoc);
-                latestGpsLocation = prefLoc;
-                if (latestGpsCachedWallMs <= 0L) {
-                    latestGpsCachedWallMs = System.currentTimeMillis();
-                }
-            }
-        }
-        return uploadLoc;
+        return null;
     }
 
     private static Location locationFromPrefs(SharedPreferences p) {
@@ -584,7 +432,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     /** When fused goes quiet, poll last location and re-register updates. */
     private void nudgeFusedLocationIfStale() {
         if (!enableGps) return;
-        long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
+        long interval = Math.max(500L, effectiveGpsIntervalMs());
         long now = System.currentTimeMillis();
         if (lastFusedDeliveryWallMs <= 0L) {
             lastFusedDeliveryWallMs = now;
@@ -609,7 +457,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                                         last -> {
                                             if (last != null && isGpsFixUsable(last)) {
                                                 cacheGpsLocation(last);
-                                                uploadWindowAverageGps(true);
+                                                maybeUploadGpsFix(copyLocationForUpload(last), true);
                                             }
                                         });
                     }
@@ -628,7 +476,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
     }
 
-    /** Ingest freshness — wall clock on the averaged upload location. */
+    /** Ingest freshness — wall clock on upload location. */
     private static boolean isGpsFixFreshForUpload(Location location) {
         if (location == null) return false;
         return System.currentTimeMillis() - location.getTime() <= GPS_MAX_UPLOAD_FIX_AGE_MS;
@@ -654,17 +502,55 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return Math.abs(a.getLatitude() - lat) < 1e-6 && Math.abs(a.getLongitude() - lon) < 1e-6;
     }
 
-    /** Timer-driven upload — weighted average of fixes collected since last report. */
+    /** Steady upload cadence — one sample per gpsIntervalMs bucket (timer-driven). */
+    private void maybeUploadGpsFix(Location location, boolean scheduledTick) {
+        if (!enableGps || location == null) return;
+        Location uploadLoc = copyLocationForUpload(location);
+        if (!canUploadGpsFix(uploadLoc, scheduledTick)) return;
+        long interval = Math.max(500L, effectiveGpsIntervalMs());
+        long ingestT = System.currentTimeMillis();
+        uploadLoc.setTime(ingestT);
+        long bucket = ingestT / interval;
+        if (bucket <= lastUploadedGpsBucket) {
+            if (System.currentTimeMillis() - lastGpsSampleOfferedMs < interval) return;
+            bucket = lastUploadedGpsBucket + 1;
+        }
+        if (!scheduledTick
+                && ingestT - lastUploadedFixTimeMs < GPS_COORD_DEDUPE_MS
+                && sameCoords(uploadLoc, lastUploadedLat, lastUploadedLon)) {
+            return;
+        }
+        if (uploadExecutor == null || uploadExecutor.isShutdown()) return;
+
+        lastUploadedGpsBucket = bucket;
+        lastUploadedFixTimeMs = ingestT;
+        lastUploadedLat = uploadLoc.getLatitude();
+        lastUploadedLon = uploadLoc.getLongitude();
+        nativeGpsCount++;
+        saveLastGpsToPrefs(uploadLoc, ingestT, nativeGpsCount);
+        final Location finalLoc = uploadLoc;
+        final long sampleT = ingestT;
+        final boolean flushNow = scheduledTick;
+        uploadExecutor.execute(
+                () -> {
+                    SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+                    enqueueGpsSample(finalLoc, sampleT, flushNow);
+                    flushPendingIngest(p, MAX_PENDING_FLUSH_ON_GPS);
+                });
+    }
+
+    /** Timer-driven upload — cached fix immediately, then async fresh fix. */
     private void tickScheduledGpsUpload() {
         if (!enableGps) return;
-        // Upload from fused window/cache immediately — do not wait on getCurrentLocation.
-        uploadWindowAverageGps(true);
+        Location cached = resolveCachedUploadLocation();
+        if (cached != null) {
+            maybeUploadGpsFix(cached, true);
+        }
         requestFreshGpsLocation(
                 loc -> {
                     if (loc != null) {
                         cacheGpsLocation(loc);
-                        addFixToGpsWindow(loc);
-                        uploadWindowAverageGps(false);
+                        maybeUploadGpsFix(copyLocationForUpload(loc), true);
                     }
                 });
     }
@@ -896,7 +782,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     /** Cached coords on heartbeat when the 1s GPS timer stalls (heartbeats fire ~every 10s). */
     private boolean appendCachedGpsToSample(JSONObject sample) {
         if (!enableGps) return false;
-        Location loc = resolveUploadLocation();
+        Location loc = resolveCachedUploadLocation();
         if (loc == null || !isGpsFixUsable(loc)) return false;
         if (latestGpsCachedWallMs <= 0L
                 || System.currentTimeMillis() - latestGpsCachedWallMs
@@ -918,7 +804,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
      */
     private void maybeRefreshStaleGpsUpload() {
         if (!enableGps) return;
-        long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
+        long interval = Math.max(500L, effectiveGpsIntervalMs());
         long now = System.currentTimeMillis();
         long sinceOffered =
                 lastGpsSampleOfferedMs > 0L ? now - lastGpsSampleOfferedMs : Long.MAX_VALUE;
@@ -929,7 +815,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             return;
         }
 
-        Location loc = resolveUploadLocation();
+        Location loc = resolveCachedUploadLocation();
         if (loc == null || !isGpsFixUsable(loc)) return;
         Location uploadLoc = copyLocationForUpload(loc);
         uploadLoc.setTime(now);
@@ -1287,9 +1173,14 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         return economyActive ? economyGpsIntervalMs : gpsIntervalMs;
     }
 
-    /** Fused/legacy update rate — collect fixes every 500ms for window averaging. */
+    /** Fused/legacy update rate — follows gpsIntervalMs (capped in economy geofence). */
     private long locationTrackingIntervalMs() {
-        return GPS_COLLECT_INTERVAL_MS;
+        loadEconomyFromPrefs();
+        long base = Math.max(FUSED_MIN_UPDATE_MS, effectiveGpsIntervalMs());
+        if (economyActive) {
+            return Math.min(base, ECONOMY_LOCATION_TRACK_MS);
+        }
+        return base;
     }
 
     private long effectiveUploadFlushMs() {

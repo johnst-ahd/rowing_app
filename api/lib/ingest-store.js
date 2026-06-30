@@ -8,9 +8,9 @@ const RING_TRIM_TO = 3000;
 const MAX_GPS_ACCURACY_M = 150;
 const MAX_TRACK_SPEED_MPS = 25;
 /** Max seconds to project track forward from last fix timestamp to now. */
-const MAX_PREDICT_SEC = 5;
+const MAX_PREDICT_SEC = 2.5;
 /** Keep smoothed marker within this distance of the latest raw fix. */
-const MAX_SMOOTH_OFFSET_M = 22;
+const MAX_SMOOTH_OFFSET_M = 10;
 /** Min speed before predict-to-now (m/s). */
 const MIN_PREDICT_SPEED_MPS = 0.25;
 /** Cap speed used for map prediction (rowing shell). */
@@ -199,9 +199,9 @@ function distanceMeters(aLat, aLon, bLat, bLon) {
 }
 
 function emaAlphaForAccuracy(acc) {
-  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.55;
-  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.42;
-  return 0.32;
+  if (acc != null && Number.isFinite(acc) && acc <= 3) return 0.75;
+  if (acc != null && Number.isFinite(acc) && acc <= 8) return 0.65;
+  return 0.5;
 }
 
 /** Cap fix age used for prediction when uploads are fresh but sample t lags (clock/batch). */
