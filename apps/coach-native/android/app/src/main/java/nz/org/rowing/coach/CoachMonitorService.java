@@ -15,7 +15,6 @@ import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
 import android.content.pm.ServiceInfo;
-import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.ServiceCompat;
 import java.io.ByteArrayOutputStream;
@@ -184,11 +183,7 @@ public class CoachMonitorService extends Service {
         Log.i(TAG, "Coach monitoring stopped by user");
         clearMonitoring(this);
         mainHandler.removeCallbacks(pollRunnable);
-        if (Build.VERSION.SDK_INT >= 34) {
-            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE);
-        } else {
-            stopForeground(true);
-        }
+        stopForeground(true);
         stopSelf();
     }
 
@@ -289,20 +284,15 @@ public class CoachMonitorService extends Service {
 
     private void startForegroundWithTypes() {
         Notification notification = buildForegroundNotification(0);
-        if (Build.VERSION.SDK_INT >= 34) {
-            startForegroundSpecialUse(notification);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            int types = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                types = ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            }
+            ServiceCompat.startForeground(this, NOTIF_ID_FG, notification, types);
         } else {
             startForeground(NOTIF_ID_FG, notification);
         }
-    }
-
-    @RequiresApi(34)
-    private void startForegroundSpecialUse(Notification notification) {
-        ServiceCompat.startForeground(
-                this,
-                NOTIF_ID_FG,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE);
     }
 
     private void updateForegroundNotification(int capsizeCount) {
