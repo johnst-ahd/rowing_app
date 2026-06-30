@@ -1113,7 +1113,9 @@ function latestGpsFromSamples(samples) {
   let lastGps = null;
   for (const s of samples) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
-      lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc ?? null };
+      if (!lastGps || s.t >= lastGps.t) {
+        lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc ?? null };
+      }
     }
   }
   return lastGps;
