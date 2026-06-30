@@ -60,6 +60,8 @@ export type RecorderStats = {
   boatParkName?: string | null;
   /** Active regatta control message for this device, if any. */
   regattaMessage?: { id: number; text: string } | null;
+  /** Native foreground-service diagnostics (Android). */
+  nativePulse?: import('../lib/native-capsize-monitor').NativeRecordingPulse;
 };
 
 export type RecorderController = {
@@ -614,7 +616,12 @@ export async function startRecorder(
       const nativeGpsUiTimer = setInterval(() => {
         if (stopped) return;
         void getNativeRecordingPulse().then((pulse) => {
-          if (!pulse?.lastGps) return;
+          if (!pulse) return;
+          stats.nativePulse = pulse;
+          if (!pulse.lastGps) {
+            emit();
+            return;
+          }
           const g = pulse.lastGps;
           checkGeofenceAt(g.lat, g.lon);
           if (pulse.nativeGpsCount != null) {

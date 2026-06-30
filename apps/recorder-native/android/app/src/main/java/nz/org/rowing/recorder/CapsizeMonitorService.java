@@ -106,6 +106,11 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     /** Ignore duplicate coords within this window (repeat fused callbacks). */
     private static final long GPS_COORD_DEDUPE_MS = 500L;
     private static final String PENDING_BATCHES_KEY = "pendingIngestBatches";
+    private static final String HEARTBEAT_GPS_COUNT_KEY = "heartbeatGpsCount";
+    private static final String PULSE_LAST_GPS_UPLOAD_WALL_MS = "pulseLastGpsUploadWallMs";
+    private static final String PULSE_LAST_FUSED_DELIVERY_WALL_MS = "pulseLastFusedDeliveryWallMs";
+    private static final String PULSE_LATEST_GPS_CACHED_WALL_MS = "pulseLatestGpsCachedWallMs";
+    private static final String PULSE_INGEST_BUFFER_COUNT = "pulseIngestBufferCount";
 
     private SensorManager sensorManager;
     private Sensor accelerometer;
@@ -400,6 +405,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     private void deliverLocation(Location location) {
         if (!enableGps || location == null) return;
         lastFusedDeliveryWallMs = System.currentTimeMillis();
+        savePulseDiagnostics();
         cacheGpsLocation(location);
         addFixToGpsWindow(location);
         long interval = Math.max(GPS_COLLECT_INTERVAL_MS, effectiveGpsIntervalMs());
@@ -509,6 +515,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
 
         lastUploadedGpsBucket = bucket;
         lastGpsUploadWallMs = System.currentTimeMillis();
+        savePulseDiagnostics();
         lastUploadedFixTimeMs = ingestT;
         lastUploadedLat = uploadLoc.getLatitude();
         lastUploadedLon = uploadLoc.getLongitude();
@@ -847,6 +854,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             Log.e(TAG, "Missing ingest config — dropping " + toSend.length() + " buffered sample(s)");
             return;
         }
+        savePulseDiagnostics();
         if (postBatch(p, sessionId, deviceId, toSend)) {
             lastSuccessfulUploadMs = System.currentTimeMillis();
             Log.d(TAG, "Ingest batch OK (" + toSend.length() + " samples)");
@@ -859,27 +867,50 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
         enqueueGpsSample(location, t, false);
     }
 
+    private JSONObject buildGpsJson(Location location) throws Exception {
+        JSONObject gps = new JSONObject();
+        gps.put("lat", location.getLatitude());
+        gps.put("lon", location.getLongitude());
+        if (location.hasAccuracy()) gps.put("acc", location.getAccuracy());
+        if (location.hasSpeed() && location.getSpeed() >= 0f) {
+            gps.put("spd", Math.round(location.getSpeed() * 100) / 100.0);
+        }
+        if (location.hasBearing() && location.getBearing() >= 0f) {
+            gps.put("hdg", Math.round(location.getBearing() * 10) / 10.0);
+        }
+        if (compassAvailable && !Float.isNaN(compassHeadingDeg)) {
+            gps.put("compass", Math.round(compassHeadingDeg * 10) / 10.0);
+        }
+        if (location.hasAltitude()) {
+            gps.put("alt", Math.round(location.getAltitude() * 10) / 10.0);
+        }
+        return gps;
+    }
+
+    /** Cached coords on heartbeat when the 1s GPS timer stalls (heartbeats fire ~every 10s). */
+    private boolean appendCachedGpsToSample(JSONObject sample) {
+        if (!enableGps) return false;
+        Location loc = resolveUploadLocation();
+        if (loc == null || !isGpsFixUsable(loc)) return false;
+        if (latestGpsCachedWallMs <= 0L
+                || System.currentTimeMillis() - latestGpsCachedWallMs
+                        > GPS_MAX_SCHEDULED_CACHE_AGE_MS) {
+            return false;
+        }
+        try {
+            sample.put("gps", buildGpsJson(loc));
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "Heartbeat GPS attach failed", e);
+            return false;
+        }
+    }
+
     private void enqueueGpsSample(Location location, long t, boolean flushNow) {
         try {
-            JSONObject gps = new JSONObject();
-            gps.put("lat", location.getLatitude());
-            gps.put("lon", location.getLongitude());
-            if (location.hasAccuracy()) gps.put("acc", location.getAccuracy());
-            if (location.hasSpeed() && location.getSpeed() >= 0f) {
-                gps.put("spd", Math.round(location.getSpeed() * 100) / 100.0);
-            }
-            if (location.hasBearing() && location.getBearing() >= 0f) {
-                gps.put("hdg", Math.round(location.getBearing() * 10) / 10.0);
-            }
-            if (compassAvailable && !Float.isNaN(compassHeadingDeg)) {
-                gps.put("compass", Math.round(compassHeadingDeg * 10) / 10.0);
-            }
-            if (location.hasAltitude()) {
-                gps.put("alt", Math.round(location.getAltitude() * 10) / 10.0);
-            }
             JSONObject sample = new JSONObject();
             sample.put("t", t);
-            sample.put("gps", gps);
+            sample.put("gps", buildGpsJson(location));
             if (enableMotion && (lastAx != 0f || lastAy != 0f || lastAz != 0f)) {
                 JSONObject motion = new JSONObject();
                 motion.put("ax", Math.round(lastAx * 100) / 100.0);
@@ -949,6 +980,12 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
             JSONObject sample = new JSONObject();
             sample.put("t", t);
             sample.put("derived", derived);
+            if (appendCachedGpsToSample(sample)) {
+                SharedPreferences p = getSharedPreferences(PREFS, MODE_PRIVATE);
+                int hbGps = p.getInt(HEARTBEAT_GPS_COUNT_KEY, 0) + 1;
+                p.edit().putInt(HEARTBEAT_GPS_COUNT_KEY, hbGps).apply();
+                Log.d(TAG, "Heartbeat piggyback GPS (#" + hbGps + ")");
+            }
             offerIngestSample(sample, false);
         } catch (Exception e) {
             Log.e(TAG, "Heartbeat sample enqueue failed", e);
@@ -1156,6 +1193,7 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
                 .putInt("uploadSeq", 0)
                 .putInt("uploadOkCount", 0)
                 .putInt("uploadFailCount", 0)
+                .putInt(HEARTBEAT_GPS_COUNT_KEY, 0)
                 .putString(PENDING_BATCHES_KEY, "[]")
                 .putInt("pendingBatchCount", 0);
         long startedAt = intent.getLongExtra("startedAt", 0L);
@@ -1205,6 +1243,87 @@ public class CapsizeMonitorService extends Service implements SensorEventListene
     public static boolean isServiceRunning() {
         CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
         return inst != null;
+    }
+
+    private void savePulseDiagnostics() {
+        getSharedPreferences(PREFS, MODE_PRIVATE)
+                .edit()
+                .putLong(PULSE_LAST_GPS_UPLOAD_WALL_MS, lastGpsUploadWallMs)
+                .putLong(PULSE_LAST_FUSED_DELIVERY_WALL_MS, lastFusedDeliveryWallMs)
+                .putLong(PULSE_LATEST_GPS_CACHED_WALL_MS, latestGpsCachedWallMs)
+                .putInt(PULSE_INGEST_BUFFER_COUNT, ingestBuffer.length())
+                .apply();
+    }
+
+    /** Live + persisted diagnostics for WebView getPulse(). */
+    public static JSONObject getPulseData(Context ctx) throws Exception {
+        SharedPreferences p = ctx.getSharedPreferences(PREFS, MODE_PRIVATE);
+        CapsizeMonitorService inst = runningInstance != null ? runningInstance.get() : null;
+        long now = System.currentTimeMillis();
+        JSONObject ret = new JSONObject();
+        if (p.contains("lastGpsT")) {
+            JSONObject gps = new JSONObject();
+            gps.put("t", p.getLong("lastGpsT", 0L));
+            gps.put("lat", p.getFloat("lastGpsLat", 0f));
+            gps.put("lon", p.getFloat("lastGpsLon", 0f));
+            float spd = p.getFloat("lastGpsSpd", -1f);
+            if (spd >= 0f) gps.put("spd", spd);
+            float acc = p.getFloat("lastGpsAcc", -1f);
+            if (acc >= 0f) gps.put("acc", acc);
+            ret.put("lastGps", gps);
+        }
+        ret.put("nativeGpsCount", p.getInt("nativeGpsCount", 0));
+        ret.put("heartbeatGpsCount", p.getInt(HEARTBEAT_GPS_COUNT_KEY, 0));
+        if (p.contains("lastUploadT")) {
+            JSONObject upload = new JSONObject();
+            upload.put("seq", p.getInt("uploadSeq", 0));
+            upload.put("ok", p.getBoolean("lastUploadOk", false));
+            upload.put("code", p.getInt("lastUploadCode", 0));
+            upload.put("samples", p.getInt("lastUploadSamples", 0));
+            upload.put("okCount", p.getInt("uploadOkCount", 0));
+            upload.put("failCount", p.getInt("uploadFailCount", 0));
+            upload.put("t", p.getLong("lastUploadT", 0L));
+            ret.put("upload", upload);
+        }
+        JSONArray pending = new JSONArray(p.getString(PENDING_BATCHES_KEY, "[]"));
+        ret.put("pendingIngestBatches", pending.length());
+
+        long lastGpsUploadWallMs =
+                inst != null
+                        ? inst.lastGpsUploadWallMs
+                        : p.getLong(PULSE_LAST_GPS_UPLOAD_WALL_MS, 0L);
+        long lastFusedDeliveryWallMs =
+                inst != null
+                        ? inst.lastFusedDeliveryWallMs
+                        : p.getLong(PULSE_LAST_FUSED_DELIVERY_WALL_MS, 0L);
+        long latestGpsCachedWallMs =
+                inst != null
+                        ? inst.latestGpsCachedWallMs
+                        : p.getLong(PULSE_LATEST_GPS_CACHED_WALL_MS, 0L);
+        int ingestBufferCount =
+                inst != null
+                        ? inst.ingestBuffer.length()
+                        : p.getInt(PULSE_INGEST_BUFFER_COUNT, 0);
+
+        ret.put("serviceRunning", inst != null);
+        ret.put(
+                "lastGpsUploadAgoMs",
+                lastGpsUploadWallMs > 0L ? now - lastGpsUploadWallMs : JSONObject.NULL);
+        ret.put(
+                "lastFusedDeliveryAgoMs",
+                lastFusedDeliveryWallMs > 0L ? now - lastFusedDeliveryWallMs : JSONObject.NULL);
+        ret.put(
+                "latestGpsCachedAgoMs",
+                latestGpsCachedWallMs > 0L ? now - latestGpsCachedWallMs : JSONObject.NULL);
+        ret.put("ingestBufferCount", ingestBufferCount);
+        if (inst != null) {
+            ret.put("enableGps", inst.enableGps);
+            ret.put("gpsIntervalMs", inst.effectiveGpsIntervalMs());
+        } else {
+            ret.put("enableGps", p.getBoolean("enableGps", false));
+            ret.put("gpsIntervalMs", Math.max(500L, p.getLong("gpsIntervalMs", 1000L)));
+        }
+        return ret;
     }
 
     public static void clearRecordingSession(Context ctx) {

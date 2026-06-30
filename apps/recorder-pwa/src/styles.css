@@ -290,6 +290,10 @@
   color: #f87171;
 }
 
+.hub-stats-item--warn {
+  color: #fbbf24;
+}
+
 @keyframes capsize-pulse {
   0%,
   100% {

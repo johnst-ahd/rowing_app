@@ -24,8 +24,30 @@ export type NativeActiveSession = {
 };
 
 export type NativeRecordingPulse = {
-  lastGps?: { t: number; lat: number; lon: number; spd?: number };
+  lastGps?: { t: number; lat: number; lon: number; spd?: number; acc?: number };
   nativeGpsCount?: number;
+  /** GPS fixes sent on heartbeat fallback (timer stall). */
+  heartbeatGpsCount?: number;
+  serviceRunning?: boolean;
+  enableGps?: boolean;
+  gpsIntervalMs?: number;
+  /** Ms since last timer/callback GPS upload enqueue. */
+  lastGpsUploadAgoMs?: number | null;
+  /** Ms since last fused/legacy location callback. */
+  lastFusedDeliveryAgoMs?: number | null;
+  /** Ms since last good fix was cached in memory/prefs. */
+  latestGpsCachedAgoMs?: number | null;
+  ingestBufferCount?: number;
+  pendingIngestBatches?: number;
+  upload?: {
+    seq?: number;
+    ok?: boolean;
+    code?: number;
+    samples?: number;
+    okCount?: number;
+    failCount?: number;
+    t?: number;
+  };
 };
 
 export type NativeEconomyMode = {

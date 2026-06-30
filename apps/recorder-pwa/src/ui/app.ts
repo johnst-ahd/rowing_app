@@ -392,6 +392,23 @@ export function mountApp(root: HTMLElement): void {
     } else if (recording) {
       zone = 'Locating…';
     }
+    const np = stats?.nativePulse;
+    let gpsDiag = '';
+    if (recording && np?.serviceRunning && np.enableGps) {
+      const up = np.lastGpsUploadAgoMs ?? -1;
+      const fused = np.lastFusedDeliveryAgoMs ?? -1;
+      const interval = np.gpsIntervalMs ?? 1000;
+      const uploadStale = up >= interval * 3;
+      const fusedStale = fused >= 15_000;
+      if (uploadStale || fusedStale) {
+        const upSec = up >= 0 ? Math.round(up / 1000) : '?';
+        const fusedSec = fused >= 0 ? Math.round(fused / 1000) : '?';
+        gpsDiag = `GPS↑${upSec}s fused↑${fusedSec}s`;
+        if ((np.heartbeatGpsCount ?? 0) > 0) {
+          gpsDiag += ` hbGps=${np.heartbeatGpsCount}`;
+        }
+      }
+    }
     return `
       <span class="hub-stats-item ${statusClass}">${status}</span>
       <span class="hub-stats-sep" aria-hidden="true">·</span>
@@ -399,6 +416,7 @@ export function mountApp(root: HTMLElement): void {
       ${zone ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item ${stats?.inBoatPark ? 'hub-stats-item--boat-park' : 'hub-stats-item--on-water'}">${esc(zone)}</span>` : ''}
       ${spm ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item">${esc(spm)}</span>` : ''}
       ${bg ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item hub-stats-item--muted">${esc(bg)}</span>` : ''}
+      ${gpsDiag ? `<span class="hub-stats-sep" aria-hidden="true">·</span><span class="hub-stats-item hub-stats-item--warn">${esc(gpsDiag)}</span>` : ''}
       <span class="hub-stats-sep" aria-hidden="true">·</span>
       <span class="hub-stats-item">${gps}</span>
     `;
