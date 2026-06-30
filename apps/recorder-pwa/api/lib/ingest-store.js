@@ -507,6 +507,24 @@ function sanitizeAndTrackSamples(deviceId, samples) {
   return { samples: out, dropped };
 }
 
+/** Rate over active sample span — avoids understating Hz when the window predates session start. */
+function activeSpanSec(timestamps, windowSec) {
+  if (!timestamps.length) return windowSec;
+  let minT = timestamps[0];
+  let maxT = timestamps[0];
+  for (const t of timestamps) {
+    if (t < minT) minT = t;
+    if (t > maxT) maxT = t;
+  }
+  const burstSec = Math.max((maxT - minT) / 1000, 0);
+  return Math.min(windowSec, Math.max(burstSec >= 0.5 ? burstSec : 1, 1));
+}
+
+function activeRateHz(count, timestamps, windowSec) {
+  if (count <= 0 || windowSec <= 0) return 0;
+  return Math.round((count / activeSpanSec(timestamps, windowSec)) * 10) / 10;
+}
+
 /**
  * @param {Sample[]} samples
  * @param {number} windowMs
@@ -529,18 +547,29 @@ function sensorStats(samples, windowMs, deviceId) {
   let capsizeInWindow = false;
   let heartbeatCount = 0;
   let lastHeartbeatT = null;
+  /** @type {number[]} */
+  const gpsTimes = [];
+  /** @type {number[]} */
+  const motionTimes = [];
+  /** @type {number[]} */
+  const hrTimes = [];
+  /** @type {number[]} */
+  const heartbeatTimes = [];
 
   for (const s of recent) {
     if (s.gps && s.gps.lat != null && s.gps.lon != null) {
       gpsCount++;
+      gpsTimes.push(s.t);
       lastGps = { t: s.t, lat: s.gps.lat, lon: s.gps.lon, acc: s.gps.acc };
     }
     if (s.motion && s.motion.ax != null) {
       motionCount++;
+      motionTimes.push(s.t);
       lastMotion = { t: s.t, ...s.motion };
     }
     if (s.hr && s.hr.bpm != null) {
       hrCount++;
+      hrTimes.push(s.t);
       lastHr = { t: s.t, bpm: s.hr.bpm };
     }
     if (s.derived) {
@@ -548,6 +577,7 @@ function sensorStats(samples, windowMs, deviceId) {
       if (s.derived.capsize === true && afterClear(s.t)) capsizeInWindow = true;
       if (s.derived.heartbeat === true) {
         heartbeatCount++;
+        heartbeatTimes.push(s.t);
         lastHeartbeatT = s.t;
       }
     }
@@ -567,7 +597,7 @@ function sensorStats(samples, windowMs, deviceId) {
   const tiltDeg = analyzed?.tiltDeg ?? lastDerived?.tiltDeg ?? null;
 
   const windowSec = windowMs / 1000;
-  const rate = (n) => (windowSec > 0 ? Math.round((n / windowSec) * 10) / 10 : 0);
+  const sampleTimes = recent.map((s) => s.t);
 
   // Rates/counts use the stats window; last fix/age match the map (any recent sample).
   const latestGpsFix = latestGpsFromSamples(samples);
@@ -577,21 +607,21 @@ function sensorStats(samples, windowMs, deviceId) {
   return {
     gps: {
       present: gpsCount > 0 || latestGpsFix != null,
-      rateHz: rate(gpsCount),
+      rateHz: activeRateHz(gpsCount, gpsTimes, windowSec),
       count: gpsCount,
       last: gpsLast,
       ageSec: gpsAgeSec,
     },
     motion: {
       present: motionCount > 0,
-      rateHz: rate(motionCount),
+      rateHz: activeRateHz(motionCount, motionTimes, windowSec),
       count: motionCount,
       last: lastMotion,
       ageSec: lastMotion ? Math.round((now - lastMotion.t) / 1000) : null,
     },
     hr: {
       present: hrCount > 0,
-      rateHz: rate(hrCount),
+      rateHz: activeRateHz(hrCount, hrTimes, windowSec),
       count: hrCount,
       last: lastHr,
       ageSec: lastHr ? Math.round((now - lastHr.t) / 1000) : null,
@@ -606,13 +636,13 @@ function sensorStats(samples, windowMs, deviceId) {
     },
     heartbeat: {
       present: heartbeatCount > 0,
-      rateHz: rate(heartbeatCount),
+      rateHz: activeRateHz(heartbeatCount, heartbeatTimes, windowSec),
       count: heartbeatCount,
       lastT: lastHeartbeatT,
       ageSec: lastHeartbeatT ? Math.round((now - lastHeartbeatT) / 1000) : null,
     },
     totalInWindow: recent.length,
-    ingestRateHz: rate(recent.length),
+    ingestRateHz: activeRateHz(recent.length, sampleTimes, windowSec),
   };
 }
 
