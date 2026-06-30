@@ -22,6 +22,13 @@ import {
   syncMapTracks,
 } from '../lib/map-smooth';
 import { loadSettings, saveSettings, DEFAULT_API_BASE_URL, type CoachSettings } from '../lib/settings';
+import {
+  gpsFixState,
+  gpsStatusLabel,
+  markerColorForState,
+  resolveGpsDisplayAge,
+  displayGpsAgeSec,
+} from '../lib/gps-age';
 
 type Tab = 'live' | 'history' | 'settings';
 
@@ -87,7 +94,11 @@ export function mountApp(root: HTMLElement): void {
       byId.set(d.deviceId, {
         ...d,
         gpsAgeSec:
-          d.gps?.displayAgeSec ?? p?.fixAgeSec ?? d.gps?.ageSec ?? undefined,
+          d.gps?.displayAgeSec ??
+          displayGpsAgeSec(d.gps?.ageSec, d.gps?.ingestAgoSec) ??
+          p?.fixAgeSec ??
+          d.gps?.ageSec ??
+          undefined,
       });
     }
     for (const p of mapPositions) {
@@ -96,7 +107,7 @@ export function mountApp(root: HTMLElement): void {
           deviceId: p.deviceId,
           online: true,
           lastSeenAgoSec: p.lastSeenAgoSec ?? p.fixAgeSec,
-          gpsAgeSec: p.fixAgeSec,
+          gpsAgeSec: displayGpsAgeSec(p.fixAgeSec, p.lastSeenAgoSec) ?? p.fixAgeSec,
           rowing: { capsize: p.capsize, strokeRate: p.strokeRate ?? null },
         });
       }
@@ -145,13 +156,20 @@ export function mountApp(root: HTMLElement): void {
     }
   }
 
-  function markerIcon(p: MapPosition): L.DivIcon {
-    const fixAge = p.fixAgeSec;
+  function markerIcon(p: MapPosition, device?: FleetDevice): L.DivIcon {
+    const gpsAge = resolveGpsDisplayAge(device, p);
     const cap = Boolean(p.capsize);
-    const amber = !cap && fixAge != null && fixAge > 30 && fixAge <= 300;
-    const color = cap ? '#ef4444' : amber ? '#fbbf24' : '#38bdf8';
+    const state = gpsFixState(gpsAge);
+    const color = markerColorForState(state, cap);
+    const className = cap
+      ? 'coach-marker capsize'
+      : state === 'amber'
+        ? 'coach-marker amber'
+        : state === 'lost'
+          ? 'coach-marker lost'
+          : 'coach-marker';
     return L.divIcon({
-      className: cap ? 'coach-marker capsize' : amber ? 'coach-marker amber' : 'coach-marker',
+      className,
       html: `<span style="background:${color};width:14px;height:14px;border-radius:50%;display:block;border:2px solid #fff"></span>`,
       iconSize: [14, 14],
       iconAnchor: [7, 7],
@@ -171,12 +189,13 @@ export function mountApp(root: HTMLElement): void {
     if (!map || !markersLayer) return;
     const seen = new Set<string>();
     const latlngs: L.LatLng[] = [];
+    const deviceById = new Map(devices.map((d) => [d.deviceId, d]));
     for (const p of positions) {
       if (!Number.isFinite(p.latitude) || !Number.isFinite(p.longitude)) continue;
       seen.add(p.deviceId);
       const latlng = mapLatLngFor(p);
       latlngs.push(latlng);
-      const icon = markerIcon(p);
+      const icon = markerIcon(p, deviceById.get(p.deviceId));
       let m = markers.get(p.deviceId);
       if (m) {
         m.setLatLng(latlng);
@@ -206,15 +225,8 @@ export function mountApp(root: HTMLElement): void {
       d.rowing?.strokeRateValid && d.rowing.strokeRate != null
         ? `${Math.round(d.rowing.strokeRate)} spm`
         : '—';
-    const gpsAge = d.gpsAgeSec;
-    const gpsLabel =
-      gpsAge == null
-        ? 'GPS —'
-        : gpsAge <= 30
-          ? 'GPS live'
-          : gpsAge <= 300
-            ? `GPS ${gpsAge}s ago`
-            : 'GPS stale';
+    const gpsAge = d.gpsAgeSec ?? resolveGpsDisplayAge(d);
+    const gpsLabel = gpsAge == null ? 'GPS —' : gpsStatusLabel(gpsAge);
     return `<li class="device-card ${cap ? 'capsize' : ''}">
       <div class="device-card__id">${esc(d.deviceId)} ${cap ? '· CAPSIZE' : ''}</div>
       <div class="device-card__meta">${d.online ? 'Online' : 'Offline'} · ${gpsLabel} · ${spm} · seen ${d.lastSeenAgoSec ?? '—'}s ago</div>
