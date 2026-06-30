@@ -157,11 +157,13 @@ public class CoachMonitorService extends Service {
     }
 
     private void saveConfigFromIntent(Intent intent) {
+        String apiBaseUrl = intent.getStringExtra("apiBaseUrl");
+        String ingestToken = intent.getStringExtra("ingestToken");
         getSharedPreferences(PREFS, MODE_PRIVATE)
                 .edit()
                 .putBoolean("monitoringActive", true)
-                .putString("apiBaseUrl", intent.getStringExtra("apiBaseUrl", ""))
-                .putString("ingestToken", intent.getStringExtra("ingestToken", ""))
+                .putString("apiBaseUrl", apiBaseUrl != null ? apiBaseUrl : "")
+                .putString("ingestToken", ingestToken != null ? ingestToken : "")
                 .putLong(
                         "pollIntervalMs",
                         Math.max(2000L, intent.getLongExtra("pollIntervalMs", DEFAULT_POLL_MS)))
