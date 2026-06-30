@@ -735,10 +735,19 @@ async function getSession(sessionId) {
   return { sessionId, ...row };
 }
 
-function buildDeviceEntry(entry, windowMs, onlineMs, now, lastIngestMs) {
+/** Card/monitor age when fix timestamp lags behind upload (batch or clock skew). */
+function displayGpsAgeSec(fixAgeSec, ingestAgoSec) {
+  if (fixAgeSec == null) return null;
+  if (ingestAgoSec == null) return fixAgeSec;
+  if (fixAgeSec - ingestAgoSec > 20) return ingestAgoSec;
+  return fixAgeSec;
+}
+
+function buildDeviceEntry(entry, windowMs, onlineMs, now, registryTimes) {
   const stats = sensorStats(entry.samples, windowMs, entry.deviceId);
   const sampleLastSeenMs = entry.lastSeenMs ?? entry.updatedAt ?? now;
-  const lastSeenMs = Math.max(sampleLastSeenMs, lastIngestMs ?? 0);
+  const lastIngestMs = registryTimes?.lastSeenMs ?? 0;
+  const lastSeenMs = Math.max(sampleLastSeenMs, lastIngestMs);
   const online = now - lastSeenMs <= onlineMs;
   const hbMem = lastHeartbeatByDevice.get(entry.deviceId);
   const batFromSamples = latestBatteryFromSamples(entry.samples || []);
@@ -762,16 +771,26 @@ function buildDeviceEntry(entry, windowMs, onlineMs, now, lastIngestMs) {
         ageSec: Math.round((now - bat.t) / 1000),
       }
     : { pct: null, ageSec: null };
+  const fixAgeSec = stats.gps?.ageSec ?? null;
+  const gpsIngestAgoSec = registryTimes?.lastGpsIngestMs
+    ? Math.max(0, Math.round((now - registryTimes.lastGpsIngestMs) / 1000))
+    : null;
+  const gpsDisplayAgeSec = displayGpsAgeSec(fixAgeSec, gpsIngestAgoSec);
   return {
     deviceId: entry.deviceId,
     athleteId: entry.athleteId || null,
     sessionId: entry.sessionId,
     online,
     lastSeenMs,
-    lastSeenAgoSec: Math.round((now - lastSeenMs) / 1000),
+    lastSeenAgoSec: Math.max(0, Math.round((now - lastSeenMs) / 1000)),
     firstSeenMs: entry.firstSeenMs ?? entry.firstSeenAt ?? lastSeenMs,
     totalSamples: entry.samples.length,
     ...stats,
+    gps: {
+      ...stats.gps,
+      ingestAgoSec: gpsIngestAgoSec,
+      displayAgeSec: gpsDisplayAgeSec,
+    },
     heartbeat,
     battery,
   };
@@ -829,10 +848,10 @@ async function listDevices(opts = {}) {
   if (hasPostgres) {
     try {
       const fetchMs = Math.max(windowMs, 30 * 60 * 1000);
-      const [fromDb, registryGps, ingestTimes] = await Promise.all([
+      const [fromDb, registryGps, registryTimes] = await Promise.all([
         db.fetchRecentSamplesByDevice(fetchMs),
         db.getRegistryGpsByDevice(),
-        db.getDeviceIngestTimes(),
+        db.getDeviceRegistryTimes(),
       ]);
       for (const entry of fromDb.values()) {
         const built = buildDeviceEntry(
@@ -840,7 +859,7 @@ async function listDevices(opts = {}) {
           windowMs,
           onlineMs,
           now,
-          ingestTimes.get(entry.deviceId),
+          registryTimes.get(entry.deviceId),
         );
         const prev = byDevice.get(entry.deviceId);
         const patched = applyRegistryGpsToDevice(
@@ -876,7 +895,7 @@ async function listDevices(opts = {}) {
             windowMs,
             onlineMs,
             now,
-            ingestTimes.get(deviceId),
+            registryTimes.get(deviceId),
           ),
           regFix,
           now,

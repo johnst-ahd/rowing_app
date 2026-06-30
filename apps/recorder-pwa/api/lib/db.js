@@ -84,6 +84,7 @@ async function initSchema() {
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lat DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_lon DOUBLE PRECISION`;
   await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_accuracy DOUBLE PRECISION`;
+  await sql`ALTER TABLE rnz_devices ADD COLUMN IF NOT EXISTS last_gps_ingest_at TIMESTAMPTZ`;
   await sql`
     CREATE INDEX IF NOT EXISTS idx_rnz_samples_unique_time
       ON rnz_samples (unique_id, t_ms DESC)
@@ -294,7 +295,8 @@ async function updateDeviceLatestGps(uniqueId, samples) {
     SET last_gps_t_ms = ${best.t},
         last_lat = ${best.lat},
         last_lon = ${best.lon},
-        last_gps_accuracy = ${best.acc}
+        last_gps_accuracy = ${best.acc},
+        last_gps_ingest_at = NOW()
     WHERE unique_id = ${String(uniqueId)}
       AND (last_gps_t_ms IS NULL OR last_gps_t_ms <= ${best.t})
   `;
@@ -487,20 +489,36 @@ async function fetchRecentSamplesByDevice(windowMs) {
 }
 
 /**
+ * Server ingest times per device (telemetry + last GPS batch).
+ * @returns {Promise<Map<string, { lastSeenMs: number, lastGpsIngestMs: number|null }>>}
+ */
+async function getDeviceRegistryTimes() {
+  const sql = await getSql();
+  await initSchema();
+  const rows = await sql`
+    SELECT unique_id, last_seen_at, last_gps_ingest_at FROM rnz_devices
+  `;
+  const byDevice = new Map();
+  for (const row of rows.rows) {
+    byDevice.set(String(row.unique_id), {
+      lastSeenMs: new Date(row.last_seen_at).getTime(),
+      lastGpsIngestMs: row.last_gps_ingest_at
+        ? new Date(row.last_gps_ingest_at).getTime()
+        : null,
+    });
+  }
+  return byDevice;
+}
+
+/**
  * Server ingest time per device (updated on each persistBatch).
  * @returns {Promise<Map<string, number>>}
  */
 async function getDeviceIngestTimes() {
-  const sql = await getSql();
-  await initSchema();
-  const rows = await sql`
-    SELECT unique_id, last_seen_at FROM rnz_devices
-  `;
-  const byDevice = new Map();
-  for (const row of rows.rows) {
-    byDevice.set(String(row.unique_id), new Date(row.last_seen_at).getTime());
-  }
-  return byDevice;
+  const registry = await getDeviceRegistryTimes();
+  return new Map(
+    [...registry.entries()].map(([id, row]) => [id, row.lastSeenMs]),
+  );
 }
 
 /**
@@ -1202,6 +1220,7 @@ module.exports = {
   persistBatch,
   fetchRecentSamplesByDevice,
   getDeviceIngestTimes,
+  getDeviceRegistryTimes,
   getMapPositions,
   getRegistryMapPositions,
   getRegistryGpsByDevice,

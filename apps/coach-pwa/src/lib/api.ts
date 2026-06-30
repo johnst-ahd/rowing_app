@@ -4,7 +4,7 @@ export type FleetDevice = {
   deviceId: string;
   online?: boolean;
   lastSeenAgoSec?: number;
-  gps?: { ageSec?: number | null; present?: boolean };
+  gps?: { ageSec?: number | null; present?: boolean; displayAgeSec?: number | null; ingestAgoSec?: number | null };
   /** Resolved GPS fix age (map + API). */
   gpsAgeSec?: number;
   rowing?: {

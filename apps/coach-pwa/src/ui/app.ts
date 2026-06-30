@@ -77,7 +77,8 @@ export function mountApp(root: HTMLElement): void {
       const p = mapById.get(d.deviceId);
       byId.set(d.deviceId, {
         ...d,
-        gpsAgeSec: p?.fixAgeSec ?? d.gps?.ageSec ?? undefined,
+        gpsAgeSec:
+          d.gps?.displayAgeSec ?? p?.fixAgeSec ?? d.gps?.ageSec ?? undefined,
       });
     }
     for (const p of mapPositions) {

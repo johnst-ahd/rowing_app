@@ -565,12 +565,18 @@ function maybeAutoFitMap(latlngs) {
 }
 
 /** @returns {'live' | 'amber' | 'lost'} */
-function gpsFixState(fixAgeSec) {
-  const age = Number(fixAgeSec);
+function gpsFixState(fixAgeSec, gps) {
+  const age = Number(
+    gps?.displayAgeSec ?? gps?.ingestAgoSec ?? fixAgeSec,
+  );
   if (!Number.isFinite(age)) return 'lost';
   if (age <= GPS_LIVE_SEC) return 'live';
   if (age <= GPS_STALE_SEC) return 'amber';
   return 'lost';
+}
+
+function gpsDisplayAge(gps) {
+  return gps?.displayAgeSec ?? gps?.ageSec ?? null;
 }
 
 function gpsStatusLabel(state) {
@@ -914,7 +920,7 @@ function renderDevice(d) {
   const rowing = d.rowing || {};
   const gpsState = rowing.capsize
     ? 'capsize'
-    : gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec);
+    : gpsFixState(d.gps?.ageSec ?? d.lastSeenAgoSec, d.gps);
   const collapsed = isDeviceCollapsed(d);
   card.className = `device-card device-card--${gpsState}${collapsed ? ' device-card--collapsed' : ''}`;
   card.dataset.deviceId = d.deviceId;
@@ -1000,7 +1006,7 @@ function renderDevice(d) {
         <span>Total samples <strong>${d.totalSamples}</strong></span>
         <span>Last seen <strong>${d.lastSeenAgoSec}s ago</strong></span>
       </div>
-      ${coords ? `<div class="coords">${coords}${gps.ageSec != null ? ` · GPS ${gps.ageSec}s ago` : ''}</div>` : ''}
+      ${coords ? `<div class="coords">${coords}${gpsDisplayAge(gps) != null ? ` · GPS ${gpsDisplayAge(gps)}s ago${gps.ingestAgoSec != null && gps.ageSec != null && gps.ageSec - gps.ingestAgoSec > 20 ? ` (fix ${gps.ageSec}s on device)` : ''}` : ''}</div>` : ''}
       ${
         regattaMsg
           ? `<div class="regatta-device-msg" title="Active regatta control message"><span class="regatta-device-msg__label">Regatta</span> ${esc(regattaMsg.text)}</div>`
