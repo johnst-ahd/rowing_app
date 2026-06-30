@@ -5,7 +5,7 @@ import { HistoryPanel } from './history-panel';
 import { drawMultiSeriesChart } from '../lib/history-charts';
 import {
   clearLiveSpeedBuffers,
-  liveSpeedVsDistanceSeries,
+  liveSpeedVsTimeSeries,
   recordLiveSpeedSamples,
 } from '../lib/live-speed-buffer';
 import { colorForDevice } from '../lib/history-track';
@@ -312,10 +312,10 @@ export function mountApp(root: HTMLElement): void {
   function updateLiveChart(activeIds: string[]): void {
     const canvas = root.querySelector('[data-live-speed-chart]') as HTMLCanvasElement | null;
     if (!canvas) return;
-    const series = liveSpeedVsDistanceSeries(activeIds);
+    const series = liveSpeedVsTimeSeries(activeIds);
     drawMultiSeriesChart(canvas, series, {
-      title: 'Speed vs distance (last 5 min)',
-      xLabel: 'metres',
+      title: 'Speed vs time (last 5 min)',
+      xLabel: 'seconds',
       yLabel: 'km/h',
       yFormat: (v) => `${v.toFixed(0)}`,
     });

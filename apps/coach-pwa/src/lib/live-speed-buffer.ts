@@ -7,9 +7,6 @@ const WINDOW_MS = 5 * 60 * 1000;
 type LivePoint = {
   t: number;
   speedMps: number;
-  lat: number;
-  lon: number;
-  cumDistM: number;
 };
 
 type DeviceBuffer = {
@@ -18,17 +15,6 @@ type DeviceBuffer = {
 
 const buffers = new Map<string, DeviceBuffer>();
 const deviceOrder = new Map<string, number>();
-
-function haversineM(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
-}
 
 function prune(buf: DeviceBuffer, now: number): void {
   const cutoff = now - WINDOW_MS;
@@ -57,23 +43,13 @@ export function recordLiveSpeedSamples(positions: MapPosition[]): void {
     }
 
     const prev = buf.points[buf.points.length - 1];
-    let cumDistM = prev?.cumDistM ?? 0;
-    if (prev && t > prev.t) {
-      cumDistM += haversineM(prev.lat, prev.lon, p.latitude, p.longitude);
-    }
 
     if (prev && Math.abs(t - prev.t) < 400 && Math.abs(speed - prev.speedMps) < 0.05) {
       prune(buf, now);
       continue;
     }
 
-    buf.points.push({
-      t,
-      speedMps: speed,
-      lat: p.latitude,
-      lon: p.longitude,
-      cumDistM: cumDistM,
-    });
+    buf.points.push({ t, speedMps: speed });
     prune(buf, now);
   }
 
@@ -86,18 +62,18 @@ export function recordLiveSpeedSamples(positions: MapPosition[]): void {
   }
 }
 
-export function liveSpeedVsDistanceSeries(activeDeviceIds: string[]): ChartSeries[] {
+export function liveSpeedVsTimeSeries(activeDeviceIds: string[]): ChartSeries[] {
   const ids = activeDeviceIds.filter((id) => (buffers.get(id)?.points.length ?? 0) >= 2);
   return ids.map((id, i) => {
     const pts = buffers.get(id)!.points;
-    const baseDist = pts[0].cumDistM;
+    const t0 = pts[0].t;
     const order = deviceOrder.get(id) ?? i;
     return {
       id,
       label: id,
       color: colorForDevice(order),
       points: pts.map((p) => ({
-        x: Math.max(0, p.cumDistM - baseDist),
+        x: (p.t - t0) / 1000,
         y: p.speedMps * 3.6,
       })),
     };
