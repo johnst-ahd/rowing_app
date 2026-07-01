@@ -12,6 +12,7 @@
   --ahd-danger: #f87171;
   --cs-teal: #0d9488;
   --cs-gold: #fbbf24;
+  --cs-logo-bg: #0a1628;
 }
 
 .hub-page {
@@ -115,6 +116,34 @@
 
 .hub-crewsight-logo--recorder {
   width: min(200px, 58vw);
+}
+
+.hub-topbar--crewsight {
+  background-color: var(--cs-logo-bg);
+  background-image: none;
+  padding: 6px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid rgba(0, 229, 255, 0.18);
+}
+
+.hub-topbar--crewsight::after {
+  display: none;
+}
+
+.hub-topbar--crewsight .hub-topbar-inner {
+  gap: 0;
+}
+
+.hub-topbar--crewsight .hub-topbar-brands {
+  gap: 0;
+  line-height: 0;
+}
+
+.hub-crewsight-logo--header {
+  display: block;
+  width: auto;
+  height: clamp(44px, 9vw, 56px);
+  max-width: min(360px, 92vw);
+  object-fit: contain;
 }
 
 .hub-tagline {
