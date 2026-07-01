@@ -121,7 +121,7 @@
 .hub-topbar--crewsight {
   background-color: var(--cs-logo-bg);
   background-image: none;
-  padding: 6px clamp(16px, 4vw, 48px);
+  padding: clamp(10px, 2vw, 16px) clamp(16px, 4vw, 48px);
   border-bottom: 1px solid rgba(0, 229, 255, 0.18);
 }
 
@@ -141,8 +141,8 @@
 .hub-crewsight-logo--header {
   display: block;
   width: auto;
-  height: clamp(44px, 9vw, 56px);
-  max-width: min(360px, 92vw);
+  height: clamp(220px, 45vw, 280px);
+  max-width: min(1800px, 92vw);
   object-fit: contain;
 }
 
