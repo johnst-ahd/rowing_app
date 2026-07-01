@@ -1,4 +1,5 @@
 import type { HistoryPoint } from './api';
+import { smoothChartSeriesByTime } from './chart-smooth';
 
 export const DEVICE_COLORS = [
   '#38bdf8',
@@ -166,29 +167,47 @@ export function computeDeviceStats(tracks: DeviceTrack[], sel: HistorySelection)
 
 export function speedVsTimeSeries(tracks: DeviceTrack[], sel: HistorySelection): ChartSeries[] {
   const filtered = filterTracks(tracks, sel);
-  return filtered.map((track) => ({
-    id: track.deviceId,
-    label: track.deviceId,
-    color: track.color,
-    points: track.points
+  return filtered.map((track) => {
+    const raw = track.points
       .filter((p) => p.speed != null)
-      .map((p) => ({ x: (p.t - sel.t0) / 1000, y: p.speed! * 3.6 })),
-  }));
+      .map((p) => ({ x: (p.t - sel.t0) / 1000, y: p.speed! * 3.6 }));
+    const points = smoothChartSeriesByTime(
+      raw,
+      sel.t0,
+      (y) => y / 3.6,
+      (v) => v * 3.6,
+    );
+    return {
+      id: track.deviceId,
+      label: track.deviceId,
+      color: track.color,
+      points,
+    };
+  });
 }
 
 export function speedVsDistanceSeries(tracks: DeviceTrack[], sel: HistorySelection): ChartSeries[] {
   const filtered = filterTracks(tracks, sel);
-  return filtered.map((track) => ({
-    id: track.deviceId,
-    label: track.deviceId,
-    color: track.color,
-    points: track.points
-      .filter((p) => p.speed != null)
-      .map((p) => ({
-        x: p.cumDistM - (sel.distanceMode ? sel.distStartM : track.points[0]?.cumDistM ?? 0),
-        y: p.speed! * 3.6,
+  return filtered.map((track) => {
+    const withTime = track.points.filter((p) => p.speed != null);
+    const dist0 = sel.distanceMode ? sel.distStartM : track.points[0]?.cumDistM ?? 0;
+    const t0 = withTime[0]?.t ?? sel.t0;
+    const smoothed = smoothChartSeriesByTime(
+      withTime.map((p) => ({ x: (p.t - t0) / 1000, y: p.speed! * 3.6 })),
+      t0,
+      (y) => y / 3.6,
+      (v) => v * 3.6,
+    );
+    return {
+      id: track.deviceId,
+      label: track.deviceId,
+      color: track.color,
+      points: withTime.map((p, i) => ({
+        x: p.cumDistM - dist0,
+        y: smoothed[i]?.y ?? p.speed! * 3.6,
       })),
-  }));
+    };
+  });
 }
 
 export function strokeRateSeries(tracks: DeviceTrack[], sel: HistorySelection): ChartSeries[] {

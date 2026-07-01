@@ -1,5 +1,6 @@
 import type { MapPosition } from './api';
 import { resolveSpeedMps } from './map-smooth';
+import { smoothSpeedTimeSeries } from './chart-smooth';
 import { colorForDevice, type ChartSeries } from './history-track';
 
 const WINDOW_MS = 5 * 60 * 1000;
@@ -68,13 +69,16 @@ export function liveSpeedVsTimeSeries(activeDeviceIds: string[]): ChartSeries[] 
     const pts = buffers.get(id)!.points;
     const t0 = pts[0].t;
     const order = deviceOrder.get(id) ?? i;
+    const smoothed = smoothSpeedTimeSeries(
+      pts.map((p) => ({ tMs: p.t, value: p.speedMps })),
+    );
     return {
       id,
       label: id,
       color: colorForDevice(order),
-      points: pts.map((p) => ({
-        x: (p.t - t0) / 1000,
-        y: p.speedMps * 3.6,
+      points: smoothed.map((p) => ({
+        x: (p.tMs - t0) / 1000,
+        y: p.value * 3.6,
       })),
     };
   });

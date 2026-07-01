@@ -123,6 +123,7 @@ export function drawMultiSeriesChart(
     ctx.strokeStyle = s.color;
     ctx.lineWidth = 2.25;
     ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
     ctx.stroke();
 
     ctx.lineTo(sx(s.points[s.points.length - 1].x), padT + plotH);
