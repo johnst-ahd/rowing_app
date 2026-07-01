@@ -43,6 +43,14 @@
       <span class="hub-stats-item" id="capsizeSummary">Capsize: —</span>
     </div>
 
+    <nav class="dashboard-quick-nav" aria-label="Dashboard sections">
+      <button type="button" class="dashboard-quick-nav__btn dashboard-quick-nav__btn--active" data-section-jump="map">Fleet map</button>
+      <button type="button" class="dashboard-quick-nav__btn" data-section-jump="devices">Devices</button>
+      <button type="button" class="dashboard-quick-nav__btn" data-section-jump="history">History</button>
+      <button type="button" class="dashboard-quick-nav__btn" data-section-jump="geofences">Geofences</button>
+      <button type="button" class="dashboard-quick-nav__btn" data-section-jump="settings">Settings</button>
+    </nav>
+
     <div class="ahd-app-wrap">
       <div class="capsize-alert-bar" id="capsizeAlertBar" hidden role="alert" aria-hidden="true">
         <div class="capsize-alert-bar__main">
@@ -54,6 +62,7 @@
         </button>
       </div>
 
+      <div class="dashboard-layout-primary">
       <section class="hub-panel hub-panel--map dashboard-section dashboard-section--open" data-section-id="map" data-default-open="true">
         <div class="dashboard-section__head">
           <button type="button" class="dashboard-section__toggle" aria-expanded="true" aria-controls="section-body-map">
@@ -103,6 +112,7 @@
           <div class="devices-grid" id="devicesGrid"></div>
         </div>
       </section>
+      </div>
 
       <section class="hub-panel hub-panel--regatta dashboard-section" data-section-id="regatta" data-default-open="false" id="regattaPanel">
         <div class="dashboard-section__head">
@@ -544,6 +554,10 @@
     <footer class="ahd-footer">
       CrewSight Manager ·
       <a href="/">CrewSight app</a>
+      ·
+      <a href="/install-native.html">Install APK</a>
+      ·
+      <a href="/test.html">Connection test</a>
     </footer>
 
     <script

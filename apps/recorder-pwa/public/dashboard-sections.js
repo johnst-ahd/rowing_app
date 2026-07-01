@@ -119,7 +119,34 @@
   window.dashboardInitSections = function () {
     initSections();
     initMapFullscreen();
+    initQuickNav();
   };
+
+  function openSectionById(id, scroll = true) {
+    const section = document.querySelector(`.dashboard-section[data-section-id="${id}"]`);
+    if (!section) return;
+    setSectionOpen(section, true);
+    document.querySelectorAll('.dashboard-quick-nav__btn').forEach((btn) => {
+      btn.classList.toggle(
+        'dashboard-quick-nav__btn--active',
+        btn.getAttribute('data-section-jump') === id,
+      );
+    });
+    if (scroll) {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }
+
+  function initQuickNav() {
+    document.querySelectorAll('[data-section-jump]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-section-jump');
+        if (id) openSectionById(id);
+      });
+    });
+  }
+
+  window.dashboardOpenSection = openSectionById;
 
   window.dashboardInvalidateMap = invalidateMap;
 })();

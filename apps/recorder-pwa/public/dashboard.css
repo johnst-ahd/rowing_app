@@ -1230,6 +1230,28 @@
 }
 
 /* Collapsible dashboard sections */
+.dashboard-layout-primary {
+  display: grid;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+@media (min-width: 1100px) {
+  .dashboard-layout-primary {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+    align-items: start;
+  }
+
+  .dashboard-layout-primary .hub-panel--map,
+  .dashboard-layout-primary .dashboard-section[data-section-id='devices'] {
+    margin-bottom: 0;
+  }
+
+  .dashboard-layout-primary .hub-panel--map.dashboard-section--open .fleet-map {
+    height: min(520px, 62vh);
+  }
+}
+
 .dashboard-section__head {
   display: flex;
   flex-wrap: wrap;
